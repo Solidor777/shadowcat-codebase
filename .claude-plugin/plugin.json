@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "shadowcat-codebase",
+  "version": "1.0.69",
+  "description": "Shadowcat codebase orientation skills (shadowcat-codebase-*), the coder/reviewer agent set, and the codebase-skill routing hook, for engine and downstream-module development.",
+  "author": {
+    "name": "Solidor777",
+    "email": "emperorfluffyxd@gmail.com"
+  },
+  "skills": [
+    "./skills"
+  ]
+}
