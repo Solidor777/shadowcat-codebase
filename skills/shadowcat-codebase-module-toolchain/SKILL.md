@@ -108,10 +108,11 @@ dependency trees — and the ephemeral-reference gate scopes itself the same way
 tree is a root and a nested module checkout lives under it, so this repo's suppression ban and
 ephemeral-reference ban apply to the nested repository's SOURCE and the comments in it, and fail
 here even though that repository has its own lint config or none. Its Markdown is not gated: the
-ephemeral-reference gate's prose corpus is `MD_ROOTS`, which names the skills directory alone; out
-of `ROOTS` it reads only the code extensions `EXTS` lists. Nesting is a dev convenience with no entry
-in either gate's skip set: unnest before running the gates, or expect the nested contents to be
-judged by them.
+ephemeral-reference gate's prose corpus is the standalone `shadowcat-codebase` skills checkout
+(`defaultSkillsRoot()`, outside this repo entirely since the plugin migration), never anything
+under a nested module checkout; out of `ROOTS` it reads only the code extensions `EXTS` lists.
+Nesting is a dev convenience with no entry in either gate's skip set: unnest before running the
+gates, or expect the nested contents to be judged by them.
 **The documentation build sits inside the same perimeter, by a different mechanism.**
 `entryPoints` includes the client-module glob, and the
 root `exclude` is consulted while the packages strategy EXPANDS that glob: an excluded directory is
