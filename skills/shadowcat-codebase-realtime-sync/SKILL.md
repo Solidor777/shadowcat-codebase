@@ -28,26 +28,39 @@ optimistically and roll back on divergence.
     `publish`; PRECONDITION: caller MUST already hold `publish_guard`. Non-reentrant — do NOT
     re-acquire `publish_guard` inside (tokio `Mutex` would deadlock). Both `publish` and
     `execute_move` call this as their commit step.
-  - `Room::execute_move(repo, ctx, scene_id, token, path, ts)` — server-authoritative token move.
-    **`scene_id` IS NOT TRUSTED and selects nothing.** The gate's scene is DERIVED from the token
-    via `SceneEcs::token_move(token, &[])`, and every gate input keys on that; the request's
-    `scene_id` is only checked for agreement and refused on mismatch (redundant defense-in-depth).
-    Taking it as input is a total bypass of the wall + visibility gate with authorization fully
-    intact, so any NEW move-like or routing frame added here must derive the same way. A frame naming no token (`Pathfind`) must instead prove presence. Full invariant +
+  - `Room::execute_move(repo, ctx, req: MoveRequestInputs)` — server-authoritative token move.
+    `MoveRequestInputs` groups `scene_id`/`token`/`path`/`ts`/`request_id` (avoiding a
+    >7-argument signature). **`scene_id` IS NOT TRUSTED and selects nothing.** The gate's scene is
+    DERIVED from the token via `SceneEcs::token_move(token, &[])`, and every gate input keys on
+    that; the request's `scene_id` is only checked for agreement and refused on mismatch (redundant
+    defense-in-depth). Taking it as input is a total bypass of the wall + visibility gate with
+    authorization fully intact, so any NEW move-like or routing frame added here must derive the
+    same way. A frame naming no token (`Pathfind`) must instead prove presence. Full invariant +
     the failure it prevents: `shadowcat-codebase-scene-rendering`, the derive-from-token INVARIANT.
     Acquires `publish_guard` at the TOP and HOLDS it across the entire validate→commit critical
     section (mirrors `publish` atomicity). Scene read locks are scoped and dropped before the
     `get_explored().await` (no lock across await); `publish_guard` (tokio `Mutex`) is intentionally
     held across awaits. Calls `move_exec::execute_move` (pure, lock-free), then `commit_ops_locked`
     (single acquisition, no re-entry). Atomic single position write (`/system/x` + `/system/y`
-    OCC pre-image ops). Returns `MoveExecution { scene, stop, render_path, duration_ms, samples,
-    mover_vision, cost }` —
-    `scene` is the DERIVED scene, and it is what `MoveStream.scene` is stamped from, so the
+    OCC pre-image ops). Returns `MoveExecution { frame, .. }` — production code reads only `frame`
+    (the full unclipped `Arc<ServerMsg::MoveStream>`, already registered in `moving`); the other
+    fields (`scene`, `stop`, `duration_ms`, `mover_vision`) restate a subset of `frame`'s content
+    and are compiled only for test builds. `frame.scene` is the DERIVED scene, and it is what the
     per-recipient egress clip and the client's viewed-scene filter cannot key on a client value.
-  - `moving: Mutex<HashMap<Uuid, i64>>` — per-token moving lock: token → move-end epoch-ms. Lazy
-    expiry (no timer); absent or expired entry allows the move. Updated after each successful commit
-    (still inside `publish_guard`). In-memory only — cleared on server restart (move state is derived,
-    not durable).
+  - `moving: Mutex<HashMap<Uuid, ActiveStream>>` — per-token in-flight registry doubling as the
+    moving lock: token → `ActiveStream { mover, scene, end_ms, frame }` (`frame` is the full
+    unclipped `Arc<ServerMsg::MoveStream>`, not merely an epoch-ms value). Lazy expiry (no timer);
+    absent or expired (`now >= end_ms`) entry allows the move. Updated by a direct `moving.insert`
+    inside `execute_move`, still under `publish_guard`, after each successful commit; the caller
+    (`handle_move_request`) separately broadcasts `exec.frame` to the room via
+    `Room::broadcast_aux_shared` — the registry write and the broadcast are two distinct actions on
+    the same frame, not one call. In-memory only — cleared on server restart (move state is
+    derived, not durable). Also backs `Room::mover_streams(mover, scene, now)` /
+    `Room::concurrent_streams(scene, exclude_mover, now)`, which read `ActiveStream.frame` as the
+    mover's vision TIMELINE so the egress clip (`ws::move_clip`) can clip a concurrent move against
+    the recipient's own in-flight sightline, not just their committed vision — see
+    `shadowcat-codebase-scene-rendering`'s streamed-vision bullet for the full clip + re-emit
+    mechanism.
   - `Room::establish_resync_floor(user_id)` / `Room::resync_floor(user_id)` — the per-user resync
     floor: `session_floors: Mutex<HashMap<Uuid, i64>>`, same in-memory/room-lifetime pattern as
     `moving`. `establish_resync_floor` is called from `ws::conn`'s `ClientMsg::Hello { last_seq:

@@ -1058,13 +1058,29 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   has no fog to sweep anyway). **Scope of the leak-free claim:** "strictly leak-free" covers the
   IN-FLIGHT path only; RESTING token positions still ride the position `Event` + client-side fog
   model (delivered to all scene readers, fogged client-side per `fog-is-the-secrecy-gate-fail-closed`)
-  — this does not change that. **Known v1 limitation (by design, not a bug):** each move's
-  per-recipient clip is computed once at ITS execute time against the recipient's then-current
-  vision; two tokens moving simultaneously do not reveal each other mid-walk if a watcher's vision
-  opens after the clip — reconciles at the stop + the next `vision` rebroadcast. Live
-  cross-animation concurrency is not currently implemented — it would need a per-move server loop. Client
-  computes NO vision in any of this — it renders only the streamed,
-  already-clipped polygons.
+  — this does not change that. **Concurrent-move clip, against the recipient's OWN in-flight
+  vision timeline, not just their committed vision.** `ws::conn::clip_move_stream` resolves the
+  clip target's in-flight streams via `Room::mover_streams` and clips each sample of the OTHER
+  token's `MoveStream` per-sample-instant against `ws::move_clip::timeline_polys_at` (falling back
+  to committed vision — `player_vision_polygons` — while the target has no active stream): a
+  sample is admitted only if it lies inside the union of the target's chosen vision sample
+  (`ws::move_clip::chosen_vision_sample`) at that sample's absolute server time. **Re-emit on
+  own-move:** when the clip target's own move starts (their vision timeline just came into
+  existence), `egress_loop`'s `MoveStream` branch re-clips and re-sends every OTHER in-flight
+  stream in the scene via `Room::concurrent_streams`, under its original `token_id` (the client
+  overwrites keyed playback in place, per `TokenAnimator.animateSamples`'s replace-in-place
+  contract) — this is what reveals a third-party mover the instant the recipient's OWN sightline
+  opens mid-walk, rather than only at the mover's stop. **Client parity, mechanically pinned:**
+  `chosen_vision_sample`'s rule (greatest `t_ms <= elapsed`, first sample when none precedes) must
+  match the client's `chooseVisionSample` (`fog-blend.ts`) exactly, or a sample admitted
+  server-side would not be the one the client's sweeping fog shows; both sides assert against the
+  shared fixture `src/client/render/src/__fixtures__/chosen-vision-sample.json`. **Known v1
+  limitation, now narrower (by design, not a bug):** a THIRD PARTY's moving LIGHT SOURCE opening a
+  sightline mid-walk still reveals its mover only at that mover's stop — the light-carrying move's
+  own vision would need to be recomputed per sample, which this clip does not do (it clips against
+  the RECIPIENT's own vision timelines, never a third party's); reconciles at the stop + the next
+  `vision` rebroadcast, same as before. Client computes NO vision in any of this — it renders only
+  the streamed, already-clipped polygons.
 - **Region secrecy is a two-value contract on `region_field`, never a third mode.**
   `region_field(scene, None)` = authoritative (GM + `move_exec`); `region_field(scene, Some(user))`
   = per-requester (the router only). Callers must never pass `Some(gm_user)`. By construction the
