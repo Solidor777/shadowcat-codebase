@@ -41,11 +41,13 @@ optimistically and roll back on divergence.
     section (mirrors `publish` atomicity). Scene read locks are scoped and dropped before the
     `get_explored().await` (no lock across await); `publish_guard` (tokio `Mutex`) is intentionally
     held across awaits. Calls `move_exec::execute_move` (pure, lock-free), then `commit_ops_locked`
-    (single acquisition, no re-entry). Atomic single position write (`/system/x` + `/system/y`
+    (single acquisition, no re-entry). Atomic single position write (`/engine/x` + `/engine/y`
     OCC pre-image ops). Returns `MoveExecution { frame, .. }` — production code reads only `frame`
     (the full unclipped `Arc<ServerMsg::MoveStream>`, already registered in `moving`); the other
-    fields (`scene`, `stop`, `duration_ms`, `mover_vision`) restate a subset of `frame`'s content
-    and are compiled only for test builds. `MoveStream.scene` — the field `frame` wraps — is the
+    fields (`scene`, `stop`, `duration_ms`) restate a subset of `frame`'s content and are compiled
+    only for test builds — `mover_vision` is NOT one of them: it lives solely on
+    `frame`'s `ServerMsg::MoveStream` variant, and a test reads it by pattern-matching `frame`
+    rather than through a dedicated `MoveExecution` field. `MoveStream.scene` — the field `frame` wraps — is the
     DERIVED scene the per-recipient egress clip and the client's viewed-scene filter key on,
     never a client-supplied value.
   - `moving: Mutex<HashMap<Uuid, ActiveStream>>` — per-token in-flight registry doubling as the
@@ -334,16 +336,19 @@ optimistically and roll back on divergence.
   scene existence to a non-reader. Rate-limited independently (30/min/user via `ping_rate`,
   checked BEFORE the authz lookup so an over-budget sender never pays a doc read).
 - **MoveRequest → MoveStream (broadcast):** `MoveStream` is an **aux broadcast frame** — sent
-  via `Room::broadcast_aux` like `ScenePing`, carrying NO seq number (it is cosmetic playback data,
-  not an authoritative document event; it never touches the `RingBuffer`/gap-resync path).
-  `MoveRequest` is still a one-shot correlated pair for the mover's promise (resolves on the
+  via `Room::broadcast_aux_shared` like `ScenePing`, carrying NO seq number (it is cosmetic
+  playback data, not an authoritative document event; it never touches the `RingBuffer`/gap-resync
+  path). `MoveRequest` is still a one-shot correlated pair for the mover's promise (resolves on the
   matching `move_stream` frame via `pending` map), but `MoveStream` is broadcast to ALL scene
   viewers, not just the mover — the **per-recipient egress transform** (mover full incl.
   `moverVision`; observer clipped to their own visible samples with `moverVision: null`; suppressed
   entirely — zero frames — when the recipient's vision admits none of the move) is where the
   leak-free secrecy boundary lives (`egress_loop`'s dedicated `MoveStream` branch, detailed in
   `shadowcat-codebase-scene-rendering`). `MoveError` remains mover-only, always generic (no path
-  geometry / vision state disclosed — no-geometry-leak invariant).
+  geometry / vision state disclosed — no-geometry-leak invariant). The egress loop may
+  additionally re-send a `MoveStream` to a single connection (never a broadcast) when that
+  connection's own move starts, re-clipping every other in-flight stream in the scene against the
+  newly-started timeline (`shadowcat-codebase-scene-rendering` covers this re-emit path in full).
   `handle_move_request` dispatches `Room::execute_move`, then broadcasts `MoveStream` to the scene.
   Client animation is driven by `TokenAnimator.animateSamples` (time-tagged playback, catch-up on
   late arrival, gap/occlusion detection: gap threshold = `minConsecutiveDelta × 1.5` where

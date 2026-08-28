@@ -337,31 +337,47 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   the mover's per-move raycast count. `MAX_VISION_POLYGON_VERTS` (512) caps each `VisionSamplePt`
   polygon's vertex count (fail-closed truncation — under-reveal, never over-reveal).
   `Room::execute_move` calls `sample_path` then, for each sample, `player_vision_inputs` (once) +
-  `VisionMoveInputs::polygons_at` (per sample) to fill `MoveExecution.mover_vision` (`None` for a
-  GM mover — `Unrestricted` sees all, nothing to sweep).
+  `VisionMoveInputs::polygons_at` (per sample) to fill the wire frame's
+  `ServerMsg::MoveStream.mover_vision` (`None` for a GM mover — `Unrestricted` sees all, nothing to
+  sweep).
 - `ws::conn` — **the per-recipient egress clip is the secrecy boundary** for
-  `MoveStream`. `handle_move_request` broadcasts the FULL (unclipped) `MoveStream` via
-  `room.broadcast_aux` — the full trajectory lives only in-process. `egress_loop`'s dedicated
-  `MoveStream` branch (`clip_move_stream` + `observer_vision_polys_for_scene`) runs BEFORE the sink
-  write, per connection, in four branches: the mover gets `samples` + `mover_vision` unchanged
-  (keyed on the REAL connection `user_id`, never a see-as target — a GM previewing as someone else
-  is not "the mover" unless the GM's own token is what moves); a plain GM (no active see-as) gets
-  the FULL `samples` unclipped (GMs bypass position secrecy) but `mover_vision` forced to `None` (a
-  GM has no fog to sweep); a GM with an active see-as (`SceneSubscribe`-set `egress_loop::scene_subs` target)
-  gets `samples` clipped to the see-as TARGET's own authoritative vision
-  (`observer_vision_polys_for_scene(target.user_id, scene, room)`) instead of the plain-GM full
-  stream — an empty result (target has no vision source in this move's scene) falls back to the
-  full GM stream rather than clipping to nothing, since the see-as doesn't apply there; every other
-  (non-GM, non-mover) recipient gets `samples` clipped to those whose `pos` falls inside the
-  recipient's OWN authoritative vision polygons (`point_in_poly`, recomputed off the current ECS
-  read — never a stale cache; the ECS guard drops before any await) with `mover_vision` also forced
-  to `None`; a wholly-invisible move (empty clip) is **not sent at all** (suppressed, not an
-  empty-`samples` frame — asserted by a dedicated test). The see-as branch can only NARROW what a
-  GM receives relative to the plain-GM fallthrough, never widen a non-GM recipient's own view (see-
-  as is GM-only, gated by `SceneSubscribe`'s `as_user` handler). `send_plain` intentionally
-  panics if a `MoveStream` reaches it — the clip MUST happen in the dedicated `egress_loop` branch,
-  never the generic per-recipient filter path. `MoveError` stays mover-only via `handle_socket::etx`, generic (no
-  path/vision geometry disclosed).
+  `MoveStream`. `Room::execute_move` builds the full (unclipped) `MoveStream` frame itself (via the
+  module-private `wire_move_stream`) and registers it in the room's in-flight registry
+  (`Room::mover_streams`/`Room::concurrent_streams` read this registry, pruning expired entries on
+  every read); `handle_move_request` broadcasts that frame with `Room::broadcast_aux_shared` — the
+  full trajectory lives only in-process. `egress_loop`'s dedicated `MoveStream` branch
+  (`clip_move_stream`, which delegates the per-sample decision to `ws::move_clip::clip_samples`)
+  runs BEFORE the sink write, per connection, in four branches: the mover gets `samples` +
+  `mover_vision` unchanged (keyed on the REAL connection `user_id`, never a see-as target — a GM
+  previewing as someone else is not "the mover" unless the GM's own token is what moves); a plain
+  GM (no active see-as) gets the FULL `samples` unclipped (GMs bypass position secrecy) but
+  `mover_vision` forced to `None` (a GM has no fog to sweep); a GM with an active see-as
+  (`SceneSubscribe`-set `egress_loop::scene_subs` target) gets `samples` clipped to the see-as
+  TARGET's own authoritative vision (`observer_vision_polys_for_scene(target.user_id, scene,
+  room)` plus the target's in-flight timelines via `Room::mover_streams`) instead of the plain-GM
+  full stream — the see-as does not apply, falling back to the full GM stream, only when BOTH the
+  target's committed vision polygons AND their `mover_vision`-filtered in-flight timeline set are
+  empty (never the raw `Room::mover_streams` result, which can be non-empty while carrying nothing
+  usable — e.g. a registered GM mover's own move, whose frame always carries `mover_vision: None`);
+  every other (non-GM, non-mover) recipient gets `samples` clipped by `ws::move_clip::clip_samples`
+  against those whose `pos` falls inside the recipient's OWN authoritative vision at that sample's
+  instant — their committed vision polygons (recomputed off the current ECS read — never a stale
+  cache; the ECS guard drops before any await) unioned with their own in-flight
+  `mover_vision`-timeline sweep when one is active — with `mover_vision` also forced to `None`; a
+  wholly-invisible move (empty clip) is **not sent at all** (suppressed, not an empty-`samples`
+  frame — asserted by a dedicated test). The see-as branch can only NARROW what a GM receives
+  relative to the plain-GM fallthrough, never widen a non-GM recipient's own view (see-as is
+  GM-only, gated by `SceneSubscribe`'s `as_user` handler). `send_plain` intentionally panics if a
+  `MoveStream` reaches it — the clip MUST happen in the dedicated `egress_loop` branch, never the
+  generic per-recipient filter path. **A second, per-connection (never broadcast) delivery path:**
+  when the triggering frame's own `mover_vision` is `Some(_)` and its mover equals this
+  connection's own clip target (the real `user_id`, or the see-as target for a GM), `egress_loop`
+  also re-clips every OTHER unexpired stream in the same scene (`Room::concurrent_streams`,
+  excluding streams by that same mover) against the just-changed timeline and re-sends each one —
+  under its original `request_id` — to this connection only; a zero-progress move (never
+  registered in `Room::mover_streams`) or a GM mover's own move (`mover_vision: None`) cannot
+  populate a usable timeline and is excluded from triggering this path. `MoveError` stays
+  mover-only via `handle_socket::etx`, generic (no path/vision geometry disclosed).
 - `scene::explored` — `ExploredSet` fog memory: `mark_polygons(polys, cell_size)`,
   `to_bytes`/`from_bytes` (persistence), cell-based. Lifecycle: `explored_fog` rows are purged on
   scene delete (`delete_document_tx`, both authoritative delete paths), world delete
