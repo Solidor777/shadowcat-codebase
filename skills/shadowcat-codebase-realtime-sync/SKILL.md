@@ -45,8 +45,9 @@ optimistically and roll back on divergence.
     OCC pre-image ops). Returns `MoveExecution { frame, .. }` — production code reads only `frame`
     (the full unclipped `Arc<ServerMsg::MoveStream>`, already registered in `moving`); the other
     fields (`scene`, `stop`, `duration_ms`, `mover_vision`) restate a subset of `frame`'s content
-    and are compiled only for test builds. `frame.scene` is the DERIVED scene, and it is what the
-    per-recipient egress clip and the client's viewed-scene filter cannot key on a client value.
+    and are compiled only for test builds. `MoveStream.scene` — the field `frame` wraps — is the
+    DERIVED scene the per-recipient egress clip and the client's viewed-scene filter key on,
+    never a client-supplied value.
   - `moving: Mutex<HashMap<Uuid, ActiveStream>>` — per-token in-flight registry doubling as the
     moving lock: token → `ActiveStream { mover, scene, end_ms, frame }` (`frame` is the full
     unclipped `Arc<ServerMsg::MoveStream>`, not merely an epoch-ms value). Lazy expiry (no timer);
