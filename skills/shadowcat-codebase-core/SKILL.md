@@ -92,6 +92,14 @@ source of truth. The ones agents break most:
   access-control shape inline in both places, the forked-decision defect this codebase produces
   most (see above). The name exposes nothing new:
   `WireDocument["permissions"]` already exposed the identical shape.
+- **File-size limits and test-file placement.** `pnpm lint:file-size` fails any tracked source file
+  over 5,000 lines without an owner-signed `.claude/file-size-allowlist.toml` entry and any file
+  over 10,000 unconditionally; `pnpm lint:inline-tests` fails any inline `#[cfg(test)] mod x { … }`
+  body under `src/`. Rust test bodies live in `<stem>/x.rs` (or `x.rs` beside a `mod.rs`), and the
+  large suites are split by subject: `data/sqlite/tests/{mod,rows_and_validation,search_and_worlds,commands_and_intents,invites_and_ownership}.rs`
+  and `scene/tests/{mod,ecs_and_footprints,resolution_and_lighting,pathfind_and_vision}.rs`, with
+  shared fixtures `pub(super)` in each `tests/mod.rs`. Never add an allowlist entry on your own
+  authority — split the file.
 
 ## Gotchas
 
@@ -415,6 +423,9 @@ source of truth. The ones agents break most:
 **Build / test / lint commands:**
 - Client build (produces `dist/`): `pnpm build` (= `pnpm --filter @shadowcat/shell build`).
 - Client tests: `pnpm -r test` (Vitest). Typecheck: `pnpm -r typecheck`. Lint: `pnpm lint` (ESLint).
+- `pnpm lint:file-size` (5,000-line soft / 10,000-line hard limit, owner-approved allowlist only)
+  and `pnpm lint:inline-tests` (no inline Rust `#[cfg(test)] mod x { … }` bodies) are CI-blocking,
+  same no-ratchet posture as the doc gates above.
 - Server (from `src/server/`): `cargo test`, `cargo fmt`, `cargo clippy`.
 - `pnpm build:all` is the full build entry point: the client build, then `docs:generate`
   (TypeDoc, `cargo doc`, the VitePress portal, assembly with its link check, and the
