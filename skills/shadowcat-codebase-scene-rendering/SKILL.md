@@ -362,8 +362,9 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   every other (non-GM, non-mover) recipient gets `samples` clipped by `ws::move_clip::clip_samples`
   against those whose `pos` falls inside the recipient's OWN authoritative vision at that sample's
   instant — their committed vision polygons (recomputed off the current ECS read — never a stale
-  cache; the ECS guard drops before any await) unioned with their own in-flight
-  `mover_vision`-timeline sweep when one is active — with `mover_vision` also forced to `None`; a
+  cache; the ECS guard drops before any await), superseded per-sample (never combined with the
+  committed polygons for that same sample) by the union of their own in-flight `mover_vision`
+  timelines once at least one has started — with `mover_vision` also forced to `None`; a
   wholly-invisible move (empty clip) is **not sent at all** (suppressed, not an empty-`samples`
   frame — asserted by a dedicated test). The see-as branch can only NARROW what a GM receives
   relative to the plain-GM fallthrough, never widen a non-GM recipient's own view (see-as is
@@ -374,9 +375,11 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   connection's own clip target (the real `user_id`, or the see-as target for a GM), `egress_loop`
   also re-clips every OTHER unexpired stream in the same scene (`Room::concurrent_streams`,
   excluding streams by that same mover) against the just-changed timeline and re-sends each one —
-  under its original `request_id` — to this connection only; a zero-progress move (never
-  registered in `Room::mover_streams`) or a GM mover's own move (`mover_vision: None`) cannot
-  populate a usable timeline and is excluded from triggering this path. `MoveError` stays
+  under its original `token_id` (the client overwrites playback keyed by `token_id`, not
+  `request_id`; `request_id` is preserved unchanged and only proves the re-emit is A's own
+  original frame) — to this connection only; a zero-progress move (never registered in
+  `Room::mover_streams`) or a GM mover's own move (`mover_vision: None`) cannot populate a usable
+  timeline and is excluded from triggering this path. `MoveError` stays
   mover-only via `handle_socket::etx`, generic (no path/vision geometry disclosed).
 - `scene::explored` — `ExploredSet` fog memory: `mark_polygons(polys, cell_size)`,
   `to_bytes`/`from_bytes` (persistence), cell-based. Lifecycle: `explored_fog` rows are purged on
