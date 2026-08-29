@@ -4,7 +4,13 @@ covers the file being edited. Deduped once per (session, subsystem). Fails open.
 
 Ordering: most-specific subsystems first — `assets` precedes `documents-permissions`
 (shared `src/server/src/data/`) and `realtime-sync` (shared `src/server/src/http/`) so
-asset files route to `assets`, not the broader globs. First match wins."""
+asset files route to `assets`, not the broader globs. `combat` precedes
+`documents-permissions` for the same reason (shared `src/server/src/data/`). Per the
+multi-subsystem-file note below, `combat` deliberately carries NO glob for
+`src/client/core/src/scene-docs.ts` even though it now also holds the combat client
+builders (`buildCombatDoc` etc.) alongside the scene-rendering builders that file already
+held — first-match-wins would mis-attribute the whole file to one subsystem. First match
+wins."""
 import sys, json, os, tempfile, re
 
 # (subsystem-id, [path regexes]). Order = priority; first match wins.
@@ -13,6 +19,7 @@ SUBSYSTEMS = [
     ("formula",              [r"src/client/formula/"]),
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
     ("assets",               [r"src/modules/assets/", r"src/server/src/data/asset\.rs", r"src/server/src/http/assets\.rs"]),
+    ("combat",               [r"src/server/src/data/engine/combat"]),
     ("module-toolchain",     [r"src/server/src/modules\.rs", r"src/server/src/http/module_routes\.rs", r"src/client/core/src/(loader|module-rest)\.ts", r"src/modules/settings/src/ModuleManager", r"examples/"]),
     ("documents-permissions", [r"src/server/src/data/", r"src/client/core/src/wire\.ts"]),
     ("actors-tokens",        [r"src/modules/actors/", r"src/modules/factions/", r"src/modules/conditions/", r"src/client/core/src/actor\.ts"]),

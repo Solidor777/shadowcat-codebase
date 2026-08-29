@@ -72,14 +72,15 @@ source of truth. The ones agents break most:
 - **Three-band document shape: envelope `name` + typed `engine` + opaque `system`.**
   Server runs no third-party code; authority over the opaque `system` body is structural only
   (size/field-path/`deny_unknown_fields`) — no semantic validation, ever. The typed `engine` body
-  (present only for the 17 engine-defined doc types: tokens, actors, scenes, walls, regions,
-  lights, drawings, templates, messages, and the world/vision/lighting/chat/dice/faction/
-  condition/channel config-docs) gets REAL server-side ingress validation instead
+  (present only for the 21 engine-defined doc types: tokens, actors, scenes, walls, regions,
+  lights, drawings, templates, messages, the world/vision/lighting/chat/dice/faction/
+  condition/channel config-docs, and the combat family (combat, combatant, resource-registry,
+  effect) gets REAL server-side ingress validation instead
   (`validate_engine`/`validate_engine_tree`, `deny_unknown_fields` per struct) — this is the band
   engine-owned geometry (movement-collision, vision) lives in, not a `system`-body exception.
   See `shadowcat-codebase-documents-permissions` for the
-  `data/engine/` registry and `shadowcat-codebase-scene-rendering`/`-chat`/`-actors-tokens` for
-  the per-subsystem re-root.
+  `data/engine/` registry, `shadowcat-codebase-combat` for the combat family, and
+  `shadowcat-codebase-scene-rendering`/`-chat`/`-actors-tokens` for the per-subsystem re-root.
 - **A type built via `Extract<SomeUnion, { type: "x" }>` cannot be documented.** TypeDoc cannot
   project such a projection into a documentable reflection, so a comment on it is unfixable no
   matter how it's placed. The resolution is structural: declare the member as its own named
@@ -500,7 +501,7 @@ source of truth. The ones agents break most:
 
 **Subsystem skills:** `documents-permissions`, `actors-tokens`, `scene-rendering`,
 `realtime-sync`, `client-shell`, `assets`, `dice`, `chat`, `formula`, `module-toolchain`,
-`sheets`, `panels`, `server-ops`, `templates` (all `shadowcat-codebase-*`).
+`sheets`, `panels`, `server-ops`, `templates`, `combat` (all `shadowcat-codebase-*`).
 
 ## Maintaining this skill family
 

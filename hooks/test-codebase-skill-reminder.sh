@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the codebase-skill reminder hook. Exits non-zero on any failure.
 set -u
-H="python3 .claude/hooks/codebase-skill-reminder.py"
+H="python3 hooks/codebase-skill-reminder.py"
 SID="testsession-$$"
 mk() { printf '{"session_id":"%s","tool_name":"Edit","tool_input":{"file_path":"%s"}}' "$SID" "$1"; }
 
@@ -68,5 +68,11 @@ check a7 "/srv/checkouts/shadowcat/src/server/src/data/permission.rs" "shadowcat
 # its neighbour reach the shell skill rather than any broader glob.
 check n7 "src/client/core/src/contributions.ts"           "shadowcat-codebase-client-shell"
 check n12 "C:/checkouts/shadowcat/src/client/core/src/contributions.test.ts" "shadowcat-codebase-client-shell"
+
+# `combat` precedes `documents-permissions` (shared src/server/src/data/) — absolute paths
+# per the real Edit/Write payload shape. No scene-docs.ts assertion here: per the
+# multi-subsystem-file note above, that file is deliberately left off every subsystem glob.
+check c1 "C:/Dev/Shadowcat/src/server/src/data/engine/combat.rs"      "shadowcat-codebase-combat"
+check c2 "/srv/checkouts/shadowcat/src/server/src/data/engine/combat/tests.rs" "shadowcat-codebase-combat"
 
 echo "ALL HOOK TESTS PASS"
