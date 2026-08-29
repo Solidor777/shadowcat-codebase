@@ -236,9 +236,10 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   table. Broadcast: `ServerMsg::Welcome.schema_declarations` (parity only; the client never
   enforces from it, see the Hard Invariants entry below).
 - `data::sqlite::apply_intent` — the singleton-`doc_type` create-gate:
-  `SINGLETON_DOC_TYPES` (world-settings/faction-registry/condition-registry/chat-settings/
-  dice-settings — 5 entries; `light-gradation`/`vision-modes` are real engine doc_types but are
-  NOT singleton-gated, and `channel-registry` has no gated const at all) + a tx-scoped
+  `SINGLETON_DOC_TYPES` (world-settings/faction-registry/condition-registry/resource-registry/
+  chat-settings/dice-settings — 6 entries; `light-gradation`/`vision-modes` are real engine
+  doc_types but are NOT singleton-gated, and `channel-registry` has no gated const at all) + a
+  tx-scoped
   `singleton_doc_exists` DB check reject a second `Create` of a singleton type. That DB check alone
   closes only the CROSS-CALL race (relies on the single-writer `max_connections(1)` pool + a
   tx-scoped executor). A `claimed_singletons: HashSet<String>` seeded before Phase 1's per-op loop

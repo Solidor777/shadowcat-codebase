@@ -70,8 +70,10 @@ check n7 "src/client/core/src/contributions.ts"           "shadowcat-codebase-cl
 check n12 "C:/checkouts/shadowcat/src/client/core/src/contributions.test.ts" "shadowcat-codebase-client-shell"
 
 # `combat` precedes `documents-permissions` (shared src/server/src/data/) — absolute paths
-# per the real Edit/Write payload shape. No scene-docs.ts assertion here: per the
-# multi-subsystem-file note above, that file is deliberately left off every subsystem glob.
+# per the real Edit/Write payload shape. No scene-docs.ts assertion here: that file is
+# already claimed by `scene-rendering`'s existing, unchanged glob (see m14 above), so `combat`
+# deliberately carries no glob of its own for it — first-match-wins would otherwise mis-
+# attribute the whole file to one subsystem.
 check c1 "C:/Dev/Shadowcat/src/server/src/data/engine/combat.rs"      "shadowcat-codebase-combat"
 check c2 "/srv/checkouts/shadowcat/src/server/src/data/engine/combat/tests.rs" "shadowcat-codebase-combat"
 

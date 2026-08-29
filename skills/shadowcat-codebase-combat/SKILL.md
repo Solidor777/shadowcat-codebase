@@ -94,21 +94,23 @@ tracker module) consume this layer but are not part of it.
   itself); a combatant's `parent_id` points at its combat, not a scene, but that's irrelevant
   to the predicate, which only checks parentedness. Nothing in `SceneEcs::from_documents`/
   `apply_op` branches on `doc_type` to treat a combatant differently from any other child doc.
-- **A known, currently-unreachable, fail-closed gap exists in the one-active-combat-per-scene
-  batch enforcement**: a single Intent that deactivates an already-active combat on a scene while
-  simultaneously activating a different combat on that SAME scene is incorrectly rejected, in
-  either op ordering — the Create-arm check reads the database as it stood before the batch's own
-  writes, and neither `apply_intent::claimed_active_scenes` nor `apply_intent::
-  released_active_scenes` is populated by the Update-arm handling that would need to see its own
-  same-batch deactivation. Fail-closed (over-rejection, never a dual-active-combat authorization
-  gap) and currently unreachable from any real client — only a direct `Repository::apply_intent`
-  call can construct this batch shape, since no combat client intent exists yet to do so.
+- **A known, fail-closed gap exists in the one-active-combat-per-scene batch enforcement**: a
+  single Intent that deactivates an already-active combat on a scene while simultaneously
+  activating a different combat on that SAME scene is incorrectly rejected, in either op
+  ordering — the Create-arm check reads the database as it stood before the batch's own writes,
+  and neither `apply_intent::claimed_active_scenes` nor `apply_intent::released_active_scenes` is
+  populated by the Update-arm handling that would need to see its own same-batch deactivation.
+  Fail-closed (over-rejection, never a dual-active-combat authorization gap). No first-party UI
+  constructs this batch yet, but it is already reachable today from any WS client via a raw
+  multi-op `ClientMsg::Intent` frame (nothing in `Room::commit_ops_locked`'s call path, which
+  forwards a WS `Intent`'s `ops` straight to `Repository::apply_intent`, restricts a
+  Create+Update-mixing batch shape) — this is not a `Repository::apply_intent`-only,
+  test-harness-only gap.
 
 ## Pointers
 
-- Design rationale for the combat clock — the full decision table, the document shapes in full,
-  and the Nightfox effect-engine-band migration coordination note — lives under
-  `docs/superpowers/specs/`.
+- Design rationale for the combat clock — the full decision table and the document shapes in
+  full — lives under `docs/superpowers/specs/`.
 - `shadowcat-codebase-documents-permissions` — owns the READ-transition/redaction machinery a
   hidden combatant's live reveal/hide relies on (`filter_command`, `OpSnapshot`, `delete_stub`),
   the containment/embedding rules this module's placement checks extend, and the singleton/
