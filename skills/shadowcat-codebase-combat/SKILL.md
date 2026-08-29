@@ -59,9 +59,8 @@ tracker module) consume this layer but are not part of it.
 - **The server never evaluates a `Formula::Text`.** `Formula` is untagged (`30` or `"speed"` on
   the wire); the server stores text formulas verbatim and only ever reads/writes the NUMBERS a
   client's formula library resolves them to, landing in `CombatantEngine.resources`'s
-  `CombatantResource.current`/`CombatantResource.max`. This is the ARCHITECTURE.md invariant-6
-  system/engine split applied to combat: formulas are system-owned meaning over engine-owned
-  numeric state.
+  `CombatantResource.current`/`CombatantResource.max`. This is the engine's system/engine split
+  (opaque, system-owned meaning vs. typed, server-validated numeric state) applied to combat.
 - **A combatant's `hidden` state is `permissions.default: none`, not an engine field.** Hiding a
   combatant is genuine document unreadability (the existing whole-document READ gate drops it at
   every egress point), never a display flag on `CombatantEngine` that a client could choose to
