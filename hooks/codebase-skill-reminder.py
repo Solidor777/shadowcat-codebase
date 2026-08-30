@@ -19,7 +19,7 @@ SUBSYSTEMS = [
     ("formula",              [r"src/client/formula/"]),
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
     ("assets",               [r"src/modules/assets/", r"src/server/src/data/asset\.rs", r"src/server/src/http/assets\.rs"]),
-    ("combat",               [r"src/server/src/data/engine/combat"]),
+    ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/"]),
     ("module-toolchain",     [r"src/server/src/modules\.rs", r"src/server/src/http/module_routes\.rs", r"src/client/core/src/(loader|module-rest)\.ts", r"src/modules/settings/src/ModuleManager", r"examples/"]),
     ("documents-permissions", [r"src/server/src/data/", r"src/client/core/src/wire\.ts"]),
     ("actors-tokens",        [r"src/modules/actors/", r"src/modules/factions/", r"src/modules/conditions/", r"src/client/core/src/actor\.ts"]),

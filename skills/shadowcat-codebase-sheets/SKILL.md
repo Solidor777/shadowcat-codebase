@@ -137,9 +137,9 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
   `SheetRef` variant must keep its `panelId` distinguishable from every other variant's shape by
   this same reverse-parse.
 - **`pickSheet`'s priority tie-break uses relational comparison, not subtraction** —
-  `-Infinity - -Infinity` is `NaN`, which `Array.sort` treats as "equal" (skipping the module-id
-  tie-break) rather than throwing; two providers sharing a non-finite priority (e.g. two modules
-  both registering a generic fallback) would silently fall back to registration order.
+  `-Infinity - -Infinity` is `NaN`, which the standard array sort treats as "equal" (skipping the
+  module-id tie-break) rather than throwing; two providers sharing a non-finite priority (e.g. two
+  modules both registering a generic fallback) would silently fall back to registration order.
 - **Sheet modules import ONLY `@shadowcat/core`/`@shadowcat/ui-kit`/`@shadowcat/types`** — no
   cross-module import; `openDocument`/the registry resolver are
   generic host glue (core/ui-kit), never a module.

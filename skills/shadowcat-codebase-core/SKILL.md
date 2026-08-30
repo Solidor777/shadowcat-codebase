@@ -72,10 +72,10 @@ source of truth. The ones agents break most:
 - **Three-band document shape: envelope `name` + typed `engine` + opaque `system`.**
   Server runs no third-party code; authority over the opaque `system` body is structural only
   (size/field-path/`deny_unknown_fields`) — no semantic validation, ever. The typed `engine` body
-  (present only for the 21 engine-defined doc types: tokens, actors, scenes, walls, regions,
+  (present only for the 23 engine-defined doc types: tokens, actors, scenes, walls, regions,
   lights, drawings, templates, messages, the world/vision/lighting/chat/dice/faction/
-  condition/channel config-docs, and the combat family (combat, combatant, resource-registry,
-  effect) gets REAL server-side ingress validation instead
+  condition/channel/system-defaults config-docs, and the combat family (combat, combatant,
+  resource-registry, effect, combat-history) gets REAL server-side ingress validation instead
   (`validate_engine`/`validate_engine_tree`, `deny_unknown_fields` per struct) — this is the band
   engine-owned geometry (movement-collision, vision) lives in, not a `system`-body exception.
   See `shadowcat-codebase-documents-permissions` for the

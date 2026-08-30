@@ -77,4 +77,9 @@ check n12 "C:/checkouts/shadowcat/src/client/core/src/contributions.test.ts" "sh
 check c1 "C:/Dev/Shadowcat/src/server/src/data/engine/combat.rs"      "shadowcat-codebase-combat"
 check c2 "/srv/checkouts/shadowcat/src/server/src/data/engine/combat/tests.rs" "shadowcat-codebase-combat"
 
+# `src/server/src/combat/` (the transition/intent pipeline, distinct from
+# `src/server/src/data/engine/combat`, the document types) routes to the same skill.
+check c3 "C:/Dev/Shadowcat/src/server/src/combat/transition.rs"       "shadowcat-codebase-combat"
+check c4 "/srv/checkouts/shadowcat/src/server/src/combat/mod.rs"      "shadowcat-codebase-combat"
+
 echo "ALL HOOK TESTS PASS"

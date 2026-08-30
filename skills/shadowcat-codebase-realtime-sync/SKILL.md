@@ -322,6 +322,18 @@ optimistically and roll back on divergence.
   a REJECTION replies (`ServerMsg::ChatError`, sender-only), while success is confirmed by the
   broadcast `Event` echo. They use a separate `chatPending` map whose timer resolves
   (success-assumed) rather than rejects on timeout — see `shadowcat-codebase-chat`.
+  **A THIRD family: the 8 `ClientMsg::Combat*` frames** (`CombatStart`/`CombatPause`/`CombatEnd`/
+  `CombatAdvance`/`CombatRewind`/`CombatSort`/`CombatRoll`/`CombatResource`) **+
+  `ServerMsg::CombatError`**, resolved through `WsClient`'s own `combatPending` map — the same
+  asymmetric shape as chat (only a rejection replies by `request_id`; success is confirmed by the
+  broadcast `Event` echo), but with a DIFFERENT, author-filtered FIFO match on success instead of a
+  request_id-keyed timer resolution: `combat()`'s success path resolves the OLDEST entry in
+  `combatPending` only when the incoming `event`'s `command.author` equals
+  `WsClientOptions.selfUserId` — never matched by `request_id` on the success side (only the
+  rejection path, `combat_error`, matches by `request_id`). **Known failure mode:** with
+  `selfUserId` unset, `combat()` silently never resolves via the `event` path at all — it settles
+  only via `combat_error` or its own timeout, since there is no way for this connection to tell its
+  own broadcast echo apart from any other user's. See `shadowcat-codebase-combat`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
   selection.** Unlike `MoveRequest`/`handle_pathfind` (which SELECT server state and so must
   derive-from-token, per the never-fork table in `shadowcat-codebase-core`), `ScenePing` relays

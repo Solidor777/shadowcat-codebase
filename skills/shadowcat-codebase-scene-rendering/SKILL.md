@@ -304,19 +304,68 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   prior cell, never a stale earlier value. Impassable stops BEFORE entry into the cell (like a
   wall — `stop` lands on the prior cell); arrest stops AT entry (the cell is entered, then the
   walk halts — a final-step arrest still sets `truncated: true` even though `stop_index ==
-  path.len()-1`). `MoveOutcome.cost` accumulates `regions.terrain_multiplier(region_cell)` per
-  cell-entry (1.0 outside any terrain region — this is a per-step-distance BASELINE, not merely
-  additive terrain weighting; a plain grid move with no regions at all still accrues `1.0` per
-  step) — center-cell-only, terrain-only; it does NOT apply the diagonal-rule step-cost factor
-  (`astar_leg::sc` — 1.0/2.0/√2/alternating) that `pathfinding::astar_leg`'s step-cost function applies. **Known
-  inconsistency:** the two `cost` values are numerically comparable only under
-  Chebyshev (where the diagonal step cost is 1.0); under any other diagonal rule they diverge. This
-  is a deliberate v1 scoping decision, not a bug — nothing currently consumes or
-  compares the two costs together. Resolve before any per-turn movement-budget system consumes
-  either `MoveOutcome.cost` or `MoveStream.cost`. `supercover_cells`'s
+  path.len()-1`). **`MoveOutcome.cost` is now UNIFIED with the router's own diagonal-rule
+  pricing, not terrain-only.** On `GridStepped`, each cell-entry transition prices through the
+  SAME `GridShape::neighbors_with_cost` lookup `pathfinding::astar_leg` uses (parity threaded
+  exactly as `astar_leg`'s arrest replay threads it — never reset per transition), falling back to
+  the Euclidean span in cells only for a transition the shape's own neighbor enumeration doesn't
+  recognize (a >1-cell jump gated through a `GridStepped` scene); on `Continuous`, each transition
+  prices as the Euclidean span in cells since the last transition, the same number
+  `navmesh::los_smooth`/the polyanya router report for that geometry. **Continuous "tail charge":**
+  the per-transition loop only prices FULL cell-entry transitions, so a `Continuous` move that
+  halts mid-cell (wall/mask/region/budget stop, or reaching a goal that isn't itself a transition)
+  is additionally priced for the span since its LAST transition, at the STOP cell's own terrain
+  multiplier — mirroring the whole-polyline integration `los_smooth`/the polyanya router apply to
+  the same geometry. `GridStepped` needs no such tail: its dense samples land exactly on cell
+  transitions, so the per-transition price above already reflects the router's own exact quantity.
+  A reader trying to reproduce an exact `Continuous` cost figure needs to add this tail span, not
+  just sum the per-transition prices. Either way the transition's
+  price is then multiplied by `regions.terrain_multiplier(next_cell)` (1.0 outside any terrain
+  region — a per-step-distance BASELINE, not merely additive weighting; a plain grid move with no
+  regions at all still accrues its diagonal-rule step price). Pinned by
+  `router_preview_cost_equals_executor_cost_per_diagonal_rule` (`GridStepped` parity, every
+  diagonal rule) and `continuous_smoothed_preview_cost_equals_executor_cost` (`Continuous` parity),
+  both in `scene::tests::cost_parity`. This is what makes `MoveOutcome.cost`
+  the number `shadowcat-codebase-combat`'s per-turn movement-budget gate can safely multiply by a
+  resource's per-cell conversion (`Room::execute_move`'s `resolved_budget.cost_to_resource`) — a
+  route preview and its execution now report the identical price for identical geometry on every
+  diagonal rule, not only Chebyshev. `pathfinding::astar_leg`'s own step-cost function
+  (`astar_leg::sc` — 1.0/2.0/√2/alternating) is the exact same underlying `step_cost` this reaches
+  through `neighbors_with_cost`; neither this executor nor the router ever calls `step_cost`
+  directly (see the gotcha in `shadowcat-codebase-combat`). `supercover_cells`'s
   lattice-corner-tie drift (a diagonal king-step whose leg endpoints both sit exactly on 4-way
   grid-line intersections could otherwise spuriously fail-closed) is prevented by a per-axis
   remaining-step budget gating the diagonal corner branch.
+- **`Room::execute_move`'s per-turn movement-budget gate — owned here for placement/commit
+  mechanics; the combat document shapes it reads are owned by `shadowcat-codebase-combat`.**
+  Resolved under the SAME ECS read guard as every other gate input
+  (`SceneEcs::active_combat_for_scene(token_scene)` then `SceneEcs::combatant_for_token`); a miss
+  on either means no gate applies, never a refusal. `BudgetGate` carries no `TurnControl` field at
+  all — `Room::execute_move` never reads `TurnControl`/`turn_control` anywhere in its budget-gate
+  logic (only `BudgetGate.is_turn_owner`/`interpretation`/`enforcement`). Turn-owner enforcement is
+  **Hard-only, and it's an outright REFUSAL, never a truncation to zero**: under
+  `Enforcement::Hard`, a non-GM, non-turn-owner mover's move is rejected outright
+  (`Err(DataError::Forbidden)`, logged as `MoveReject::NotYourTurn`) before any budget/cost
+  resolution runs; under `Warn`/`None` a non-turn-owner's move is never rejected on this basis at
+  all. A GM is exempt from this check unconditionally, matching every other gameplay exemption on
+  this gate. **`BudgetUnresolvable` refusal axis, independent of enforcement mode:** for a non-GM,
+  either the combatant carrying no entry for the combat's movement resource, or (under
+  `Interpretation::PerCell`) the scene carrying no `grid.distance` to convert the resource into
+  cells, refuses the WHOLE move outright (`Err(DataError::Forbidden)`, `MoveReject::
+  BudgetUnresolvable`) — this refusal applies regardless of `enforcement`, including `Warn`/`None`,
+  because the decrement needs a resolvable budget even when the gate itself never truncates. For a
+  GM, either unresolvable condition instead DEGRADES to "move freely, no decrement" (the same
+  outcome as a token bound to no combatant at all) rather than refusing the GM's move — the
+  GM-exemption fix. Only once both turn-ownership and budget-resolvability clear does the gate
+  compute `execute_move::move_budget_cells` (`entry.current / cost_to_resource`, non-GM + Hard
+  only) to bound `move_exec::MoveGateInputs.budget`. The resolved budget's
+  execution — `outcome.cost * resolved_budget.cost_to_resource` — commits as a SECOND, SEPARATE
+  command from the token's position write: the position `Update` (`/engine/x,y`) commits
+  unconditionally under `WriteOrigin::Client`; the combatant resource decrement commits only after
+  that succeeds, under `WriteOrigin::CombatTransition`, floored at zero and skipped entirely for a
+  zero-cost move. Never bundle these under one origin — see
+  `shadowcat-codebase-combat`'s hard invariant on why that specific consolidation is a real authz
+  bypass, not a simplification.
 - `scene` — adds `SceneEcs::token_position(token) -> Option<(f64,f64)>` and
   `SceneEcs::resolved_animation_speed() -> f64` (`pub(crate)` seams; the latter sits alongside
   `resolved_diagonal_rule`, sources `world_settings.animation`, defaults to 6 cells/sec).
@@ -437,7 +486,9 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   rules, 5-10-5 parity tracked in the `(cell, parity)` node and carried across waypoint legs (cost
   1,2,1,2…, never reset per leg), admissible+consistent heuristics per rule, stale-pop skip,
   `MAX_PATH_NODES`/`MAX_WAYPOINTS`/`MAX_FOOTPRINT_CELLS` fail-closed bounds; **Terrain
-  weighting:** the step-cost function multiplies the diagonal-rule base cost (`astar_leg::sc`) by
+  weighting:** each iteration of `astar_leg`'s neighbor loop multiplies the diagonal-rule base cost
+  (`astar_leg::sc`, the per-neighbour cost VALUE the `for (next, sc, next_parity) in
+  grid.inputs.shape.neighbors_with_cost(...)` binding yields — not a function) by
   `grid.inputs.regions.map_or(1.0, |r| r.terrain_multiplier(next))`, so a terrain region raises (never
   lowers — multipliers are validated `>= 1.0` at `region_field` construction) the A* edge weight
   into that cell, honored by the admissible/consistent heuristic (which already lower-bounds the
@@ -446,11 +497,14 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   end-parity of each leg into the next, sums cost, returns ordered cell-center scene coords, THEN
   applies **arrest truncation**: cuts the assembled route at the first cell (after the
   start — a token already standing in a cell is not "entering" it) flagged `is_arrest` in the
-  region field, sets `arrested: true`, and recomputes the truncated `cost` by REPLAYING
-  `step_cost` over the surviving prefix from parity 0 (a cost-replay technique, not trusting
-  `astar_leg`'s per-leg running total, because parity threading is purely sequential/order-
-  dependent — replaying reproduces the exact cost the original per-leg accumulation would give for
-  that same prefix). Returns `PathOutcome { path, cost, arrested }`. This truncation exists so a
+  region field, sets `arrested: true`, and recomputes the truncated `cost` by REPLAYING the
+  per-step cost via `GridShape::neighbors_with_cost` over the surviving prefix from parity 0 (a
+  cost-replay technique, not trusting `astar_leg`'s per-leg running total, because parity
+  threading is purely sequential/order-dependent — replaying reproduces the exact cost the
+  original per-leg accumulation would give for that same prefix) — like the rest of `find`, the
+  replay never calls the private `step_cost` fn directly; `find::sc` here is the per-neighbour
+  cost VALUE `neighbors_with_cost` yields for each iterated pair, not a function of its own. Returns
+  `PathOutcome { path, cost, arrested }`. This truncation exists so a
   player-facing route preview is honest about a hazard it already knows about — it never shows a
   route running past an arrest cell the requester can see.
   `SceneEcs::pathfind(requester: RouteRequester, scene, start, waypoints, footprint_radius)` —
@@ -1239,12 +1293,14 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   executor's. Do not "fix" `move_exec` to match the router's footprint check without re-deriving
   the parity argument — the asymmetry is load-bearing, matching the wall-check
   asymmetry the pathfinder invariant above already documents.
-- **`find()`'s arrest truncation recomputes cost by REPLAYING `step_cost`, never by trusting
-  `astar_leg`'s per-leg running total for the truncated prefix.** Parity threading is purely
+- **`find()`'s arrest truncation recomputes cost by REPLAYING the per-step cost via
+  `GridShape::neighbors_with_cost`, never `step_cost` directly and never by trusting `astar_leg`'s
+  per-leg running total for the truncated prefix.** Parity threading is purely
   sequential/order-dependent (not leg-boundary-dependent), so a naive "sum the per-leg totals up to
   the truncation point" would be wrong whenever the truncation falls mid-leg; the cost-replay
-  technique (walk the surviving cell sequence from parity 0, re-run `step_cost` per pair) is the
-  only correct way to get an accurate truncated cost.
+  technique (walk the surviving cell sequence from parity 0, re-run `neighbors_with_cost` per pair)
+  is the only correct way to get an accurate truncated cost — consistent with "neither the
+  executor nor the router ever calls `step_cost` directly" above: this replay is no exception.
 - **A whole-BAND `GmOnly` override must NULL the field, not remove the key, in
   `filter_properties`.** `Document::system` is a required serde field — dropping the `"system"`
   key from the redacted JSON before re-deserializing into `Document` panics; dropping an optional

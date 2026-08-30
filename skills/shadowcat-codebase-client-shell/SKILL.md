@@ -33,6 +33,24 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   not an abort. `reconcileTopology(...)` is a separate, warn-only comparison of the client's own
   resolved `provides`/`requires` against the server-broadcast topology. Contract schemas:
   `ContractProvideSchema`.
+- **`SYSTEM_CONTRACT` and the world-setting-defaults on-join upsert.**
+  `SYSTEM_CONTRACT = "shadowcat.system"` is the singleton contract a game-system module claims to
+  become "the" active system for a world (`ModuleRegistry::systemModule()` resolves the winner
+  through the SAME active/demoted `activeProvidersOf` bookkeeping every other singleton contract
+  uses — a losing claimant is excluded exactly as elsewhere, no separate resolution mechanism).
+  `Module.systemDefaults?: SystemDefaultsEngine` (not on `ModuleManifest` — that type is
+  Zod-validated and silently strips unknown keys) declares the system's overrides for every
+  world-configurable setting (scene defaults, pathfinding, animation, combat). On a successful
+  Welcome, `WorldSession.#onWelcome` — GM only — reads `#modules.systemModule()?.systemDefaults`
+  and, when present, calls `systemDefaultsUpsertOps(store, world, declared)`
+  (`@shadowcat/core`'s `scene-docs` module) to diff the declared shape against the world's
+  `system-defaults` singleton (creating it on first join, or emitting a per-section `/engine/<key>`
+  `Update` only for a section that key-order-independently differs) and dispatches the result —
+  idempotent, so two GMs joining concurrently converge on one upsert rather than duplicating
+  writes. This is the module-declaration/upsert half of the four-tier settings chain
+  (engine → system-defaults → world → scene) `resolve_combat_rules`/`resolveSettingProvenance`
+  resolve server- and client-side — see `shadowcat-codebase-combat` for the resolver and the
+  combat-specific `CombatDefaults` shape this chain carries.
 - `<Surface>` is the host that renders contributions for a
   surface id; `AppContext`, `setAppContext`/`getAppContext`, `__APP_CONTEXT_KEY__`.
 - `t(key, params)`, `locale()`, the `i18n` adapter over

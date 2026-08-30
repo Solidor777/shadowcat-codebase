@@ -56,7 +56,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - `data::engine` — the typed `engine`-band structs + the ingress-validation
   registry, one submodule per doc-type family (`data::engine::token`, `data::engine::scene`,
   `data::engine::geometry`, `data::engine::registries`) plus the `data::engine` module itself:
-  `is_engine_doc_type(doc_type) -> bool` (the 21-entry registry:
+  `is_engine_doc_type(doc_type) -> bool` (the 23-entry registry:
   `is_engine_doc_type::token`/`is_engine_doc_type::scene`/`is_engine_doc_type::wall`/
   `is_engine_doc_type::region`/`is_engine_doc_type::light`/`is_engine_doc_type::drawing`/
   `is_engine_doc_type::template`/`is_engine_doc_type::actor`/`is_engine_doc_type::message`/
@@ -65,8 +65,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `is_engine_doc_type::dice-settings`/`is_engine_doc_type::channel-registry`/
   `is_engine_doc_type::faction-registry`/`is_engine_doc_type::condition-registry`/
   `is_engine_doc_type::combat`/`is_engine_doc_type::combatant`/
-  `is_engine_doc_type::resource-registry`/`is_engine_doc_type::effect` — the combat family,
-  see `shadowcat-codebase-combat`),
+  `is_engine_doc_type::resource-registry`/`is_engine_doc_type::effect`/
+  `is_engine_doc_type::system-defaults`/`is_engine_doc_type::combat-history` — the combat family
+  plus `system-defaults`, see `shadowcat-codebase-combat`),
   `validate_engine(doc_type, engine)
   -> Result<(), DataError>` (deserializes the body against that doc_type's typed struct;
   `deny_unknown_fields` on every struct — engine-defined types WITHOUT an `engine` body error, and
@@ -237,9 +238,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   enforces from it, see the Hard Invariants entry below).
 - `data::sqlite::apply_intent` — the singleton-`doc_type` create-gate:
   `SINGLETON_DOC_TYPES` (world-settings/faction-registry/condition-registry/resource-registry/
-  chat-settings/dice-settings — 6 entries; `light-gradation`/`vision-modes` are real engine
-  doc_types but are NOT singleton-gated, and `channel-registry` has no gated const at all) + a
-  tx-scoped
+  system-defaults/chat-settings/dice-settings — 7 entries; `light-gradation`/`vision-modes` are
+  real engine doc_types but are NOT singleton-gated, and `channel-registry` has no gated const at
+  all) + a tx-scoped
   `singleton_doc_exists` DB check reject a second `Create` of a singleton type. That DB check alone
   closes only the CROSS-CALL race (relies on the single-writer `max_connections(1)` pool + a
   tx-scoped executor). A `claimed_singletons: HashSet<String>` seeded before Phase 1's per-op loop
@@ -250,6 +251,14 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   regardless of N or ordering. A rejection unwinds the WHOLE `apply_intent` call (no partial insert of
   the batch's other ops) — this is the same whole-batch-rollback semantics every other
   `apply_intent` validation failure already has, not a new rollback path.
+- **`WriteOrigin::CombatTransition` is a capability-skip on THIS chokepoint, not a new gate.** A
+  batch tagged with it skips `apply_intent`'s ordinary per-op capability floor (Create/Delete/
+  Update, and descendant re-authorization) — every other check here (scope, size, engine,
+  containment, singleton, one-active-per-scene, OCC) still runs regardless of origin, and an
+  ordinary GM's `WriteOrigin::Client` writes to combat documents are unaffected by this origin at
+  all (a GM already writes combat docs freely under `Client`). Full mechanism, the exact call
+  sites that construct it, and the authz-bypass this exemption exists to prevent:
+  `shadowcat-codebase-combat`.
 - `data::sqlite::apply_intent` — Phase-1 OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never
