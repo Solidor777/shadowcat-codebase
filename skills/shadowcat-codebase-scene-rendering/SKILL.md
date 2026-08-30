@@ -538,12 +538,14 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   applies **arrest truncation**: cuts the assembled route at the first cell (after the
   start — a token already standing in a cell is not "entering" it) flagged `is_arrest` in the
   region field, sets `arrested: true`, and recomputes the truncated `cost` by REPLAYING the
-  per-step cost via `GridShape::neighbors_with_cost` over the surviving prefix from parity 0 (a
-  cost-replay technique, not trusting `astar_leg`'s per-leg running total, because parity
-  threading is purely sequential/order-dependent — replaying reproduces the exact cost the
-  original per-leg accumulation would give for that same prefix) — like the rest of `find`, the
-  replay never calls the private `step_cost` fn directly; `find::sc` here is the per-neighbour
-  cost VALUE `neighbors_with_cost` yields for each iterated pair, not a function of its own. Returns
+  per-step cost over the surviving prefix from parity 0 through the ONE shared helper
+  `replay_step_costs` — the budget truncation consumes the same helper, so a pricing fix cannot
+  land in one replay and not the other (a cost-replay technique, not trusting `astar_leg`'s
+  per-leg running total, because parity threading is purely sequential/order-dependent —
+  replaying reproduces the exact cost the original per-leg accumulation would give for that same
+  prefix) — like the rest of `find`, the replay never calls the private `step_cost` fn directly;
+  `replay_step_costs::sc` is the per-neighbour cost VALUE `neighbors_with_cost` yields for each
+  iterated pair, not a function of its own. Returns
   `PathOutcome { path, cost, arrested, truncated }`. This truncation exists so a
   player-facing route preview is honest about a hazard it already knows about — it never shows a
   route running past an arrest cell the requester can see.
