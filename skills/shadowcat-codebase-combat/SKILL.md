@@ -41,8 +41,9 @@ separately enforces a per-turn movement budget against the same documents this s
   `Tracked { max, recover }`), `Recovery` (per-clock-boundary `Formula` amounts), `EffectEngine`
   (`active`, `transfer`, `duration`, `lifecycle`), `Duration`/`DurationUnit`/
   `ExpiryPoint`/`ResolvedLifecycle`, `Formula` (untagged `Number(f64) | Text(String)`),
-  `MovementRules`/`Interpretation`/`Enforcement`/`TurnControl`, `TurnRecord`/`EffectSnapshot`/
-  `MAX_TURN_HISTORY`, `CombatDefaults` (the override-chain shape, every field optional), and
+  `MovementRules`/`Interpretation`/`Enforcement`/`TurnControl`, `TurnRecord`/`CapturedCombatant`/
+  `EffectSnapshot`/`CombatHistoryEngine`/`MAX_TURN_HISTORY`, `CombatDefaults` (the override-chain
+  shape, every field optional), and
   `resolve_combat_rules(system, world, scene) -> ResolvedCombatRules` — the SOLE server-side
   resolver of the engine-fallback → system-defaults → world → scene precedence; nothing else
   re-derives it. `data::engine::{SYSTEM_DEFAULTS_DOC_TYPE, SystemDefaultsEngine}` carry the
@@ -62,10 +63,17 @@ separately enforces a per-turn movement budget against the same documents this s
   combatant runs its `turn_start` boundary, and an `Event` combatant (removed when exhausted,
   granting one extra budget unit) or a hidden combatant under `TurnControl::OwnerMayEnd`
   auto-resolves and the walk continues — nothing this does for a
-  hidden combatant is observable from outside its own (permission-gated) document. `settle_turn`
+  hidden combatant is observable from outside its own (permission-gated) document. An `Event` that
+  its `resolve_event` does NOT remove runs `run_turn_end` too, the same compressed
+  `turn_start`+`turn_end` pair a hidden actor's auto-resolve runs; only a removed `Event` skips it,
+  having no document left to write a boundary against. Entering a turn goes through
+  `transition::enter_turn`, which runs the boundary, sets `turn`, AND captures the history record —
+  so EVERY boundary the walk crosses is recorded, not only the one it finally settles on (see
+  `combat::history` below). `settle_turn`
   bounds its auto-resolve walk with a LINEAR step budget: `settle_turn::budget` seeds at
-  `w.engine.order.len()`, each step increments `settle_turn::steps`, and the walk stops
-  (`w.set_turn(entry_id)` then returns) once `steps >= budget` rather than spinning forever on a
+  `w.engine.order.len()`, each step increments `settle_turn::steps`, and the walk stops (returning
+  immediately — `turn` is already parked on the entry by that step's own `enter_turn` call) once
+  `steps >= budget` rather than spinning forever on a
   pathological all-auto-resolving order — a removal grants exactly one extra unit of budget rather
   than resetting to a fresh full-length guard, closing the quadratic blowup a naive reset would
   reintroduce. Every
@@ -77,7 +85,20 @@ separately enforces a per-turn movement budget against the same documents this s
 - `combat::effects` (`collect_effects`, `collect_all_effects`, `tick`, `expire_by_policy`,
   `set_effect_field`, `EffectRef`) — walks the embedded effect collections reachable from a
   combatant's host(s) (actor and/or token-embedded actor, plus item-embedded effects with
-  `transfer` set), anchored by `Duration.anchor`. `tick` decrements `remaining` at a matching
+  `transfer` set), anchored by `Duration.anchor`. **HOST and ANCHOR are two INDEPENDENT axes, and
+  `collect_effects` walks both** — the host owns where an effect physically lives, `Duration.anchor`
+  owns whose clock moves it, and `AnchorScope` is what keeps them independent: a first pass over the
+  combatant's OWN hosts under `AnchorScope::OwnHost` (admitting an unanchored effect, which belongs
+  to whoever hosts it, as well as one explicitly anchored to this combatant), then a second pass
+  over every OTHER host in `CombatSnapshot.hosts` under `AnchorScope::AnchoredOnly` (admitting
+  nothing but an explicit `anchor == Some(combatant.doc.id)`). So an effect living on A's actor but
+  anchored to B ticks, expires and is captured on B's clock. Collapsing this to the own-host pass
+  alone makes a cross-host anchor SILENTLY INERT — `anchor` is an unvalidated client-written
+  `Option<Uuid>`, so such an effect would never tick, never expire and never reach history, with no
+  error anywhere. The two passes are deduplicated by `(host, path)` and the cross pass walks hosts
+  in sorted id order, because `CombatSnapshot.hosts` is a hash map whose iteration order varies run
+  to run and the collection order decides which combatant's boundary sweep claims a shared key
+  first. `tick` decrements `remaining` at a matching
   clock boundary and deactivates at zero; `expire_by_policy` deactivates by lifecycle flag
   (`on_combat_end`/`on_turn_end`) independent of `Duration` entirely. Both skip any effect whose
   `lifecycle.resolved` or `Duration.remaining` is still unresolved (`None`) — see the hard
@@ -88,12 +109,42 @@ separately enforces a per-turn movement budget against the same documents this s
   onto its pre-transition snapshot (`post_transition_snapshot`) to capture the POST-transition
   state as a `TurnRecord`, then creates the `combat-history` document (first record) or replaces
   its whole `/engine` body (later records — see the `set_pointer` gotcha below), truncating any
-  redo tail past the current cursor and evicting the oldest record past `MAX_TURN_HISTORY`.
+  redo tail past the current cursor before the first push of a transition.
   `fast_forward` short-circuits `advance`'s ordinary transition walk only when `forward_restore`
   is set, the combat is active, a record exists at both the current cursor and the next, and
   `live_equals` proves nothing has diverged since the current record was captured.
-- `data::validation::validate_containment` — the combat-family placement rule, extended by this
-  milestone to cover `combat-history` alongside `COMBATANT_DOC_TYPE`: a `combat` document is never
+  Three properties of this seam are load-bearing and each one prevents a distinct failure:
+  - **A record captures a NARROWED `CapturedCombatant` per combatant, never a whole `Document`.**
+    `history::capture_combatant` keeps `id`/`name`/`permissions`/`owner`/`engine`/`system` and
+    nothing else; `scope`, `doc_type` and `parent_id` are DERIVED in `history::rebuild_document`
+    from the combat the record hangs off (a combatant is always a `COMBATANT_DOC_TYPE` child of its
+    own combat), because a second stored copy of a derivable value is a forked decision with
+    nothing keeping the two in agreement — and it is paid for once per captured combatant per
+    retained record, in the very band the byte bound below exists to keep small.
+  - **Retention has TWO INDEPENDENT bounds, and only the byte bound is load-bearing for
+    correctness.** `history::bounded_push` applies the `MAX_TURN_HISTORY` COUNT cap and then
+    `history::evict_to_fit`'s SERIALIZED-BYTE cap (`HISTORY_BYTE_BUDGET`, 90% of
+    `MAX_SYSTEM_BYTES`, plus `HISTORY_ENVELOPE_BYTES` for the surrounding object; sizes each record
+    once and subtracts as it walks rather than re-serializing per eviction). Neither bound implies
+    the other, and a count cap alone does NOT bound serialized size — which is the only thing
+    `validate_system_size` refuses on. Without the byte bound, an ordinary-length combat's history
+    breaches `MAX_SYSTEM_BYTES` well before the count cap, and because the refusal rolls the WHOLE
+    transition back, the clock then rejects every `CombatStart`/`CombatAdvance`/`CombatRewind`
+    PERMANENTLY behind the same generic "combat rejected" wording. Never describe retention as
+    count-bounded. RESIDUAL, documented on `evict_to_fit`: one record larger than the budget on its
+    own cannot be evicted away (it would take thousands of combatants at a single boundary).
+  - **`append_record` runs once per turn BOUNDARY, and all of them fold into ONE write.**
+    `transition::enter_turn` calls it for every boundary a `settle_turn` walk crosses, auto-resolved
+    intermediate entries included, so a rewind can land on an `Event`'s or a hidden combatant's turn
+    rather than only on the turn the walk finally stopped at — and capturing BEFORE the resolution
+    that may follow is what keeps an exhausted `Event`'s record self-consistent. Every call after
+    the first in the same transition folds into the op the first one staged
+    (`history::staged_history`) instead of emitting a second write to the same document, which
+    `SqliteRepository::apply_intent` would reject outright (at most one `Operation::Update` per
+    document per batch, and a second `Create` of a document the batch already created has no valid
+    pre-image at all).
+- `data::validation::validate_containment` — the combat-family placement rule, covering
+  `combat-history` alongside `COMBATANT_DOC_TYPE`: a `combat` document is never
   parented and never embedded; a `COMBATANT_DOC_TYPE` OR `combat-history` document is always
   parented (never embedded) and its parent must resolve to a `combat` document. The
   parent-is-a-combat check itself runs at the persistence chokepoint (`apply_intent`'s Create arm
@@ -103,33 +154,79 @@ separately enforces a per-turn movement budget against the same documents this s
   one `Intent` is admitted without a spurious "parent must be a combat" rejection.
   `validate_containment` recurses into every embedded descendant, so it also catches a
   combatant/combat-history nested arbitrarily deep under an unrelated embedding structure.
-- `combat::ops` (`set_engine`, `update`, `whole_engine_replace`) — shared `FieldChange`/
-  `Operation` construction: every OCC pre-image is read from the target document's OWN current
-  value at the pointer, never guessed or carried forward from an earlier belief.
+- `combat::ops` (`set_engine`, `whole_engine_replace` — exactly two, no general-purpose `Update`
+  builder) — shared `FieldChange`/`Operation` construction: every OCC pre-image is read from the
+  target document's OWN current value at the pointer, never guessed or carried forward from an
+  earlier belief. `whole_engine_replace`'s callers are `history::append_record`,
+  `history::fast_forward` and `transition::rewind`; `history::restore` does NOT use it (it goes
+  through `set_engine`).
 - `combat::handle_combat_intent` — dispatches one of the eight `ClientMsg::Combat*` variants
   (`CombatStart`/`CombatPause`/`CombatEnd`/`CombatAdvance`/`CombatRewind`/`CombatSort`/
-  `CombatRoll`/`CombatResource`): checks a per-user flood budget (`COMBAT_RATE_PER_MIN`) against
-  the SAME shared limiter INSTANCE `SendMessage`/`EditMessage`/`DeleteMessage`/`RecalcRoll` check
-  (`WsState::message_rate`, one `Arc<PingRateLimiter>` cloned into every handler, not a
-  per-handler copy) — `COMBAT_RATE_PER_MIN` also happens to equal that figure numerically, but what
-  is actually shared across all five call sites is the one limiter instance's tracked state, not
-  merely a repeated constant. Loads the snapshot, authorizes (GM
-  unconditional; a non-GM only for `CombatAdvance` as the current non-hidden turn owner under
-  `TurnControl::OwnerMayEnd`, or for `CombatRoll`/`CombatResource` as the owner of every named
-  non-hidden combatant — an empty `CombatRoll.rolls` list is rejected outright rather than
-  vacuously authorizing), resolves the matching `transition` function's ops (or, for `CombatRoll`,
-  executes the named rolls first via `chat::resolve_dice_context`/`chat::rolls::execute_roll`),
-  and commits them via `Room::commit_combat`. `CombatError`'s `Display` collapses every case that
-  could disclose a hidden combatant (`NotFound`/`Forbidden`/`NotRunning`/`Data`) to one identical
-  "combat rejected" wording.
+  `CombatRoll`/`CombatResource`): checks a per-user flood budget against BOTH the shared limiter
+  INSTANCE and the single shared BUDGET `SendMessage`/`EditMessage`/`DeleteMessage`/`RecalcRoll`
+  check — `WsState::message_rate` (one `Arc<PingRateLimiter>` cloned into every handler, not a
+  per-handler copy) spent against `ws::MESSAGE_RATE_PER_MIN`, which is declared exactly ONCE, beside
+  the limiter it governs. There is no combat-specific rate constant, and adding one would
+  be a forked decision on a security control: all five call sites share one per-user hit list, so a
+  second constant naming the same budget lets raising one copy silently change the other's
+  effective behaviour against the very same counter. It then delegates to `combat::run_intent`,
+  the load → authorize → resolve → commit pipeline for one combat intent: loads the snapshot, reads
+  `Repository::world_cap_defaults` ONCE (after the snapshot, so an unknown or foreign `combat_id`
+  still costs only the snapshot's own existence-hiding refusal; propagated with `?`, never
+  defaulted, so an unresolvable authority input fails closed), authorizes via `combat::authorize`
+  (see the sole-authorization invariant below), resolves the matching `transition` function's ops
+  (or, for `CombatRoll`, executes the named rolls first via `chat::resolve_dice_context`/
+  `chat::rolls::execute_roll`), and commits them via `Room::commit_combat`. `CombatError`'s
+  `Display` collapses every case that could disclose a hidden combatant
+  (`NotFound`/`Forbidden`/`NotRunning`/`Data`) to one identical "combat rejected" wording. Every
+  variant that DOES carry distinct wording states, on the variant itself, why that distinction
+  discloses nothing — `RewindUnreachable` and `Unrewindable` because `CombatRewind` is GM-only per
+  `combat::authorize`, `DuplicateRoll` because `authorize` already admitted every named id as the
+  caller's own. A new variant needs the same justification or it must reuse the uniform wording.
+- `combat::authorize` + `combat::combatant_access` + `combat::owns_combatant` + `CombatantAct` —
+  the whole non-GM authorization surface, and the ONLY authorization combat-document writes get
+  (see the sole-gate invariant below). `combatant_access(c, ctx, world_defaults)` resolves ONE
+  `Access` per combatant through `effective_owner` + `resolve_access_world` — argument for
+  argument the pair `filter_command` uses at egress and `SceneEcs::ctx_access` uses for the
+  movement-budget gate — and returns the whole `Access` because `owns_combatant` asks THREE
+  questions of it that must not be answered from different rules. The no-join `effective_owner(doc,
+  None)` form is EXACT here, not an approximation: `token_actor_link` resolves only for
+  `TOKEN_DOC_TYPE`, and `CombatSnapshot.combatants` only ever holds `COMBATANT_DOC_TYPE` documents.
+  `owns_combatant(c, ctx, world_defaults, act)` then demands `Access::is_owner` AND whole-document
+  `cap::READ` AND, under `CombatantAct::WritesEngine`, the capability `required_cap_for_path` maps
+  `COMBATANT_WRITE_BAND` to — read FROM that function rather than restated as a literal, because it
+  is the very check `WriteOrigin::CombatTransition` waives inside `apply_intent`, and an
+  unmappable path refuses exactly as `apply_intent` refuses one. The two `CombatantAct` arms:
+  - `WritesEngine` (`CombatRoll` via `transition::roll`, `CombatResource` via
+    `transition::resource`) writes the NAMED combatant's own `engine` band, so it needs the write
+    capability. Ownership is NOT a proxy for it: `effective_role`'s ownership floor is scoped to
+    `TOKEN_DOC_TYPE`, so a combatant's owner is floored at nothing and can hold `DocRole::Observer`
+    — `cap::READ` without `cap::WRITE_FIELDS`.
+  - `EndsTurn` (`CombatAdvance` under `TurnControl::OwnerMayEnd`) demands ownership + `cap::READ`
+    and NO write capability. The combatant writes `transition::advance` produces — `run_boundary`'s
+    recovery amounts, effect ticks, an `Event`'s `lifespan` decrement — are server-COMPUTED
+    consequences of the clock moving that land on whichever combatants the boundary sweep touches,
+    including ones the caller has no relationship with at all, so no per-document write capability
+    OF THE CALLER'S could gate them coherently. Turn ownership is the whole rule for this arm.
+  Ownership stays a hard requirement alongside the capability, never an alternative: a non-owner
+  holding `cap::WRITE_FIELDS` may write that document through an ordinary `Intent` but may not
+  drive the clock with it. Every other intent
+  (`CombatStart`/`CombatPause`/`CombatEnd`/`CombatRewind`/`CombatSort`) is GM-only and consults no
+  combatant at all; an empty `CombatRoll.rolls` list is rejected outright rather than vacuously
+  authorizing through an empty loop.
 - `Room::commit_combat` — the ONE commit path for a combat intent: `commit_ops_locked(...,
   WriteOrigin::CombatTransition)`. `WriteOrigin::CombatTransition` has no wire representation a
   client can construct — see the hard invariant below.
 - `SceneEcs::active_combat_for_scene(scene) -> Option<(Uuid, CombatEngine)>` /
-  `SceneEcs::combatant_for_token(combat, token) -> Option<(Uuid, CombatantEngine, hidden, owner)>`
-  — the ECS-cached lookups `Room::execute_move`'s movement-budget gate resolves under the same
-  read guard as every other gate input (restriction/cell/visible_cells/start); a miss on either
-  means no gate applies, never a refusal. `SceneEcs::system_defaults_doc() -> Option<&Document>`
+  `SceneEcs::combatant_for_token(combat, token, ctx, world_defaults) -> Option<(Uuid,
+  CombatantEngine, Access)>` — the ECS-cached lookups `Room::execute_move`'s movement-budget gate
+  resolves under the same read guard as every other gate input (restriction/cell/visible_cells/
+  start); a miss on either means no gate applies, never a refusal. `combatant_for_token` returns
+  the resolved `Access`, NOT a bare hidden flag: it takes the caller's `PermissionContext` and the
+  world's `WorldCapDefaults` and resolves them through `SceneEcs::ctx_access` — the same
+  `effective_owner_via` + `resolve_access_world` pair document egress uses — so the gate's
+  readability decision and what the caller actually receives on the wire are ONE decision, not two.
+  `SceneEcs::system_defaults_doc() -> Option<&Document>`
   is the cached `system-defaults` singleton every `resolve_combat_rules` caller in `scene` reads
   its `system` argument from.
 - Client (`@shadowcat/core`, `src/client/core/src/scene-docs.ts`): `buildCombatDoc`,
@@ -179,6 +276,18 @@ separately enforces a per-turn movement budget against the same documents this s
   `CombatTransition` may `Create` a `message` doc (roll results, event messages) but is still
   blanket-rejected from `Update`-ing one — the same restriction `Client` gets (`apply_intent`'s
   message-doc `Update` arm only re-opens for `WriteOrigin::ServerMessageRevision`).
+- **BECAUSE that exemption exists, `combat::authorize` is the SOLE authorization for every write a
+  combat intent makes.** Nothing downstream re-checks the caller: `apply_intent`'s per-op ownership
+  and capability tests are exactly what the origin waives. So a predicate in `authorize` that
+  diverges from the shared `resolve_access_world` authority is not a cosmetic inconsistency — it is
+  an authorization HOLE in one direction and a refusal of a legitimate owner in the other, and both
+  directions are reachable. Concretely, with `default: none` + `permissions.users[player] = Owner`
+  a player genuinely reads and owns the combatant, and with `default: observer` +
+  `permissions.users[player] = None` they genuinely do NOT — a `permissions.default` test answers
+  both backwards. This is why `owns_combatant` reads `cap::READ` off the shared authority and
+  `required_cap_for_path` off the shared path→capability mapping instead of restating either.
+  A hand-rolled readability, ownership or capability predicate anywhere on this path is the defect
+  class; route it through the shared authority instead.
 - **Preview cost equals execution cost, structurally, not by convention.** Both
   `pathfinding::astar_leg` and `scene::move_exec::execute_move` price a diagonal step through the
   SAME `GridShape::neighbors_with_cost` trait method — see the gotcha below for why `step_cost`
@@ -186,6 +295,40 @@ separately enforces a per-turn movement budget against the same documents this s
 - **A combatant's `hidden` state is `permissions.default: none`, not an engine field.** Hiding a
   combatant is genuine document unreadability (the existing whole-document READ gate drops it at
   every egress point), never a display flag on `CombatantEngine` a client could choose to ignore.
+- **`transition::is_hidden` is a WORLD-DEFAULT readability test and is NEVER an authorization or
+  per-caller READ gate.** It reads `permissions.default == DocRole::None` and nothing else, which
+  answers a DIFFERENT question from the per-caller whole-document `cap::READ` that
+  `combat::combatant_access` and `SceneEcs::ctx_access` resolve — neither implies the other in
+  either direction (a `permissions.users` entry moves the real answer and not this one). It has
+  exactly TWO consumer CLASSES, both of which genuinely ask a whole-world question and are correct
+  on this predicate:
+  - broadcast `Audience` selection for a message a transition posts (`transition::resolve_event`'s
+    event message and `transition::roll`'s roll message) — `Audience` names a whole-world tier, so
+    the question is whether the entry is public at all, not whether some individual may read it;
+  - `settle_turn`'s auto-resolve rule under `TurnControl::OwnerMayEnd` — ONE decision for the whole
+    order walk rather than a per-recipient one. Its real-authority form would be "does ANY non-GM
+    world member hold `cap::READ` plus ownership", which needs a world-membership enumeration the
+    walk does not have; that is a different and more expensive computation, not a mechanical
+    extension of the authorization fix, and it is left on the world-default semantics deliberately.
+  A caller admitted by a `permissions.users` grant on a `default: none` combatant is therefore
+  authorized to act yet still auto-resolves under `OwnerMayEnd` and still gets `Audience::GmOnly`
+  on their own roll message — an accepted, documented residual that under-discloses only. Do NOT
+  add a third consumer that asks a per-caller question.
+- **A combatant a mover cannot READ applies none of the movement-budget gate's three behaviors to
+  them: no `MoveReject::NotYourTurn` refusal, no truncation, no `BudgetUnresolvable`.**
+  `BudgetGate::enforced` in `Room::execute_move` is exactly `access.has(cap::READ)` off
+  `SceneEcs::combatant_for_token`'s resolved `Access`, never a re-derivation from
+  `permissions.default`. Either a refusal or a truncation would disclose BOTH the combatant's
+  existence and its exact numeric budget through move behaviour alone — reachable without owning
+  that combatant's own token, since `combatant_for_token`'s `actor_id` fallback matches ANY token
+  instanced from the same actor. The resource decrement still commits (it writes only that
+  combatant's own document, and `filter_command` drops the whole op for any recipient lacking
+  `cap::READ` on it — uniformly across `Create`/`Update`/`Delete`, never Update-specific). A mover
+  lacking `cap::READ` therefore still receives a causally-attributable EMPTY-OPS `Event` frame for
+  that write — `filter_command`'s own doc comment: a fully-redacted command keeps its seq with
+  empty ops — a residual the genuinely-no-combatant case never produces, since no such write exists
+  there to redact in the first place. Full mechanics, including the two reachable
+  world-defaults-freshness shapes: `shadowcat-codebase-scene-rendering`.
 - **`CombatEngine.order` is the single sequence authority.** Nothing re-derives turn order from
   `CombatantEngine.initiative` at read time; `order` is what a running combat actually iterates,
   mutated only by `combat::transition`'s own functions (`rebuild_order` folds in a combatant a
@@ -210,6 +353,31 @@ separately enforces a per-turn movement budget against the same documents this s
 
 ## Gotchas
 
+- **`transition::rewind` validates its PROSPECTIVE post-image before emitting a single op, and
+  refuses with `CombatError::RewindUnreachable` when it is invalid.** It builds the `CombatEngine`
+  the rewind would write (`round`/`turn` from the target `TurnRecord`, `order` rebuilt only
+  alongside a restore) and runs `CombatEngine::validate` on it — delegating wholesale rather than
+  restating "turn must be in order" locally, so the two cannot disagree about what a valid clock
+  state is. The reachable case is `rewind_restore` OFF with a target boundary whose `turn` names a
+  combatant since deleted and dropped from `order` (an exhausted `Event`, which only a restore
+  would bring back). Without the pre-check the engine-ingress gate refuses the built ops instead,
+  rolling the whole command back behind the uniform "combat rejected" wording — permanently, for
+  every future attempt at that boundary. The two rejected alternatives are both worse and both
+  tempting: rebuilding `order` without restoring leaves a phantom entry naming a document that does
+  not exist, and clamping or skipping the `/engine/turn` write moves the clock somewhere the GM
+  never asked for, quietly.
+- **The pure-transition unit harness runs REAL ingress gates, and a gate missing from it hides a
+  whole defect class.** `combat::tests::validate_persisted` runs `validate_system_size` and
+  `validate_engine_tree` (the recursive ingress chokepoint, not `CombatEngine::validate` directly)
+  over every document the harness stores, panicking loudly where the real repository would reject
+  the batch. It runs `validate_engine_tree` on a CLONE because that function normalizes in place
+  and the harness's stored documents must stay exactly what the transition wrote. The other two
+  per-document gates (`validate_property_overrides`, `validate_system_schema_tree`) are omitted
+  because they are no-ops against these fixtures — no fixture populates `property_overrides` and
+  the harness declares no `SchemaDeclaration` — so a fixture that starts carrying either must add
+  the matching gate rather than rely on that note. Every unit test in this module passes through
+  this harness, which is precisely why an unrun gate makes a real, permanently-bricking bug
+  invisible to all of them.
 - **`data::command::set_pointer` cannot GROW an array — an out-of-bounds array index fails
   `BadPath`.** This is why `combat::history::append_record`'s later-record path never pushes a new
   `TurnRecord` into `records` by index: it reads the WHOLE history engine into memory, appends/

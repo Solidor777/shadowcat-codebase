@@ -187,6 +187,11 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     parameters; `None` means the unconditional
     GM/admin short-circuit applies (see `gm_role` invariant below), `Some(role)` means the caller
     must resolve capabilities from that per-document role floor like any other actor.
+    **Its ownership floor (`effective_role::owner_floor`) is scoped to `TOKEN_DOC_TYPE` and NO
+    other doc type.** On every other doc type, being the owner grants no role floor whatsoever — an
+    owner can sit at `DocRole::Observer` and hold `cap::READ` without `cap::WRITE_FIELDS`. See the
+    ownership-is-not-a-capability-proxy gotcha below; this scoping is what makes that a live
+    defect class rather than a theoretical one.
   - `Access::can_see(v: Visibility)` is the single predicate: `GmOnly => see_gm_only`,
     `OwnerOrGm => see_gm_only || is_owner`, `All => true`.
   - `filter_properties(doc, access)` strips hidden **properties** from an outgoing doc — a
@@ -256,9 +261,11 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   Update, and descendant re-authorization) — every other check here (scope, size, engine,
   containment, singleton, one-active-per-scene, OCC) still runs regardless of origin, and an
   ordinary GM's `WriteOrigin::Client` writes to combat documents are unaffected by this origin at
-  all (a GM already writes combat docs freely under `Client`). Full mechanism, the exact call
-  sites that construct it, and the authz-bypass this exemption exists to prevent:
-  `shadowcat-codebase-combat`.
+  all (a GM already writes combat docs freely under `Client`). **CONSEQUENCE for anyone adding a
+  caller: because this chokepoint stands down, `combat::authorize` is the ONLY authorization those
+  writes ever get** — there is no second check downstream to catch a permissive predicate. Full
+  mechanism, the exact call sites that construct it, and the authz-bypass this exemption exists to
+  prevent: `shadowcat-codebase-combat`.
 - `data::sqlite::apply_intent` — Phase-1 OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never
@@ -415,7 +422,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic
-  ingress gate for the 21 engine-defined doc types (see the `engine ingress validation` invariant
+  ingress gate for the 23 engine-defined doc types (see the `engine ingress validation` invariant
   above); tier-2 is the `system`-band's analogous but strictly structural enforcement floor. The
   declarable `Schema` type-tree grammar (`type`/`properties`/`required`/`items`/
   `additionalProperties`/`nullable` — no `enum`, no numeric/string bounds, no `pattern`, no
@@ -564,6 +571,23 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 
 ## Gotchas
 
+- **RAW OWNERSHIP IS AN UNSAFE PROXY FOR WRITE CAPABILITY ON EVERY DOC TYPE BUT `TOKEN_DOC_TYPE`,
+  and a hand-rolled `permissions.default` test is an unsafe proxy for READ on ALL of them.**
+  `doc.owner == Some(user)` (or `Access::is_owner`) answers "who owns this", never "may they write
+  it": `effective_role::owner_floor` is scoped to `TOKEN_DOC_TYPE`, so on any other doc type the
+  owner gets no role floor and can hold `cap::READ` without `cap::WRITE_FIELDS`. Symmetrically,
+  `permissions.default` answers a WORLD-DEFAULT question, and a `permissions.users` entry moves the
+  real per-caller answer in BOTH directions — `default: none` + `users[player] = Owner` is readable
+  by that player, `default: observer` + `users[player] = None` is not. Every substitution of one of
+  these proxies for the real authority produces the same paired defect: an authorization/
+  enforcement HOLE in one direction and a refusal or disclosure in the other, with the code
+  reading perfectly sensible at the site. **The real checks are `resolve_access_world`
+  (whole-document `cap::READ`, ownership, capabilities — all off ONE resolution) and
+  `required_cap_for_path` (the single statement of the write-path→capability mapping, which
+  `apply_intent` itself consults).** Read them; never restate either as a literal or a predicate.
+  This is the same never-fork class the core skill names, specialized to authz, and it is the
+  reason `SceneEcs::ctx_access`, `combat::combatant_access` and `filter_command` all resolve
+  through the identical pair rather than each answering locally.
 - **Docs-ratchet covers the ENTIRE `data` module tree:** every module —
   `data::{document,command,permission,repository,membership,validation,search,asset,sqlite}`
   AND `data::engine::{geometry,registries,scene,token}` — carries `#![deny(missing_docs)]` +

@@ -80,6 +80,17 @@ optimistically and roll back on divergence.
     connection's own live-tracked watermark, not an untrusted client-supplied `from_seq`, so it is
     orthogonal to the gap this flag closes; clamping it there would break ordinary lag recovery
     independent of any client change.
+- `ws` (the module root) — `WsState`, and the flood budget its message rate limiter spends.
+  `WsState::message_rate` is ONE `Arc<PingRateLimiter>` cloned into every handler (never a
+  per-handler copy), so all its callers share a single per-user trailing-60s hit list; the budget
+  they spend against it is `MESSAGE_RATE_PER_MIN`, declared exactly ONCE beside that limiter.
+  **INVARIANT: one limiter, one constant.** Its callers are the chat handlers (`SendMessage`/
+  `EditMessage`/`DeleteMessage`/`RecalcRoll`) and `combat::handle_combat_intent`; a second constant
+  naming the same budget would be a forked decision landing on a security control — raising one
+  copy silently changes the other's effective behaviour against the very same counter, with
+  nothing failing to report it. `WsState::ping_rate` is a genuinely SEPARATE limiter instance with
+  its own per-user hit list, spent by `ScenePing` alone against a budget written inline at that one
+  call site — it is not a second name for `MESSAGE_RATE_PER_MIN` and the two never interact.
 - `ws::protocol` — client/server message frames; `ServerMsg`, `event_seq()`.
 - `ws::conn` — per-connection loop + egress; `ws::time` — server time source +
   client offset calibration (exists before its consumer).

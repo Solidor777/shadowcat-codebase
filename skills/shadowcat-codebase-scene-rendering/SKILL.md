@@ -342,23 +342,57 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   (`SceneEcs::active_combat_for_scene(token_scene)` then `SceneEcs::combatant_for_token`); a miss
   on either means no gate applies, never a refusal. `BudgetGate` carries no `TurnControl` field at
   all — `Room::execute_move` never reads `TurnControl`/`turn_control` anywhere in its budget-gate
-  logic (only `BudgetGate.is_turn_owner`/`interpretation`/`enforcement`). Turn-owner enforcement is
+  logic (only `BudgetGate.is_turn_owner`/`interpretation`/`enforcement`/`enforced`).
+  **`BudgetGate::enforced` decides whether the gate's refusals and truncation apply to this caller
+  at all, and it is whole-document `cap::READ` — never a re-derivation from any single permission
+  field.** `SceneEcs::combatant_for_token(combat, token, ctx, world_defaults)` returns the resolved
+  `Access` (not a bare hidden flag) from `SceneEcs::ctx_access` — the same `effective_owner_via` +
+  `resolve_access_world` pair `filter_command` uses at egress — and `enforced` is
+  `access.has(cap::READ)` on it. `false` means the caller moves EXACTLY as if the token named no
+  combatant: no `NotYourTurn` refusal, no truncation, no `BudgetUnresolvable`. This is a secrecy
+  requirement, not a convenience — either refusal or truncation would disclose both the combatant's
+  existence and its exact numeric budget through move behaviour alone, reachable without owning
+  that combatant's own token because `combatant_for_token`'s `actor_id` fallback matches ANY token
+  instanced from the same actor. The decrement still commits (it writes only that combatant's own
+  document, which `filter_command` drops wholesale for a recipient lacking `cap::READ` — uniformly
+  across `Create`/`Update`/`Delete`, never Update-specific). Because the flag and egress read the
+  same live document, a PER-DOCUMENT
+  `permissions.users` grant or override moves both in lockstep — but that parity claim is scoped to
+  per-document permissions and does NOT extend to world capability defaults, which `execute_move`
+  reads fresh per move while WS egress reads once per connection under a
+  takes-effect-on-next-reconnect policy. TWO shapes are reachable there, in opposite directions: a
+  world-level READ GRANT binds the gate before egress delivers (narrow — it admits nothing egress
+  would not eventually deliver anyway), and a world-level READ REVOCATION fails OPEN, because
+  `http::routes::set_world_capability_defaults` REPLACES the whole `WorldCapDefaults` rather than
+  extending it, so a caller whose `cap::READ` came only from a world grant sees `enforced` go false
+  and moves UNBUDGETED until their next reconnect. `resolve_access_world` being additive does not
+  bound this — the defaults VALUE it reads is what shrank. Accepted as a documented residual (a
+  gameplay-budget laxity with no disclosure component), and specific to THIS gate:
+  `combat::authorize` resolves the same defaults fresh per intent and fails CLOSED on the same
+  revocation, so do not reason about the two as one residual. Turn-owner enforcement is
   **Hard-only, and it's an outright REFUSAL, never a truncation to zero**: under
-  `Enforcement::Hard`, a non-GM, non-turn-owner mover's move is rejected outright
+  `Enforcement::Hard`, a non-exempt, non-turn-owner mover's move is rejected outright
   (`Err(DataError::Forbidden)`, logged as `MoveReject::NotYourTurn`) before any budget/cost
   resolution runs; under `Warn`/`None` a non-turn-owner's move is never rejected on this basis at
-  all. A GM is exempt from this check unconditionally, matching every other gameplay exemption on
-  this gate. **`BudgetUnresolvable` refusal axis, independent of enforcement mode:** for a non-GM,
-  either the combatant carrying no entry for the combat's movement resource, or (under
+  all. **`BudgetUnresolvable` refusal axis, independent of enforcement mode:** for a non-exempt
+  caller, either the combatant carrying no entry for the combat's movement resource, or (under
   `Interpretation::PerCell`) the scene carrying no `grid.distance` to convert the resource into
   cells, refuses the WHOLE move outright (`Err(DataError::Forbidden)`, `MoveReject::
   BudgetUnresolvable`) — this refusal applies regardless of `enforcement`, including `Warn`/`None`,
-  because the decrement needs a resolvable budget even when the gate itself never truncates. For a
-  GM, either unresolvable condition instead DEGRADES to "move freely, no decrement" (the same
-  outcome as a token bound to no combatant at all) rather than refusing the GM's move — the
-  GM-exemption fix. Only once both turn-ownership and budget-resolvability clear does the gate
-  compute `execute_move::move_budget_cells` (`entry.current / cost_to_resource`, non-GM + Hard
-  only) to bound `move_exec::MoveGateInputs.budget`. The resolved budget's
+  because the decrement needs a resolvable budget even when the gate itself never truncates. For an
+  exempt caller, either unresolvable condition instead DEGRADES to "move freely, no decrement" (the
+  same outcome as a token bound to no combatant at all) rather than refusing the move. **"Exempt"
+  is one expression read by all three of these paths** (`execute_move::exempt`, which is
+  `is_gm || !bg.enforced`): a GM by the gameplay exemption every other axis of this gate also grants, or a
+  caller the gate is not `enforced` against. Both still take the decrement path when the budget
+  resolves. Only once both turn-ownership and budget-resolvability clear does the gate
+  compute `execute_move::move_budget_cells` (`entry.current / cost_to_resource`, non-exempt + Hard
+  only) to bound `move_exec::MoveGateInputs.budget`. **Lock ordering carries a step for this
+  gate:** `Repository::world_cap_defaults` is awaited AFTER `publish_guard` is taken but BEFORE the
+  scene read guard, because `ctx_access` needs it under that read guard and a scene read guard is
+  never held across an await. Fetched unconditionally — whether a combat is even running is itself
+  only knowable under the guard — and propagated with `?` rather than defaulted, so an unresolvable
+  authority input refuses the move instead of being guessed at. The resolved budget's
   execution — `outcome.cost * resolved_budget.cost_to_resource` — commits as a SECOND, SEPARATE
   command from the token's position write: the position `Update` (`/engine/x,y`) commits
   unconditionally under `WriteOrigin::Client`; the combatant resource decrement commits only after
