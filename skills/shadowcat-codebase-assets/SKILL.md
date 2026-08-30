@@ -140,11 +140,11 @@ pipeline-derived tags.
   in-memory only.
 - **`serve` never lets a browser render a stored type as a document**: `X-Content-Type-Options:
   nosniff` always, and `Content-Disposition: inline` only for the raster types in
-  `INLINE_CONTENT_TYPES`; everything else — SVG included — is `attachment` (`<img>` embedding
+  `INLINE_CONTENT_TYPES`; everything else — SVG included — is an attachment (`<img>` embedding
   is unaffected). A GM-declared pass-through type is stored verbatim but cannot execute.
 - **Every decode is bounded** (`decode_limits`: axis ≤ `MAX_DECODE_AXIS_PX`, allocation ≤
-  `MAX_DECODE_ALLOC_BYTES`) — on the `ImageReader` sites AND on `is_animated`'s raw
-  `GifDecoder`, which starts with `Limits::no_limits()` and would otherwise allocate a
+  `MAX_DECODE_ALLOC_BYTES`) — on the reader sites AND on `is_animated`'s raw GIF decoder,
+  which the crate constructs with no limits at all and which would otherwise allocate a
   header-sized canvas before reading a pixel. The chat link-preview path reaches this decoder
   without elevated privilege, so the bound is load-bearing, not defense-in-depth.
 - **ETag == `"{id}-{version}"`** for the canonical AND its derivatives (a derivative is
