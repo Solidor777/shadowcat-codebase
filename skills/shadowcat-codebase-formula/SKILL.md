@@ -57,7 +57,12 @@ engine holds.
   a path such as stats.hp.final reads `/system/stats/hp/final`; a number leaf is the value, absent → `unknown-ref`,
   present-but-not-a-number → `type`). Behaviourally identical to this package by construction of
   the shared corpus, never by convention. `data::engine::combat::Formula::validate` runs
-  `formula::parse` at ingress, so a stored `Formula::Text` always parses.
+  `formula::parse` at ingress, so a stored `Formula::Text` always parses. The combat clock is
+  the evaluator's first server-side consumer: `combat::eval` wraps it (`eval_formula`,
+  `resolved_resource`, `lifecycle_flags` and `duration_amount`, resolving references through
+  `SystemLeafResolver` over `formula_host`'s token-copy-else-linked-actor document), consumed by
+  `transition::recover`, `combat::effects::tick`/`expire_by_policy`, and the movement gate's
+  `resolve_budget` — see `shadowcat-codebase-combat` and `shadowcat-codebase-scene-rendering`.
 
 **Arithmetic semantics that surprise formula AUTHORS** (the `evaluate` and `lexer` modules): `/` is
 float division and `%` is JS TRUNCATED remainder, so `-7 % 2` is `-1`, not the floored `1`; neither

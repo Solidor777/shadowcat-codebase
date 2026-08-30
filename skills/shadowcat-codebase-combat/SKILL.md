@@ -9,11 +9,10 @@ Orientation for the combat clock: the document layer, the server-owned transitio
 pipeline that mutates it, turn history, effect-lifecycle expiry, and the per-turn movement-budget
 gate the move executor enforces against it. The document builders and the settings-chain
 provenance resolver (`resolveSettingProvenance`, `systemDefaultsUpsertOps`) already exist
-client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, the
-server-side evaluation of combat formulas (the evaluator exists in `crate::formula` and every
-stored `Formula::Text` parses at ingress; its combat consumers do not yet call it), or a
+client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, or a
 tracker/settings-editor UI to host any of it — those are later sub-projects. Everything
-server-side about the clock itself (transitions, gates, history) is built.
+server-side about the clock itself (transitions, gates, history, and formula evaluation through
+`combat::eval`) is built.
 
 ## Purpose
 
@@ -42,7 +41,7 @@ separately enforces a per-turn movement budget against the same documents this s
   (`resources: BTreeMap<String, Resource>`), `Resource`/`ResourceBinding` (`Mirror { value }` |
   `Tracked { max, recover }`), `Recovery` (per-clock-boundary `Formula` amounts), `EffectEngine`
   (`active`, `transfer`, `duration`, `lifecycle`), `Duration`/`DurationUnit`/
-  `ExpiryPoint`/`ResolvedLifecycle`, `Formula` (untagged `Number(f64) | Text(String)`),
+  `ExpiryPoint`, `Formula` (untagged `Number(f64) | Text(String)`),
   `MovementRules`/`Interpretation`/`Enforcement`/`TurnControl`, `TurnRecord`/`CapturedCombatant`/
   `EffectSnapshot`/`CombatHistoryEngine`/`MAX_TURN_HISTORY`, `CombatDefaults` (the override-chain
   shape, every field optional), and
@@ -101,10 +100,11 @@ separately enforces a per-turn movement budget against the same documents this s
   in sorted id order, because `CombatSnapshot.hosts` is a hash map whose iteration order varies run
   to run and the collection order decides which combatant's boundary sweep claims a shared key
   first. `tick` decrements `remaining` at a matching
-  clock boundary and deactivates at zero; `expire_by_policy` deactivates by lifecycle flag
-  (`on_combat_end`/`on_turn_end`) independent of `Duration` entirely. Both skip any effect whose
-  `lifecycle.resolved` or `Duration.remaining` is still unresolved (`None`) — see the hard
-  invariant below.
+  clock boundary and deactivates at zero — an untouched countdown (`Duration.remaining: None`)
+  is materialized on its first matching boundary from the evaluated `Duration.amount`;
+  `expire_by_policy` deactivates by evaluated lifecycle flag (`on_combat_end`/`on_turn_end`)
+  independent of `Duration` entirely. Both evaluate per boundary through the chain and, on an
+  evaluation failure, skip that ONE effect and report it — see the hard invariant below.
 - `combat::history` (`append_record`, `restore`, `fast_forward`, `live_equals`,
   `resulting_combatants`) — the turn-history record/restore seam `start`/`advance` call through,
   never re-implemented at a call site. `append_record` replays a transition's own accumulated ops
@@ -252,11 +252,21 @@ separately enforces a per-turn movement budget against the same documents this s
   `WorldSettingsEngine::validate` and `SceneEngine::validate`), and `CombatHistoryEngine::validate`
   recurses into every captured combatant and effect band so a direct GM `Update` on a
   `combat-history` record cannot store a formula `combat::history::restore` would later fail to
-  write back. The combat transitions do not yet call the evaluator: `transition::recover` still
-  applies only `Formula::Number`, and `combat::effects::tick`/`expire_by_policy` still skip an
-  effect whose `Duration.remaining`/`lifecycle.resolved` is `None` — that consumer wiring is the
-  combat-resolution sub-project. Do not describe the skip as a design property; it is the interim
-  state. See `shadowcat-codebase-formula` for the evaluator and `SystemLeafResolver`.
+  write back. The transitions EVALUATE through `combat::eval` (`formula_host` — the
+  token-embedded actor copy, else the linked actor — plus `eval_formula`, `resolved_resource`,
+  `lifecycle_flags`, `duration_amount`): `transition::recover` applies text recoveries clamped
+  to the evaluated `max`, `combat::effects::tick`/`expire_by_policy` evaluate the lifecycle
+  chain (authored formula → `CombatEngine.effect_lifecycle` → engine fallbacks) per boundary,
+  and an untouched countdown (`Duration.remaining: None`) or an ABSENT `Tracked` entry reads as
+  FULL and materializes on first change — lazy-full, uniformly for every combatant kind; there
+  is no join-time seeding. An evaluation failure skips its ONE write and surfaces as a GM-only
+  `MessageKind::System` chat notice (`transition::eval_notice`, deduped per transition, each
+  detail prefixed with the combatant's name or id) — the clock never stops on a bad formula.
+  Stored resource scalars default to owner-or-GM egress: a combatant `Create` carrying no
+  explicit `/engine/resources` property override is stamped `Visibility::OwnerOrGm` at
+  `apply_intent` ingress (an explicit entry, `all` included, is respected untouched;
+  `buildCombatantDoc` mirrors the stamp for the optimistic view). See
+  `shadowcat-codebase-formula` for the evaluator and `SystemLeafResolver`.
 - **One combat intent commits as ONE command, under `Room::commit_combat`.** This invariant scopes
   to `combat::handle_combat_intent`'s own pipeline — it does NOT extend to the movement-budget
   gate inside `Room::execute_move` (`shadowcat-codebase-scene-rendering`), which deliberately

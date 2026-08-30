@@ -382,12 +382,18 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   because the decrement needs a resolvable budget even when the gate itself never truncates. For an
   exempt caller, either unresolvable condition instead DEGRADES to "move freely, no decrement" (the
   same outcome as a token bound to no combatant at all) rather than refusing the move. **"Exempt"
-  is one expression read by all three of these paths** (`execute_move::exempt`, which is
+  is one expression read by all three of these paths** (`resolve_budget::exempt`, which is
   `is_gm || !bg.enforced`): a GM by the gameplay exemption every other axis of this gate also grants, or a
   caller the gate is not `enforced` against. Both still take the decrement path when the budget
-  resolves. Only once both turn-ownership and budget-resolvability clear does the gate
-  compute `execute_move::move_budget_cells` (`entry.current / cost_to_resource`, non-exempt + Hard
-  only) to bound `move_exec::MoveGateInputs.budget`. **Lock ordering carries a step for this
+  resolves. The gate inputs are built by `budget_gate_for_token` (the combat lookup, the
+  registry binding for the combat's movement resource, the combatant's stored entry, its
+  formula-host document via `SceneEcs::combatant_formula_host`, the per-cell scale, `enforced`)
+  and decided by `resolve_budget` — ONE shared resolution `handle_pathfind`'s route-preview
+  clamp consumes too. It derives `current`/`max` through `combat::eval::resolved_resource`
+  (lazy-full: an ABSENT entry reads as full and the decrement materializes it with a Null OCC
+  pre-image; a `Mirror` binding or an evaluation failure is unresolvable), and its
+  `BudgetResolution::Resolved` carries the truncation ceiling (non-exempt + Hard only) bounding
+  `move_exec::MoveGateInputs.budget`. **Lock ordering carries a step for this
   gate:** `Repository::world_cap_defaults` is awaited AFTER `publish_guard` is taken but BEFORE the
   scene read guard, because `ctx_access` needs it under that read guard and a scene read guard is
   never held across an await. Fetched unconditionally — whether a combat is even running is itself
@@ -538,12 +544,20 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   original per-leg accumulation would give for that same prefix) — like the rest of `find`, the
   replay never calls the private `step_cost` fn directly; `find::sc` here is the per-neighbour
   cost VALUE `neighbors_with_cost` yields for each iterated pair, not a function of its own. Returns
-  `PathOutcome { path, cost, arrested }`. This truncation exists so a
+  `PathOutcome { path, cost, arrested, truncated }`. This truncation exists so a
   player-facing route preview is honest about a hazard it already knows about — it never shows a
   route running past an arrest cell the requester can see.
-  `SceneEcs::pathfind(requester: RouteRequester, scene, start, waypoints, footprint_radius)` —
-  `RouteRequester` describes the REQUESTER ONLY (`user`, `is_gm`, `explored`); the route itself
-  stays in `pathfind`'s own trailing parameters. It builds a `PathInputs` and passes it to
+  `SceneEcs::pathfind(requester: RouteRequester, scene, start, waypoints, footprint_radius,
+  budget_cells)` — `RouteRequester` describes the REQUESTER ONLY (`user`, `is_gm`, `explored`);
+  the route itself stays in `pathfind`'s own trailing parameters. `budget_cells` is the
+  movement-budget preview clamp: the grid engine cuts inside `pathfinding::find` by per-step
+  replay, the walls-only continuous engine via `navmesh::truncate_at_budget`'s span cut, and
+  EVERY budget-boundary comparison — both cuts and `execute_move`'s own stop — runs through the
+  ONE predicate `pathfinding::budget_admits_step`, so the preview and the executor cannot
+  disagree at the boundary by an epsilon only one of them applies. `handle_pathfind` resolves
+  the clamp through `budget_gate_for_token` + `resolve_budget` (the executor's own gate) for a
+  named, authorized token; refusals reuse the generic wording, and `PathResult.truncated`
+  reaches only the requester of their own preview. It builds a `PathInputs` and passes it to
   `pathfinding::find`. **`pathfind`'s route parameters and the wire-side `PathfindRequest` are
   deliberately NOT unified into one type** even though `scene`/`start`/`waypoints`/
   `footprint_radius` coincide: `footprint_radius` is a client hypothetical on the wire and the
@@ -574,10 +588,11 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   omits exactly those same walls from a non-GM's ROUTE so its geometry isn't leaked through route
   shape. These are two independent wall-visibility axes serving opposite purposes on the same
   underlying wall set; a `gm_only` wall always springs at `execute_move` regardless of what the
-  router's per-requester set showed. Wire frames `Pathfind`/`PathResult` (`{path, cost, arrested}` —
+  router's per-requester set showed. Wire frames `Pathfind`/`PathResult` (`{path, cost, arrested, truncated}` —
   `cost` is in CELLS on every movement model, which the client scales by `grid.distance.perCell` for
   display; `arrested` is always disclosed to the requester, no secrecy concern: it only tells them a
-  route THEY could already see is truncating)/`PathError` — one-shot to the requesting connection only
+  route THEY could already see is truncating, and `truncated` likewise reaches only the requester's
+  own budget-clamped preview)/`PathError` — one-shot to the requesting connection only
   (never broadcast); `get_explored` fetched off the scene read lock (no lock across await).
   `Pathfind` also carries an optional `token: Option<Uuid>` (`ws::protocol`): when present
   the server AUTHORIZES it (effectively owned by the requester AND parented to `scene` — the same
