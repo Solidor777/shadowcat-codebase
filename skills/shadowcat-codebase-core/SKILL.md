@@ -69,9 +69,12 @@ source of truth. The ones agents break most:
 - **`dist/` must be built before any cargo build of the server** — `rust-embed` validates
   `../../dist/` at COMPILE time. [[embed-dist-compile-ordering]]
 - **Capability/permission model** layered server/world/document roles. [[capability-permissions]]
-- **Three-band document shape: envelope `name` + typed `engine` + opaque `system`.**
-  Server runs no third-party code; authority over the opaque `system` body is structural only
-  (size/field-path/`deny_unknown_fields`) — no semantic validation, ever. The typed `engine` body
+- **Three-band document shape: envelope `name` + typed `engine` + opaque `system`.** The server
+  never decides what a `system` value MEANS and runs no third-party code; its authority over the
+  band is structural (size/field-path/`deny_unknown_fields`/declared shape). It DOES evaluate the
+  engine's own grammars over `system` data a formula names — `crate::formula` (server twin of
+  `@shadowcat/formula`) reads numeric leaves through `SystemLeafResolver` — and by default
+  computation runs on the server; the client requests. The typed `engine` body
   (present only for the 23 engine-defined doc types: tokens, actors, scenes, walls, regions,
   lights, drawings, templates, messages, the world/vision/lighting/chat/dice/faction/
   condition/channel/system-defaults config-docs, and the combat family (combat, combatant,

@@ -9,9 +9,11 @@ Orientation for the combat clock: the document layer, the server-owned transitio
 pipeline that mutates it, turn history, effect-lifecycle expiry, and the per-turn movement-budget
 gate the move executor enforces against it. The document builders and the settings-chain
 provenance resolver (`resolveSettingProvenance`, `systemDefaultsUpsertOps`) already exist
-client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, a
-client-side resolveResources formula evaluator, or a tracker/settings-editor UI to host any of
-it — those are a later milestone. Everything server-side (transitions, gates, history) is built.
+client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, the
+server-side evaluation of combat formulas (the evaluator exists in `crate::formula` and every
+stored `Formula::Text` parses at ingress; its combat consumers do not yet call it), or a
+tracker/settings-editor UI to host any of it — those are later sub-projects. Everything
+server-side about the clock itself (transitions, gates, history) is built.
 
 ## Purpose
 
@@ -241,13 +243,20 @@ separately enforces a per-turn movement budget against the same documents this s
 
 ## Hard invariants
 
-- **The server never evaluates a `Formula::Text`, and skips any effect whose resolved state is
-  unresolved.** `Formula` is untagged (`30` or `"speed"` on the wire); the server stores text
-  formulas verbatim and only ever reads/writes the NUMBERS a client's formula library resolves
-  them to (`CombatantEngine.resources`' `current`/`max`, `Duration.remaining`,
-  `EffectEngine.lifecycle.resolved`). `combat::effects::tick`/`expire_by_policy` both skip an
-  effect outright when the lifecycle/remaining value they need is still `None` — never a guessed
-  starting value, never a default. This is the engine's system/engine split applied to combat.
+- **`Formula::Text` is engine-grammar source the server parses at ingress (`Formula::validate` →
+  `crate::formula::parse`) and evaluates through `crate::formula`.** `Formula` is untagged (`30`
+  or `"speed"` on the wire). EVERY container that holds one validates it — `Recovery`,
+  `ResourceBinding`, `Duration.amount`, `EffectLifecycle`, `EffectLifecycleDefaults` (directly, as
+  `CombatEngine`'s own resolved-chain field from `CombatEngine::validate`; and through
+  `CombatDefaults::validate`, reached from `SystemDefaultsEngine::validate`,
+  `WorldSettingsEngine::validate` and `SceneEngine::validate`), and `CombatHistoryEngine::validate`
+  recurses into every captured combatant and effect band so a direct GM `Update` on a
+  `combat-history` record cannot store a formula `combat::history::restore` would later fail to
+  write back. The combat transitions do not yet call the evaluator: `transition::recover` still
+  applies only `Formula::Number`, and `combat::effects::tick`/`expire_by_policy` still skip an
+  effect whose `Duration.remaining`/`lifecycle.resolved` is `None` — that consumer wiring is the
+  combat-resolution sub-project. Do not describe the skip as a design property; it is the interim
+  state. See `shadowcat-codebase-formula` for the evaluator and `SystemLeafResolver`.
 - **One combat intent commits as ONE command, under `Room::commit_combat`.** This invariant scopes
   to `combat::handle_combat_intent`'s own pipeline — it does NOT extend to the movement-budget
   gate inside `Room::execute_move` (`shadowcat-codebase-scene-rendering`), which deliberately

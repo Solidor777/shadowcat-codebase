@@ -13,7 +13,8 @@ Server is the source of truth; the client only mirrors the wire shape.
 A document is a typed envelope (id, type, owner, permissions, `schema_version`, display `name`)
 carrying **three bands**: the envelope `name: Option<String>` itself, a typed `engine`
 JSONB body (present only for engine-defined `doc_type`s, strictly ingress-validated), and an
-opaque `system` JSONB body the engine never interprets semantically. Permissions are enforced
+opaque `system` JSONB body whose meaning the engine never decides (it evaluates engine-grammar
+formulas over leaves a formula names — see `shadowcat-codebase-formula`). Permissions are enforced
 server-side **per recipient**: hidden fields are stripped before transmission, never
 sent-then-hidden. This subsystem also owns the visibility-partitioned full-text index.
 

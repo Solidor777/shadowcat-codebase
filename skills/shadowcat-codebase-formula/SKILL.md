@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-formula
-description: "Use when touching `@shadowcat/formula` (src/client/formula/) — the framework-neutral expression library: the `lexer`/`parser`/`evaluate` pipeline, `resolveAll`'s cycle-guarded dependency-graph resolution and its restart trampoline, the dice-notation-template rewrite and its key checker (`resolveNotationTemplate`/`NOTATION_KEYWORDS`/`checkNotationKey`), the `types` module's error kinds and DoS caps, or the `internal` module's consumer-callback trust boundary. Invoke shadowcat-codebase-core first; for the sheet layer that consumes formulas invoke shadowcat-codebase-sheets."
+description: "Use when touching `@shadowcat/formula` (src/client/formula/) or its server twin `crate::formula` (src/server/src/formula/) — the framework-neutral expression language: the `lexer`/`parser`/`evaluate` pipeline, `resolveAll`/`resolve_all`'s cycle-guarded dependency-graph resolution, the shared TS/Rust conformance corpus that pins the two implementations together, the engine's `SystemLeafResolver`, the dice-notation-template rewrite and its key checker (`resolveNotationTemplate`/`NOTATION_KEYWORDS`/`checkNotationKey`), the `types` module's error kinds and DoS caps, or the `internal` module's consumer-callback trust boundary. Invoke shadowcat-codebase-core first; for the sheet layer that consumes formulas invoke shadowcat-codebase-sheets; for the combat documents whose `Formula` fields the server parses at ingress invoke shadowcat-codebase-combat."
 ---
 
 # Shadowcat — `@shadowcat/formula`
@@ -49,6 +49,15 @@ engine holds.
   these before trusting it as a `FormulaValue`.
 - The `index` module — the only public entry point, re-exporting `types`, `parser`, `evaluate`,
   `graph` and `template`.
+- Server twin: `crate::formula` (`src/server/src/formula/`) — `formula::types` (`FormulaError`,
+  `FormulaErrorKind`, `FormulaValue`, the four caps), `formula::lexer::tokenize`,
+  `formula::parser::parse`/`Expr`/`BinOp`/`FnName`, `formula::evaluate`/`Resolve`,
+  `formula::graph::resolve_all`, `formula::resolver::SystemLeafResolver` (the engine's ONE
+  reference-semantics decision: a dotted path reads LITERALLY from a document's `system` band —
+  a path such as stats.hp.final reads `/system/stats/hp/final`; a number leaf is the value, absent → `unknown-ref`,
+  present-but-not-a-number → `type`). Behaviourally identical to this package by construction of
+  the shared corpus, never by convention. `data::engine::combat::Formula::validate` runs
+  `formula::parse` at ingress, so a stored `Formula::Text` always parses.
 
 **Arithmetic semantics that surprise formula AUTHORS** (the `evaluate` and `lexer` modules): `/` is
 float division and `%` is JS TRUNCATED remainder, so `-7 % 2` is `-1`, not the floored `1`; neither
@@ -68,6 +77,17 @@ This package has no design document of its own, so an invariant here cites the a
 document or a memory slug where one governs it, and otherwise names the TEST that pins it. A test
 is the stronger referent for a library contract anyway: it fails when the invariant stops holding,
 which no prose can do.
+
+- **One conformance corpus pins both implementations.**
+  `src/client/formula/src/__fixtures__/conformance.json` is read by `conformance.test.ts` here and
+  by `formula::tests::conformance` on the server; every case asserts value-or-error INCLUDING the
+  `detail` string. A grammar or wording change lands in the corpus first, then in both
+  implementations — a change to one side alone fails the other's suite. `round` ties toward +∞ on
+  both sides (`formula::evaluate::js_round`, never `f64::round`; the corpus pins
+  `round(0.49999999999999994) = 0`, which the naive floor-of-x-plus-one-half model of JavaScript rounding gets wrong);
+  source length is counted in UTF-16 code units on both sides. The TS side runs on a real JS
+  engine, so when reasoning about what JavaScript rounding "should" return disagrees with the corpus, the
+  corpus is right — add the case, never argue from an engine model.
 
 - **Error-value-only, fail-closed.** No function in this package throws on ANY input, and
   arithmetic never leaks `NaN`/`Infinity` — both become a `FormulaError` via `finite`. A consumer
@@ -183,6 +203,15 @@ which no prose can do.
   reads back off the same scan).
 
 ## Gotchas
+
+- **`evaluate` cannot be handed `resolveAll`'s `get` directly.** `evaluate`'s reference case
+  wraps the resolver in `callResolver`'s try/catch, which swallows the `NeedsDependency` restart
+  signal `resolveAll` throws through `get` — so a graph node whose `resolveAll.evalNode` calls
+  `evaluate(ast, (path) => get(...))` resolves every not-yet-memoized dependency to a
+  `"resolver-error"` instead of restarting. The consumer pattern is collect the AST's refs, call
+  `get` for each OUTSIDE `evaluate`, then evaluate over the fetched map — what
+  `conformance.test.ts` and the server's `formula::tests::conformance` both do, and why the two
+  harnesses must request the same dependency set per node to stay comparable.
 
 - **`checkNotationKey` answers over the key in ISOLATION, and TWO things can part its answer from
   the rewrite's. Both sit outside the grammar** — within the grammar both run `claimAt`, so an
