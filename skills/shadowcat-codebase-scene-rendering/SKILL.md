@@ -920,8 +920,10 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
 - `scene-docs` (`src/client/core/src`) — **vision/lighting/movement data model: the server mask
   consumes these shapes; the client lighting render (see `lighting` above) is display-only**:
   world-scoped config-docs `world-settings`/`light-gradation`/`vision-modes`
-  (builders + deep-frozen defaults `DEFAULT_WORLD_SETTINGS`/`DEFAULT_GRADATION`/`SEED_VISION_MODES`;
-  builders `structuredClone` the frozen default), per-scene `SceneSystem.vision?`/`lighting?`
+  (builders + deep-frozen MIRRORS `DEFAULT_WORLD_SETTINGS`/`DEFAULT_GRADATION`/`SEED_VISION_MODES`
+  of the server's engine-literal/seed definitions — the server seeds every config singleton; the
+  gradation/vision builders `structuredClone` the frozen default, while `buildWorldSettingsDoc`
+  defaults to the EMPTY overlay), per-scene `SceneSystem.vision?`/`lighting?`
   overrides + `grid.distance?` + `bounds?`, the scene-parented `is_engine_doc_type::light` doc_type
   (`LightEngine` + `buildLightDoc`), and the fail-closed resolvers `resolveSceneSettings`/
   `resolveGradation`/`resolveVisionModes`. **`bounds`:** `SceneDimensions {width,
@@ -933,10 +935,9 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
 - **Multi-scene viewing / GM local roam.** `resolveViewedScene(store, {gmViewedScene?})`
   (`scene-docs` module) is the single client-side answer to "which scene does THIS client render/
   subscribe to". Resolution order: a resolvable `gmViewedScene` (GM-only local override) → a
-  resolvable `world-settings.system.activeScene` (`WorldSettingsSystem.activeScene: string |
-  null`, new field, deliberately EXCLUDED from `resolveSceneSettings`'s existing
-  structural-completeness triple so an older world-settings doc missing this key stays
-  "complete") → the first scene (legacy single-scene fallback) → `null` only when no scene exists
+  resolvable `world-settings` `activeScene` (`WorldSettingsEngine.active_scene`, an overlay
+  leaf like every other world-settings member — absent means unset, no structural requirement)
+  → the first scene (legacy single-scene fallback) → `null` only when no scene exists
   at all. Fail-closed by construction: an id naming a scene that no longer exists is treated as
   unresolvable and skipped to the next tier, never rendering nothing while scenes exist and never
   leaking a stale scene's channel. `WorldSession.viewedSceneId` (the `worldSession` module) is the
@@ -1064,11 +1065,14 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   fail-closed outcome.
 - **Bound recursive walks over self-FK (parent_id) tables with a visited-set** [[m8a-execution-state]].
 - **Scene-settings resolvers are fail-closed and inheritance-layered**: `resolveSceneSettings`
-  resolves built-in default < `world-settings` doc < per-scene override, never throws (structural
-  guard tolerates a partial `world-settings` wire doc), and a per-scene override of `null` means
-  **inherit** (resolver `??` chains treat null and undefined identically). The deep-frozen
-  `DEFAULT_*`/`SEED_*` constants are immutable-by-design; builders `structuredClone` them so no
-  frozen/shared reference reaches a doc.
+  resolves built-in default < `system-defaults` < `world-settings` overlay < per-scene override,
+  never throws — BOTH middle layers are `Option`-lifted overlays, so a partial doc contributes
+  exactly its authored leaves — and a per-scene override of `null` means **inherit** (resolver
+  `??` chains treat null and undefined identically). The server twin is `resolve_scene`'s
+  per-leaf fold with `WorldSceneDefaults::default` as the ONE innermost source. The deep-frozen
+  `DEFAULT_*`/`SEED_*` constants are immutable-by-design mirrors of those server definitions;
+  the gradation/vision builders `structuredClone` them so no frozen/shared reference reaches a
+  doc.
 - **The server lit mask is the lighting-aware secrecy gate**: `player_lit_mask(user)` =
   `LOS ∩ (lit ∨ darkvision)`, union over the user's vision sources (owned tokens ∪ observer-tier
   tokens when `observerVision`), emitted as per-recipient `lit` cells. Wire format:

@@ -264,9 +264,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   enforces from it, see the Hard Invariants entry below).
 - `data::sqlite::apply_intent` — the singleton-`doc_type` create-gate:
   `SINGLETON_DOC_TYPES` (world-settings/faction-registry/condition-registry/resource-registry/
-  system-defaults/chat-settings/dice-settings — 7 entries; `light-gradation`/`vision-modes` are
-  real engine doc_types but are NOT singleton-gated, and `channel-registry` has no gated const at
-  all) + a tx-scoped
+  system-defaults/chat-settings/dice-settings/channel-registry/light-gradation/vision-modes —
+  all ten config singletons, the same set `world_seed`'s `CONFIG_SINGLETON_DOC_TYPES` seeds,
+  which is what makes the gate the seed path's race backstop) + a tx-scoped
   `singleton_doc_exists` DB check reject a second `Create` of a singleton type. That DB check alone
   closes only the CROSS-CALL race (relies on the single-writer `max_connections(1)` pool + a
   tx-scoped executor). A `claimed_singletons: HashSet<String>` seeded before Phase 1's per-op loop
@@ -287,6 +287,20 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   writes ever get** — there is no second check downstream to catch a permissive predicate. Full
   mechanism, the exact call sites that construct it, and the authz-bypass this exemption exists to
   prevent: `shadowcat-codebase-combat`.
+- **`WriteOrigin::ConfigSeed` is the world-config seed/refresh origin — the same capability-skip
+  shape as `CombatTransition` (`WriteOrigin::skips_capability_gates` is the ONE predicate every
+  capability-gate site in `apply_intent` reads; `ServerMessageRevision` deliberately does NOT
+  skip), plus one gate of its own: it is the ONLY origin permitted to Create, Update or Delete a
+  `system-defaults` doc.** Update/Delete are rejected against the STORED doc_type — the same
+  authoritative-stored-type shape as the `MESSAGE_DOC_TYPE` guard beside them — so no
+  client-reachable origin (including a GM's `Client` writes, and `CombatTransition`) can author
+  the singleton. Constructed only by the `create_world` seed, the WS join's
+  `ws::conn::reseed_world_config`, and the enabled-modules refresh; the ops always come from ONE
+  builder, `data::world_seed::missing_config_ops` (a Create per absent config singleton with the
+  Rust seed body, plus an OCC'd `/engine` Update when a stored `system-defaults` body drifts
+  from the enabled system package's manifest declaration). `world_seed::seed_author` attributes
+  a seed commit to the world's first GM by sorted user id; a world with no GM member is not
+  seeded (`Command.author` stays a required, real user).
 - `data::sqlite::apply_intent` — Phase-1 OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never

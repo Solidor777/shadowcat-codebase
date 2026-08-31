@@ -33,24 +33,21 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   not an abort. `reconcileTopology(...)` is a separate, warn-only comparison of the client's own
   resolved `provides`/`requires` against the server-broadcast topology. Contract schemas:
   `ContractProvideSchema`.
-- **`SYSTEM_CONTRACT` and the world-setting-defaults on-join upsert.**
+- **`SYSTEM_CONTRACT` and the server-seeded world-setting defaults.**
   `SYSTEM_CONTRACT = "shadowcat.system"` is the singleton contract a game-system module claims to
   become "the" active system for a world (`ModuleRegistry::systemModule()` resolves the winner
   through the SAME active/demoted `activeProvidersOf` bookkeeping every other singleton contract
   uses — a losing claimant is excluded exactly as elsewhere, no separate resolution mechanism).
-  `Module.systemDefaults?: SystemDefaultsEngine` (not on `ModuleManifest` — that type is
-  Zod-validated and silently strips unknown keys) declares the system's overrides for every
-  world-configurable setting (scene defaults, pathfinding, animation, combat). On a successful
-  Welcome, `WorldSession.#onWelcome` — GM only — reads `#modules.systemModule()?.systemDefaults`
-  and, when present, calls `systemDefaultsUpsertOps(store, world, declared)`
-  (`@shadowcat/core`'s `scene-docs` module) to diff the declared shape against the world's
-  `system-defaults` singleton (creating it on first join, or emitting a per-section `/engine/<key>`
-  `Update` only for a section that key-order-independently differs) and dispatches the result —
-  idempotent, so two GMs joining concurrently converge on one upsert rather than duplicating
-  writes. This is the module-declaration/upsert half of the four-tier settings chain
-  (engine → system-defaults → world → scene) `resolve_combat_rules`/`resolveSettingProvenance`
-  resolve server- and client-side — see `shadowcat-codebase-combat` for the resolver and the
-  combat-specific `CombatDefaults` shape this chain carries.
+  A system's world-setting defaults are declared in its `module.json` `systemDefaults` (the
+  manifest, validated server-side — see `shadowcat-codebase-module-toolchain`; the client's
+  `ManifestSchema` shape-checks it for authoring feedback only), and the SERVER writes the
+  world's `system-defaults` singleton from that declaration — at world creation, at every world
+  join, and on any enabled-set change. Client writes to the singleton are rejected outright,
+  and `WorldSession.#onWelcome` dispatches no config-doc writes at all (its only remaining seed
+  is the GM first-scene create — a scene is not config). This feeds the four-tier settings
+  chain (engine → system-defaults → world → scene) `resolve_combat_rules`/
+  `resolveSettingProvenance` resolve server- and client-side — see `shadowcat-codebase-combat`
+  for the resolver and the combat-specific `CombatDefaults` shape this chain carries.
 - `<Surface>` is the host that renders contributions for a
   surface id; `AppContext`, `setAppContext`/`getAppContext`, `__APP_CONTEXT_KEY__`.
 - `t(key, params)`, `locale()`, the `i18n` adapter over
@@ -369,13 +366,15 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   Below 48rem the
   topbar drops the world-name label and the scene-tools `ToolRail` collapses from a vertical
   side rail into a horizontal bottom strip (`sizeClass()`-driven, same axis).
-  `game-settings` = `@shadowcat/module-game-settings` (GM-only): idempotently seeds + edits
-  the world's singleton config-docs — the vision/lighting trio
+  `game-settings` = `@shadowcat/module-game-settings` (GM-only): EDITS the world's singleton
+  config-docs (every one server-seeded at world creation/join) — the vision/lighting trio
   (`world-settings`/`light-gradation`/`vision-modes`, resolved by
   `resolveSceneSettings`/`resolveGradation`/`resolveVisionModes`),
   plus `dice-settings` and `chat-settings` (the `hyperlinks` +
-  `link_previews` tri-state toggles). Each section uses the same reactive-seed + real-OCC-
-  pre-image `set()` idiom. The chat/dice server resolvers + segments are covered by
+  `link_previews` tri-state toggles). World-defaults inputs display the provenance-resolved
+  EFFECTIVE value while writes carry the RAW stored overlay leaf as the OCC pre-image, and the
+  reset control CLEARS the leaf (writes null) so resolution falls through — never a
+  client-resolved literal. The chat/dice server resolvers + segments are covered by
   `shadowcat-codebase-chat`/`-dice`.
 
 ## Hard invariants
@@ -389,11 +388,14 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 - **In-game elements communicate ONLY through seams** (module contracts, `ContributionRegistry`,
   `<Surface>`, AppContext, render-layer API) — never import one another or the shell directly.
 - **Entry views are plain-routed, not contributions; surfaces are in-world only.**
-- **A config-doc seed `$effect` must be reactive (`createSubscriber` + `subscribe()`)** — contribution
-  panels mount during `#onWelcome` BEFORE the resync stream populates the store, so a one-shot
-  non-reactive seed either fails-to-seed (role not yet set) or double-seeds (store still empty). Mirror
-  `FactionsPanel`/`ConditionsPanel`/`GameSettingsPanel`: GM-gate, `subscribe()` inside the effect,
-  per-doc-type `length === 0` guard, single `seeded` latch [[contribution-seed-reactive-before-resync]].
+- **Config docs are server-seeded; a panel never creates one.** Every config singleton
+  (world-settings, the faction/condition/channel/resource registries, chat/dice settings,
+  system-defaults) exists from world creation/join via the server's `ConfigSeed` path, so a
+  panel `$effect` that creates a missing config doc is a defect, not a convention. Panels read
+  reactively (`createSubscriber` + `subscribe()` — a plain store read inside `$derived`/`$effect`
+  registers no dependency, and panels mount during `#onWelcome` BEFORE the resync stream
+  populates the store) and EDIT with real-OCC stored pre-images only
+  [[contribution-seed-reactive-before-resync]].
 
 ## Gotchas
 

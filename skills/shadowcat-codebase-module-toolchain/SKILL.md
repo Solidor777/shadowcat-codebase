@@ -24,9 +24,17 @@ existing `ModuleRegistry`.
 **Server (authoritative, never runs module code):**
 - `modules` — `scan_installed_modules(dir)` walks `<dir>/*/module.json`, parse +
   validate each (invalid `id`/`version`/JSON → warn + SKIP, never blocks startup or hides siblings).
-  `InstalledModule { id, requirements, engines_shadowcat, manifest_json, entry_url }` where **`id`
+  `InstalledModule { id, requirements, engines_shadowcat, manifest_json, entry_url,
+  system_defaults, provides_system }` where **`id`
   is the install FOLDER name, not the author-declared manifest id**. `entry` (module.json field,
   `default_entry` = `index.js`) computes `entry_url` = `/modules/<folder>/<entry>`.
+  `system_defaults` is the manifest's `systemDefaults` declaration validated against
+  `SystemDefaultsEngine` at scan (invalid ⇒ warn + `None`; the module itself still loads — the
+  same fail-open discovery posture), and `provides_system` is whether the raw manifest's
+  `provides` names `SYSTEM_CONTRACT` (`"shadowcat.system"`, the server-side mirror of the
+  client's contract id) — the pair the world-config seed path
+  (`shadowcat-codebase-documents-permissions`'s `ConfigSeed` bullet) reads to write a world's
+  `system-defaults` singleton.
   `semver_satisfies` (exact/`^`/`~`/`*`, caret-0.x leftmost-non-zero fix) + `engine_compat_ok`
   (**fail-closed**: missing `engines.shadowcat` → reject).
 - `http::module_routes` — `InstalledModuleInfo { id (folder id), manifest,
@@ -34,7 +42,12 @@ existing `ModuleRegistry`.
   any-auth); `serve_module_file` (`GET /modules/{id}/{*path}` — two-stage canonicalize +
   `is_strictly_within` proper-descendant check, guards BOTH the `id` segment and the `*path`
   segment, rejects path==root equality); `set_world_enabled_modules`/get (`PUT/GET
-  /api/worlds/{id}/enabled-modules`, `require_gm`, atomic validate-all + dedup, `MAX_ENABLED_MODULES`).
+  /api/worlds/{id}/enabled-modules`, `require_gm`, atomic validate-all + dedup,
+  `MAX_ENABLED_MODULES`; rejects an enabled set naming more than one `provides_system` module —
+  the server's system-defaults derivation and the client's singleton-contract winner must never
+  diverge on which system is active — and, after persisting, runs
+  `ws::conn::reseed_world_config` so the stored `system-defaults` singleton refreshes from the
+  newly-enabled package's declaration through a live room broadcast).
 - `config` — `Config.modules_dir: Option<String>` + `modules_path()`; the
   `test_server --modules-dir` flag (the `test_server` binary) sets it for e2e.
 - `ws::conn`/`ws::protocol` — `ServerMsg::Welcome.server_version`

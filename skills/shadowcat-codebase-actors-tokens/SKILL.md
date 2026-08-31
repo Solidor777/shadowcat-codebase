@@ -131,9 +131,9 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   actor-creation form, mounted by `ActorsPanel` and driven by an `onBuild` callback prop.
   Every asset pick goes through `AppContext.pickAsset` (the asset-browser pick modal): the
   editor's shared asset-pick snippet renders a pick BUTTON (face / sheet / top-level image,
-  single pick) and the frames flow is one ordered multi-pick that REPLACES `anim.frames`
-  wholesale — there is no in-editor `listAssets` grid any more, and a cancelled pick (`null`)
-  leaves state untouched
+  single pick) and the
+  frames flow is one ordered multi-pick that REPLACES `anim.frames` wholesale — there is no
+  in-editor `listAssets` grid any more, and a cancelled pick (`null`) leaves state untouched
   (`ActorsPanel` still owns `conditionOptions` and the aggregate create-form reset, calling the
   child's exposed `reset()`). `buildVisual()` (in `VisualKindEditor`) validates per-kind
   completeness for EVERY face row (an image row needs `asset`; an animated row needs non-empty
@@ -171,29 +171,20 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   so an abandoned query's late first page can otherwise overwrite a newer query's results
   (verified by tracing the real `WsClient` dispatch order). Each row also
   gets an "Open sheet" button (`ctx.openDocument({docId: a.id})`, [[shadowcat-codebase-sheets]]).
-- The `factions` module (`FactionsPanel`) — GM editor + idempotent seed of
-  the faction registry (extracted into `seedFactionRegistryIfAbsent(store, worldId,
-  dispatchIntent)` for testability); faction-colored token border + select-by-faction.
-  **Deterministic singleton-seed id (reference implementation for other config-doc seeders):**
-  the seed doc's id is `deterministicId(worldId, "faction-registry")`
-  (re-exported from `@shadowcat/core`) — a synchronous UUID-v5-SHAPED hash (four
-  seeded FNV-1a 32-bit mixes, not true SHA-1 UUIDv5, because every doc builder in the `scene-docs`
-  module is synchronous and Web Crypto's SHA-1 is async) rather than `crypto.randomUUID()`. Two GMs
-  racing to seed a brand-new world compute the SAME id — the load-bearing property is SAME ID,
-  NOT byte-identical content: `envelope()`'s `created_at`/`updated_at` stamp via `Date.now()` per
-  call, so the two racers' Creates genuinely differ there. The server's singleton create-gate
-  (doc_type-scoped, not id-scoped — see
-  `shadowcat-codebase-documents-permissions`) rejects the losing Create, the existing
-  `WsClient.onReject` → `OptimisticClient.reject` rollback path discards the loser's local
-  prediction automatically, and because both racers used the same id the winner's confirmed doc
-  lands under that same store key — no explicit conflict-catching code is needed (or possible:
-  `AppContext.dispatchIntent` is fire-and-forget with no per-call reject signal exposed to
-  modules). `seedFactionRegistryIfAbsent` short-circuits via `store.get(id)` before dispatching.
-- The `conditions` module (`ConditionsPanel`) — GM editor + idempotent emoji seed
-  of the condition registry (extracted into `seedConditionRegistryIfAbsent(store, worldId,
-  dispatchIntent)`, mirroring `seedFactionRegistryIfAbsent`'s shape exactly, including the
-  deterministic `deterministicId(worldId, "condition-registry")` seed id) + a
-  token-selection-driven toggle palette; render via
+- The `factions` module (`FactionsPanel`) — GM editor over the faction registry;
+  faction-colored token border + select-by-faction. The registry itself is SERVER-seeded
+  (the engine's `FactionRegistryEngine::seed` three-faction default, written by the
+  world-config seed path at world creation/join — see
+  `shadowcat-codebase-documents-permissions`'s `ConfigSeed` bullet); the panel never creates
+  it, only edits entries with real-OCC stored pre-images. `deterministicId(worldId, name)`
+  (re-exported from `@shadowcat/core`) remains available for fixture ids — a synchronous
+  UUID-v5-SHAPED hash (four seeded FNV-1a 32-bit mixes, not true SHA-1 UUIDv5, because every
+  doc builder in the `scene-docs` module is synchronous and Web Crypto's SHA-1 is async)
+  rather than `crypto.randomUUID()` — but no production path derives a config-singleton id
+  from it anymore (server seeds use fresh UUIDs; absence is keyed by doc_type).
+- The `conditions` module (`ConditionsPanel`) — GM editor over the condition registry
+  (SERVER-seeded with the engine's `ConditionRegistryEngine::seed` emoji default, same seed
+  path as the faction registry) + a token-selection-driven toggle palette; render via
   `TokenNodeSpec.badges` (upright glyph chips). Toggle gated by `AppContext.canEdit(doc, path)`
   (GM or token owner).
 

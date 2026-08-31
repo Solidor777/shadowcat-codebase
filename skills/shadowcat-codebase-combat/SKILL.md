@@ -8,7 +8,7 @@ description: "Use when touching Shadowcat's combat clock: the combat/combatant/r
 Orientation for the combat clock: the document layer, the server-owned transition/intent
 pipeline that mutates it, turn history, effect-lifecycle expiry, and the per-turn movement-budget
 gate the move executor enforces against it. The document builders and the settings-chain
-provenance resolver (`resolveSettingProvenance`, `systemDefaultsUpsertOps`) already exist
+provenance resolver (`resolveSettingProvenance`) already exist
 client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, or a
 tracker/settings-editor UI to host any of it — those are later sub-projects. Everything
 server-side about the clock itself (transitions, gates, history, and formula evaluation through
@@ -234,11 +234,12 @@ separately enforces a per-turn movement budget against the same documents this s
 - Client (`@shadowcat/core`, `src/client/core/src/scene-docs.ts`): `buildCombatDoc`,
   `buildCombatantDoc` (stamps `owner` and, unless `hidden`, an `owner`-role `users` entry so the
   owner may write their own resources — hidden strips both), `buildResourceRegistryDoc`,
-  `buildEffectDoc`, `seedResourceRegistryIfAbsent` (idempotent GM seed under a deterministic id).
+  `buildEffectDoc`. The `resource-registry` singleton itself is SERVER-seeded (empty) by the
+  world-config seed path — no client seed helper exists.
   `resolveSettingProvenance(store, scene, path)` (`SettingPath` includes `` `combat.${...}` ``
   keys) is the client-side mirror of `resolve_combat_rules`'s four-tier precedence, exposed
-  per-field for a settings UI — see `shadowcat-codebase-client-shell` for `SYSTEM_CONTRACT`/
-  `systemDefaultsUpsertOps`, the module-declaration and on-join-upsert half of the same chain.
+  per-field for a settings UI — see `shadowcat-codebase-client-shell` for `SYSTEM_CONTRACT` and
+  the server-seeded `system-defaults` half of the same chain.
   None of these client seams wire to a tracker UI yet.
 
 ## Hard invariants
@@ -469,6 +470,7 @@ separately enforces a per-turn movement budget against the same documents this s
 - `shadowcat-codebase-scene-rendering` — owns `Room::execute_move`'s movement-budget gate
   (turn-owner enforcement, resource resolution, the two-commit split), the unified diagonal-cost
   function this gate shares with the pathfinder, and every other movement-gate axis.
-- `shadowcat-codebase-client-shell` — owns `SYSTEM_CONTRACT`, `Module.systemDefaults`, and
-  `systemDefaultsUpsertOps` — the module-declaration and on-join-upsert half of the settings chain
+- `shadowcat-codebase-client-shell` — owns `SYSTEM_CONTRACT` and the server-seeded
+  `system-defaults` seam (a system package's `module.json` declaration, written by the server's
+  world-config seed path) — the declaration half of the settings chain
   `resolve_combat_rules`/`resolveSettingProvenance` resolve.
