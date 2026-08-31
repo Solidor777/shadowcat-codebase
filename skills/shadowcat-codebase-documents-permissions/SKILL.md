@@ -155,6 +155,26 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - `data::validation::validate_field_change` — ingress shape rule: `remove: true`
   must carry a null `new`. Defense-in-depth only; the mirror is correct independently, which
   matters because replay and broadcast can carry shapes ingress never validated.
+- `data::command::Operation::Move { doc_id, parent_id, old_parent_id }` — the ONE write path for
+  the envelope `parent_id` (immutable via field-path Update: `required_cap_for_path` maps no
+  capability to envelope fields). GM-only AND uncapped at the `apply_intent` chokepoint
+  (`WorldRole::Gm` whose resolved `Access.all` short-circuit holds — a `gm_role`-capped GM
+  floor-resolves and is refused; `WriteOrigin::CombatTransition` is exempt like the other
+  capability gates); a stored `message` doc refuses it like every ordinary mutation. Validity is
+  **Create-validity**: the shared `check_parent_placement` helper (extracted from the Create arm —
+  never re-spell it) plus `validate_containment` run against the post-image, and
+  `check_move_acyclic`'s batch-aware ancestor walk refuses a move beneath itself. `old_parent_id`
+  is the OCC pre-image; `invert` swaps the pair; a no-op move (target == current) is carried in
+  the log for invertibility but writes nothing and runs no hooks. Both authoritative loops
+  (`apply_intent`, `apply_command`) implement the arm — replay keeps the structural checks, drops
+  the capability/OCC gates. Egress: `filter_command`'s Move arm delivers the op verbatim iff
+  whole-document READ holds at commit AND now (the conjunction), with the recreated-id
+  `created_seq` guard; no content band rides a Move and no READ transition can arise from one
+  (access resolution never consults `parent_id`). The scene ECS mirror's Move arm rewrites the
+  mirrored `parent_id` and re-evaluates `is_scene_entity` (a document re-parented to the top
+  level despawns); `actors`/`combats` map entries mirror the parent in lockstep. Client:
+  `applyOperation`'s move arm is the store-equal mirror; optimistic predict + rollback ride the
+  ordinary correlated-intent machinery.
 - `data::command::FieldChange.remove: bool` — a leaf-level object-key-removal
   discriminator on the existing `Operation::Update`/`FieldChange` wire shape, not a new `Command`
   variant: it reuses the same OCC pre-image check (`old`) and capability check

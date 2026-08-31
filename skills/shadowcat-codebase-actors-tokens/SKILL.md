@@ -128,7 +128,12 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   GM inline editor; darkvision range authoring (create + per-row), writing `engine.vision: [{
   mode: "darkvision", range }]` (omitted when range 0).
   **Visual authoring (`VisualKindEditor`):** a visual-kind editor (image / faces / animated) in the
-  actor-creation form, mounted by `ActorsPanel` and driven by an `onBuild` callback prop
+  actor-creation form, mounted by `ActorsPanel` and driven by an `onBuild` callback prop.
+  Every asset pick goes through `AppContext.pickAsset` (the asset-browser pick modal): the
+  editor's shared asset-pick snippet renders a pick BUTTON (face / sheet / top-level image,
+  single pick) and the frames flow is one ordered multi-pick that REPLACES `anim.frames`
+  wholesale — there is no in-editor `listAssets` grid any more, and a cancelled pick (`null`)
+  leaves state untouched
   (`ActorsPanel` still owns `conditionOptions` and the aggregate create-form reset, calling the
   child's exposed `reset()`). `buildVisual()` (in `VisualKindEditor`) validates per-kind
   completeness for EVERY face row (an image row needs `asset`; an animated row needs non-empty

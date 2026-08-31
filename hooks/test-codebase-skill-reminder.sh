@@ -30,7 +30,7 @@ check() { # <session-suffix> <path> <expected-skill>
   o=$(printf '{"session_id":"%s%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' "$SID" "$1" "$2" | $H)
   echo "$o" | grep -q "$3" || { echo "FAIL: $2 did not map to $3 (got: $o)"; exit 1; }
 }
-check m1 "src/modules/assets/src/Assets.svelte"          "shadowcat-codebase-assets"
+check m1 "src/modules/asset-browser/src/AssetBrowser.svelte" "shadowcat-codebase-assets"
 check m2 "src/modules/actors/src/ActorsPanel.svelte"     "shadowcat-codebase-actors-tokens"
 check m3 "src/server/src/scene/vision.rs"                 "shadowcat-codebase-scene-rendering"
 check m4 "src/server/src/ws/room.rs"                      "shadowcat-codebase-realtime-sync"

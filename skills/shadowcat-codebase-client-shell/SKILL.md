@@ -316,6 +316,18 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   call), "View" (`ctx.setGmViewedScene`), "Activate" (writes
   `activeScene` via `ctx.dispatchIntent` with the REAL current value as OCC `old`). Scenes have
   no `name` field — the browser labels rows by index + thumbnail, deliberately.
+- **Asset pick seam** — `AppContext.assetPick: AssetPickController` (ui-kit stable-ref class:
+  one reactive `pending` request; a new `request` cancels the previous with `null`; `settle`
+  clears `pending` BEFORE resolving) plus the overloaded convenience
+  `AppContext.pickAsset(opts)` (`PickAssetMultiple` → ordered `string[] | null`, otherwise
+  `string | null`), both wired in `Table` over one shell-constructed controller. The
+  asset-browser module renders `pending` as `AssetPickOverlay`, contributed into
+  `shadowcat.surface:overlay` — a `core-ui` singleton `Layout` renders OUTSIDE and AFTER the
+  region grid so fixed-position modal chrome is never clipped (the merge-conflict modal
+  precedent is a Table-mounted host instead; new app-level modals should prefer the surface).
+  The overlay contribution is deliberately un-gated (any member picks); the browser PANEL
+  contribution is `gmOnly`. Consumers: scene-tools `AssetPicker`'s browse affordance and
+  `VisualKindEditor`'s face/frames/sheet picks.
 - AppContext seams (wired in `Table`): `uiState {getPanelLayout, setPanelLayout}`
   (narrow; the shell owns storage), `panels: PanelsApi & PanelsChipsView` — the shell
   constructs ONE `PanelsBridge` (`$state`-backed so

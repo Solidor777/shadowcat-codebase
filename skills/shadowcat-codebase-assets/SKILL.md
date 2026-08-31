@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-assets
-description: "Use when touching Shadowcat assets: upload (single-shot or chunked sessions), the WebP conversion pipeline + retained originals + thumb/preview derivatives, explicit/derived tags, `asset_folder` documents, the query/PATCH/bulk/reconvert/original routes, serve/replace/delete, ETag/version revalidation, upload rate limits, out-of-band AssetChanged broadcasts (every `AssetOp`), the client asset REST + chunked-upload client + AssetResolver, or the assets UI module. Covers src/server/src/data/asset{.rs,/} + src/server/src/data/sqlite/assets.rs + src/server/src/http/assets{.rs,/} + src/client/core/src/asset* + src/modules/assets. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat assets: upload (single-shot or chunked sessions), the WebP conversion pipeline + retained originals + thumb/preview derivatives, explicit/derived tags, `asset_folder` documents, the query/PATCH/bulk/reconvert/original routes, serve/replace/delete, ETag/version revalidation, upload rate limits, out-of-band AssetChanged broadcasts (every `AssetOp`), the client asset REST + chunked-upload client + AssetResolver, or the asset-browser UI module (panel, folder tree, pick overlay). Covers src/server/src/data/asset{.rs,/} + src/server/src/data/sqlite/assets.rs + src/server/src/http/assets{.rs,/} + src/client/core/src/asset* + src/modules/asset-browser. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Assets
@@ -87,8 +87,16 @@ pipeline-derived tags.
   `AssetVariant`, `AssetChangedNotice`). `@shadowcat/types` re-exports the ts-rs `Asset`,
   `AssetMeta`, `AssetOp`, `AssetPage`, `PatchAssetRequest`, `BulkAssetRequest`,
   `CreateUploadRequest`/`CreateUploadResponse`, `AssetFolderEngine`.
-- **`@shadowcat/module-assets`** (`Assets` component) — the pre-browser client panel
-  (upload/list/replace/delete); it consumes the widened `Asset` and notice set unchanged.
+- **`@shadowcat/module-asset-browser`** (`AssetBrowser` + focused sub-components) — the GM
+  browser panel: reactive `FolderTree` (create/rename/delete-dialog/drag + accessible Move-to,
+  dispatching `Operation::Move` via `buildMoveOp`), `FilterBar` mapped 1:1 onto `queryAssets`,
+  the `computeGridWindow`-virtualized multi-select `AssetGrid`, `PreviewPane` (tags/rename/
+  replace/download-original/reconvert/delete), `BulkBar`, and the sequential `UploadQueue`
+  (model in `uploadQueueModel.svelte.ts` — a case-insensitive filesystem cannot hold
+  `uploadQueue.svelte.ts` beside `UploadQueue.svelte`). Pick mode: the `assetPick` /
+  `pickAsset` AppContext seam opens `AssetPickOverlay` (contributed into
+  `shadowcat.surface:overlay`, deliberately NOT GM-gated — any member picks; the managing
+  panel contribution is `gmOnly`). Replaces the retired `@shadowcat/module-assets`.
 
 ## Hard invariants
 
@@ -117,14 +125,17 @@ pipeline-derived tags.
   `refresh_derived_tags_for_folder_subtree` in BOTH write paths (`apply_intent` and
   `apply_command` Update arms). An explicit tag of the same text outranks the derived copy.
 - **`asset_folder` placement:** `parent_id` must be an `asset_folder` in the same scope
-  (`check_asset_folder_parent`, batch-aware for a same-command parent + child; enforced on the
-  `apply_intent` path — `apply_command`'s trusted replay relies on the tree already being valid
-  from the original intent, like its other placement checks). `parent_id` is
-  an immutable envelope path, so the tree is acyclic BY CONSTRUCTION — no cycle walk exists and
-  folders cannot be re-parented after Create. Deleting a folder cascades its sub-folders
+  (`check_asset_folder_parent`, batch-aware for a same-command parent + child), reached through
+  the shared `check_parent_placement` helper the Create AND Move arms both call. Folders ARE
+  re-parentable after Create — via the GM-only `Operation::Move` only, never a field-path
+  Update — so the tree is kept acyclic by `check_move_acyclic`'s batch-aware ancestor walk at
+  the same chokepoint, on the `apply_intent` AND `apply_command` paths alike (structural
+  integrity is not exempted by replay trust). A folder move recomputes the subtree's derived
+  tags through `refresh_derived_tags_for_folder_subtree`, the same hook a folder rename runs.
+  Deleting a folder cascades its sub-folders
   (document invariant) and `reparent_assets_of_deleted_folder` in `delete_document_tx` moves
   each deleted folder's assets to its parent, children-first; `?assets=delete` purges them
-  first through `delete_asset_files_and_row`.
+  first through `delete_asset_files_and_row` (client: `deleteAssetFolder`).
 - **`GET /api/worlds/{world}/assets` has two shapes**: no query parameter ⇒ bare `Asset[]`
   (the contract `listAssets`, `Assets.svelte`, `AssetPicker` and the e2e rely on); any parameter
   ⇒ `AssetPage`. `queryAssets` always sends `limit` so it never hits the bare form. The regex is
@@ -175,9 +186,9 @@ pipeline-derived tags.
   tests use it for seeded rows.
 - A rate-limited or failed session/upload refunds its slot (`UploadRateLimiter::refund`); the
   sweeper refunds idle sessions.
-- Folder MOVE has no route: `parent_id` is immutable (see invariants). A change that needs
-  folder re-parenting must add a server-authored move (or delete + recreate with asset
-  reparenting); no client Update can do it.
+- Folder re-parenting rides the generic document `Operation::Move` (see the placement
+  invariant above and `shadowcat-codebase-documents-permissions` for the op itself) — there is
+  still NO asset-specific move route, and no client field-path Update can touch `parent_id`.
 
 ## Pointers
 
