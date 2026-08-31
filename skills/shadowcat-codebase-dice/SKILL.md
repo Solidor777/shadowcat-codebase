@@ -407,19 +407,26 @@ on.
   live in `chat`, not here, preserving the crate boundary the same way `RollOutcome`'s Zod
   mirror does. All transport policy (caps, entropy, settings, error surfacing) lives in
   `chat::rolls`, never here.
-- **The notation-modifier vocabulary is ONE decision declared in TWO languages.** The keyword set
-  `P::modifiers` matches is mirrored on the client by `@shadowcat/formula`'s `NOTATION_KEYWORDS`,
-  and neither language can read the other's declaration. Adding, renaming or removing a modifier
-  here therefore requires the matching edit there IN THE SAME COMMIT: `modifierParityDifference`
-  reads both declarations and fails `pnpm test:scripts` on a difference in either direction. That
-  gate is the only signal — without the second edit, a template the client rewrites is notation
+- **The notation-modifier vocabulary is ONE decision with THREE declarations, and the math-function
+  vocabulary is another with three.** The keyword set
+  `P::modifiers` matches is mirrored by `@shadowcat/formula`'s `NOTATION_KEYWORDS` AND by the
+  server formula twin's own `NOTATION_KEYWORDS` (`formula::template`) — none of the three can
+  read another's declaration. Adding, renaming or removing a modifier
+  here therefore requires the matching edits IN THE SAME COMMIT: `modifierParityDifference`
+  reads all three declarations and fails `pnpm test:scripts` on a difference in any direction. That
+  gate is the only signal — without the edits, a template the client rewrites is notation
   this parser then rejects or reads differently, and the first report is a wrong roll seen by
   whoever authored the template. **The six math-function names
-  (floor/ceil/round/abs/min/max) are deliberately NOT part of this parity set** — they
+  (floor/ceil/round/abs/min/max) are not modifier vocabulary** — they
   never enter `P::modifiers`'s match at all (`fn_call` is a separate `factor`-level grammar
-  production), so `modifierParityDifference` never sees them. `@shadowcat/formula` reserves an
-  OVERLAPPING but not identical function set independently as its own (`FN_NAMES`/`FnName` in its
-  `parser`: min/max/floor/ceil/round — five names, no abs) — the overlap is coincidental, not a
+  production) — but they now have their OWN parity set of the same shape: the template grammar's
+  `NOTATION_FUNCTIONS` (both template sides) against this parser's `fn_call` match arms, because the
+  server resolves every roll's references through the template scan at the chat boundary
+  (`chat::rolls`), so a function name the scan didn't reserve would read as a stat reference and
+  break every function-calling roll. The scan reserves a name ONLY when immediately followed by `(`,
+  mirroring `fn_call`'s own rule. `@shadowcat/formula`'s formula-grammar parser also reserves an
+  OVERLAPPING but not identical function set independently (`FN_NAMES`/`FnName`:
+  min/max/floor/ceil/round — five names, no abs) — the overlap is coincidental, not a
   parity-enforced one, and this crate's `FnName::Abs` has no `@shadowcat/formula` counterpart.
 - **Expertise optimizes the CLAMPED (visible) net successes, with a counter-max fallback in the
   all-failed region.** `eval::expertise::allocate` maximizes raw lexicographic `(net, counter)`

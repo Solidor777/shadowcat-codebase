@@ -178,7 +178,9 @@ separately enforces a per-turn movement budget against the same documents this s
   defaulted, so an unresolvable authority input fails closed), authorizes via `combat::authorize`
   (see the sole-authorization invariant below), resolves the matching `transition` function's ops
   (or, for `CombatRoll`, executes the named rolls first via `chat::resolve_dice_context`/
-  `chat::rolls::execute_roll`), and commits them via `Room::commit_combat`. `CombatError`'s
+  `chat::rolls::execute_roll` — after validating `channel` against the channel registry, and
+  resolving EACH entry's notation as a raw template against that combatant's
+  `combat::eval::formula_host`, so a `1d20 + init` reads the combatant's own actor), and commits them via `Room::commit_combat`. `CombatError`'s
   `Display` collapses every case that could disclose a hidden combatant
   (`NotFound`/`Forbidden`/`NotRunning`/`Data`) to one identical "combat rejected" wording. Every
   variant that DOES carry distinct wording states, on the variant itself, why that distinction

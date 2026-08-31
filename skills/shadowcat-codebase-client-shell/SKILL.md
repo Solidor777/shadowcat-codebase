@@ -342,7 +342,12 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   SpeakAsToken` (a `ui-kit`-local stable-instance/mutate-in-place class, shell-constructed in
   `Table` alongside `sceneSelection`) holds a ONE-SHOT pending "speak as this token" selection —
   `select(id)`/`consume()`, read-once by design: the scene-tools `ToolRail` sets it, the
-  composer reads `.tokenId` for its indicator and calls `.consume()` on send. Details →
+  composer reads `.tokenId` for its indicator and calls `.consume()` on send. Its sibling
+  `AppContext.speakAs: SpeakAs` holds the STICKY speak-as actor selection (`actorId`, `""` =
+  myself): the composer's `<select>` binds it, and every roll-producing surface — the composer
+  and the chat card's roll buttons — sends it as the roll's actor binding (the pending one-shot
+  takes precedence) so the server resolves a statted template's references as the SENDER, never
+  the button's author. Details →
   [[shadowcat-codebase-chat]].
 - `src/modules/{entry,core-ui,panels,stage,topbar,statusbar,settings,game-settings,scene-browser,
   chat,chat-composer,chat-card}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind

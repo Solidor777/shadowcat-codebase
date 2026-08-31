@@ -162,6 +162,19 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   `[[…]]` span grammar — single-bracket nesting depth so notation `[label]`s survive;
   `roll:`-prefixed spans are buttons, `|` splits a label), `execute_roll` /
   `validate_formula` (parse+caps without rolling, for buttons), `RollError` + Display.
+- **References in roll notation resolve server-side at this boundary.** A roll's formula may be a
+  raw TEMPLATE (`1d20 + stats.str`): `execute_roll`/`execute_roll_with_seed` first run it through
+  `crate::formula::resolve_notation_template` (the Rust twin of the TS template rewrite), resolving
+  each reference against the roll's HOST — for chat, the send's already-ownership-validated
+  `actor_owner` via `chat::host::host_for_actor_owner` (a token's embedded actor copy, else its
+  linked actor, the combat precedence rule shared through `data::document::embedded_actor_copy`),
+  with no binding ⇒ `NoHostResolver` ⇒ an `unknown-ref` refusal via `RollError::Reference`
+  (player-presentable `detail`). The substituted labeled constants surface as `labeled_consts`
+  chips; the stored `RollEmbed.formula` keeps the author's template text, and recalc re-derives
+  from the stored `spec`/`raw`, never re-resolves. Buttons (`[[roll:...]]`) validate structurally
+  with a placeholder zero (a reference can never sit in dice-count/sides position) and store the
+  raw template, resolving per CLICKER at click time. The template scan also reserves the notation
+  `fn_call` vocabulary (`floor(101d6/2)` is notation, never a reference).
 - `handle_send_message` roll stage (post-parse, pre-sanitize): kind `Roll` ⇒ the body is the
   formula, content becomes ONE `RollEmbed{formula, outcome, roll_id, spec, raw,
   recalc_history: None}` (sanitize skipped — no text). `chat::rolls::execute_roll`/
@@ -286,9 +299,13 @@ with zero message-specific plumbing in any of those subsystems.
   - `Audience` (`Public`/`Whisper{recipients: Vec<Uuid>}`/`GmOnly`, `#[default] Public`, tagged
     enum, ts-rs exported same as `ActorOwnerRef`) — the intended readership of a message, carried
     on the `SendMessage` frame and stored verbatim in `MessageEngine`. This is the ONLY
-    server-enforced VISIBILITY concept for chat; `channel` is a client-chosen label the server
-    never uses to gate document visibility, message audience, or any capability check — that
-    boundary is `Audience` alone. `channel` has exactly ONE narrow server-enforced reason to be
+    server-enforced VISIBILITY concept for chat; `channel` never gates document visibility, message audience, or any capability check — that
+    boundary is `Audience` alone. `channel` IS validated at ingest: `chat::settings::channel_registered` checks it
+    against the world's `channel-registry` singleton (`SendMessageError::UnknownChannel`, validation-class, and
+    `CombatError`'s own arm for `CombatRoll` — an unregistered channel is refused, not filed, and the registry
+    itself can never be written empty (`ChannelRegistryEngine::validate` wired into `normalize_engine`: non-empty
+    map, non-empty names, keys within `MAX_CHANNEL_CHARS`). `channel` has exactly ONE other narrow
+    server-enforced reason to be
     read: `chat::settings::resolve_dice_context` looks it up against the world's `dice-settings`
     `channel_overrides` map to select which `mode`/`direction` pair an ambient roll resolves under
     (see the "Dice wire" section) — misresolving it at worst changes which dice settings a
@@ -674,12 +691,15 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   `offsetParent===null` keep-mounted-hidden idiom used for scroll-safety, plus a real
   `IntersectionObserver`-driven `markRead()` on tab reveal. Reads both
   contributions DIRECTLY from the registry (not `<Surface>`) because it must pass reactive
-  instance props: per-message `{message, showChannel}` to the card, the current
-  `postTarget(view)` `{channel, audience, placeholderName}` to the composer. Views:
+  instance props: per-message `{message, showChannel}` to the card, and to the composer the
+  current `postTarget(view, channels)`'s `{channel, audience}` plus a registry-derived
+  `placeholderName`. Views:
   All / per-registry-channel / **GM pseudo-channel** (display-only filters over
   `query("message")` — the server enforces `audience`, never `channel`; posting on the GM view
-  sets `audience: gm_only`). Channels live in a `channel-registry`
-  singleton config doc (id→`{name}` map, GM-seeded `{general}` via the reactive-seed idiom;
+  sets `audience: gm_only`). The GM/All post target's channel is the registry's lowest-sorted id
+  (`postTarget(view, channels)` — never a hardcoded `"general"`), falling back to `"general"` only while the
+  registry doc hasn't arrived. Channels live in a `channel-registry`
+  singleton config doc (id→`{name}` map, server-seeded `{general}` at world create/join;
   add/rename are single-key updates but **remove is a WHOLE-FIELD replace of
   `/engine/channels`** with the key deleted — `set_pointer` cannot delete keys, and a null
   tombstone is deliberately not used). Render cap: last 200 per view, derived incrementally via

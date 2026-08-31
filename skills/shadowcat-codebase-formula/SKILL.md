@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-formula
-description: "Use when touching `@shadowcat/formula` (src/client/formula/) or its server twin `crate::formula` (src/server/src/formula/) — the framework-neutral expression language: the `lexer`/`parser`/`evaluate` pipeline, `resolveAll`/`resolve_all`'s cycle-guarded dependency-graph resolution, the shared TS/Rust conformance corpus that pins the two implementations together, the engine's `SystemLeafResolver`, the dice-notation-template rewrite and its key checker (`resolveNotationTemplate`/`NOTATION_KEYWORDS`/`checkNotationKey`), the `types` module's error kinds and DoS caps, or the `internal` module's consumer-callback trust boundary. Invoke shadowcat-codebase-core first; for the sheet layer that consumes formulas invoke shadowcat-codebase-sheets; for the combat documents whose `Formula` fields the server parses at ingress invoke shadowcat-codebase-combat."
+description: "Use when touching `@shadowcat/formula` (src/client/formula/) or its server twin `crate::formula` (src/server/src/formula/) — the framework-neutral expression language: the `lexer`/`parser`/`evaluate` pipeline, `resolveAll`/`resolve_all`'s cycle-guarded dependency-graph resolution, the shared TS/Rust conformance corpus that pins the two implementations together, the engine's `SystemLeafResolver`, the dice-notation-template rewrite and its key checker (`resolveNotationTemplate`/`NOTATION_KEYWORDS`/`NOTATION_FUNCTIONS`/`checkNotationKey`), the `types` module's error kinds and DoS caps, or the `internal` module's consumer-callback trust boundary. Invoke shadowcat-codebase-core first; for the sheet layer that consumes formulas invoke shadowcat-codebase-sheets; for the combat documents whose `Formula` fields the server parses at ingress invoke shadowcat-codebase-combat."
 ---
 
 # Shadowcat — `@shadowcat/formula`
@@ -28,11 +28,14 @@ engine holds.
   the one before it, so this is a real data flow.
 - Two SIBLING entry points over the same value types — NOT later stages of that pipeline: the
   `graph` module (`resolveAll`) and the `template` module (`resolveNotationTemplate`,
-  `checkNotationKey`, `NOTATION_KEYWORDS`). Neither imports the pipeline — `graph` imports the
+  `checkNotationKey`, `NOTATION_KEYWORDS`, `NOTATION_FUNCTIONS`). Neither imports the pipeline — `graph` imports the
   `types` and `internal` modules, `template` those two plus `chars` — and each is driven by a
   consumer callback. Neither can call the pipeline, so wiring a
   graph node's or a template identifier's text through `parseFormula`/`evaluate` is the consumer's
-  own callback body, never something this package does on its way through.
+  own callback body, never something this package does on its way through. And `resolveNotationTemplate` is a PREVIEW/AUTHORING aid
+  only: the wire carries RAW templates and the server's `formula::template` twin resolves references authoritatively at ingest
+  (against the roll's actor binding), so a module SENDS raw templates (`1d20 + str`) and uses this package only to preview to the
+  author or validate keys (`checkNotationKey`) — never to pre-substitute before sending.
 - The `chars` module — `isDigit`/`isWordStart`/`isWordChar`, the character classes BOTH grammars
   accept, in ONE declaration read by the `lexer` module's tokenizer and the `template` module's
   scanner alike, so neither can widen its identifier set without the other following. Not
@@ -55,8 +58,15 @@ engine holds.
   `formula::graph::resolve_all`, `formula::resolver::SystemLeafResolver` (the engine's ONE
   reference-semantics decision: a dotted path reads LITERALLY from a document's `system` band —
   a path such as stats.hp.final reads `/system/stats/hp/final`; a number leaf is the value, absent → `unknown-ref`,
-  present-but-not-a-number → `type`). Behaviourally identical to this package by construction of
-  the shared corpus, never by convention. `data::engine::combat::Formula::validate` runs
+  present-but-not-a-number → `type`) plus `resolver::NoHostResolver` (the shared
+  every-reference-unknown resolver), and `formula::template::resolve_notation_template`
+  — the twin of THIS package's template rewrite (same recognizer chain incl.
+  `claimNotationFunction`, the `1d` synthesis, labeled substitution incl. the `-N[path]` form,
+  the integer-only and asymmetric i32-magnitude rules, UTF-16 positions). `js_number` renders
+  JS-interpolation spellings for details (`Infinity`/`NaN`; `-0` normalizes to `0`).
+  Behaviourally identical to this package by construction of
+  the shared corpus, never by convention — the corpus's `templates` section pins the rewrite on
+  both suites the same way `expressions`/`graphs` pin the evaluator. `data::engine::combat::Formula::validate` runs
   `formula::parse` at ingress, so a stored `Formula::Text` always parses. The combat clock is
   the evaluator's first server-side consumer: `combat::eval` wraps it (`eval_formula`,
   `resolved_resource`, `lifecycle_flags` and `duration_amount`, resolving references through
@@ -241,15 +251,20 @@ which no prose can do.
   the two concatenate into one number rather than adding — a silently wrong TOTAL, not an error.
   Same class as the bracket-isolation gotcha above: the key checks safe in isolation and runs wrong
   in context, and the caveat is carried on `NotationKeyCheck.intact`. Pinned by `template.test`.
-- **The dice-modifier vocabulary is one decision declared in two languages.** `NOTATION_KEYWORDS`
-  mirrors the server notation parser's `P::modifiers` match, and neither language can read the
-  other's declaration. `modifierParityDifference` reads both and fails `pnpm test:scripts` on a
-  difference in either direction, so a new modifier lands in both declarations or the build breaks.
-  Without that gate the only signal is a wrong roll, seen by whoever wrote the template.
+- **The dice-modifier vocabulary is one decision with THREE declarations, and the math-function
+  vocabulary is another with three.** `NOTATION_KEYWORDS`
+  mirrors the server notation parser's `P::modifiers` match AND the server formula twin's own
+  `NOTATION_KEYWORDS` (`formula::template`) — none of the three can read another. `modifierParityDifference`
+  reads all three and fails `pnpm test:scripts` on a difference in any direction, so a new modifier lands in all
+  declarations or the build breaks. Without that gate the only signal is a wrong roll, seen by whoever wrote the template.
   **Math-function names do NOT belong in
   `NOTATION_KEYWORDS`** — it guards the dice-MECHANIC modifier vocabulary specifically (the same
-  category as kh/cs/tr/rs/xs/xf), not every token the notation grammar's `fn_call`
-  production recognizes; this package's OWN function set (`FN_NAMES`/`FnName` in `parser`:
+  category as kh/cs/tr/rs/xs/xf). The notation `fn_call` vocabulary has its OWN list,
+  `NOTATION_FUNCTIONS` (floor/ceil/round/abs/min/max), mirrored by the server twin's own
+  declaration and parity-checked against the dice parser's `fn_call` match arms the same way; the
+  template scan reserves a function name ONLY when immediately followed by `(`, which is what
+  keeps `floor(101d6/2)` reading as notation rather than a stat reference now that the server runs
+  every roll through the scan. Separately, this package's OWN formula-grammar function set (`FN_NAMES`/`FnName` in `parser`:
   min/max/floor/ceil/round — five names) overlaps with but is not identical to the dice crate's
   six (`FnName` in `dice::spec`: also has `Abs`, which this package has no counterpart for) — the
   overlap is coincidental, not a parity-enforced one.
