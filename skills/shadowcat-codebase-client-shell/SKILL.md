@@ -290,6 +290,34 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   statement ending in `field satisfies never`/`key satisfies never` — a `GlobalField`/`WorldKey`
   union widened by a new `UiState.global`/`worlds[id]` member fails to compile in that `default`
   branch rather than silently dropping the new field from every patch.
+- **Theming** — the `theme` singleton (a `ThemeController`, `@shadowcat/ui-kit`) owns the
+  active theme: `BUILTIN_THEMES` (slate-dark/slate-light/contrast-dark; `DEFAULT_THEME_ID`)
+  plus user-authored custom themes resolved by `resolveTheme` (validated overrides layered
+  onto a built-in base). `applyTo` writes every token and the color scheme as INLINE styles
+  on a document's root element (beating the shell stylesheet and any cloned stylesheets),
+  and every change re-applies to the main document plus each `registerDocument`'d secondary,
+  so pop-out windows follow a swap live; Svelte consumers read through `activeTheme`.
+  Persistence rides the `sessionState` machinery: `UiState.global.theme` (a
+  `PersistedTheme` — the active selector plus the custom-theme map) is dirty-tracked as a
+  `GlobalField` through the same leaf-key patch pipeline as `global.locale`, and a
+  localStorage mirror (`THEME_MIRROR_STORAGE_KEY`, `readThemeMirror`/`writeThemeMirror`)
+  lets the `main` entry module apply the last-used theme synchronously before login, so
+  neither the login screen nor the first post-login paint flashes the default. The settings
+  module's picker switches themes; its `ThemeEditor.svelte` authors custom themes with live
+  whole-app preview through the controller's `previewCustom(draft, owner)` seam —
+  presentational only, `serialize` never observes it — cleared on teardown by the
+  owner-scoped `clearPreview(owner)`, DEFERRED to a microtask: a component destroyed in the
+  same flush that mutated controller state reads its `$state` fields stale, so a synchronous
+  `onDestroy` clear lets persistence subscribers serialize state the flush already
+  superseded, and an unscoped clear can wipe a successor editor's preview mounted by that
+  same flush. Module styling modes: `Contribution.styling` (default host-themed, or
+  isolated) — isolated content is wrapped by `Surface.svelte` and slot-classed by
+  `PanelHost.svelte` with `THEME_ISOLATION_CLASS`, whose rule (`themeIsolationCss`,
+  generated from the default theme's data and installed per themed document by `applyTo`
+  under `THEME_ISOLATION_SHEET_ID`) re-declares every token at its engine-default value for
+  that subtree only. External modules ship a stylesheet via the manifest `style` field,
+  installed as one link per enabled module by the world session (see
+  `shadowcat-codebase-module-toolchain`).
 - **Multi-scene / viewed-scene seams** — `AppContext.viewedSceneId: string | null`
   (a live getter, `Table`: `get viewedSceneId() { return session.viewedSceneId; }` —
   NEVER destructure a snapshot of it), `AppContext.setGmViewedScene(id): void` (GM-only local
