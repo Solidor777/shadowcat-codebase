@@ -170,7 +170,15 @@ the reducer (intercept-and-redispatch), so the engine never owns state.
   untouched). A
   browser popup cannot be opened outside a user gesture; this is why rehydration-on-load
   floats a persisted window's panels and retains the record as dormant, leaving the actual
-  reopen to the gesture-gated `restorePopouts`.
+  reopen to the gesture-gated `restorePopouts`. `LayoutOp.popOutInto` likewise has exactly
+  two producers — the restore gesture and a drag into an open popout window classified by
+  `#handlePopoutWillDrop`. The `#popOutPanel` success continuation runs a late-resolution
+  guard: a `close` op landing in the driver's async `window.open` → re-parent gap has
+  already detached the panel (and the reconciling `apply()` orphan-removed its widget), so
+  when `api.getPanel(id)` is gone or the last-applied tree no longer lists the id
+  (`#treeListsPanel`, mirroring `locate`'s dormant-skip) the continuation skips both the
+  bookkeeping AND the op — recording either would ghost the panel as popped-out with no
+  live widget behind it.
 - **`#pendingPopouts` in-flight guard is required because dockview-core's `mutation()` wrapper
   does not span `addPopoutGroup`'s async gap** — its finally clause fires the instant the async
   function RETURNS the pending promise, not when it settles, and `getNextGroupId()` is fresh on
@@ -282,7 +290,17 @@ the reducer (intercept-and-redispatch), so the engine never owns state.
 - On any dockview-core version bump, re-verify `--z-popover` (1000, defined in `_semantic.scss`)
   still clears dockview's floating-overlay z-index (`--dv-overlay-z-index`, 999 at 7.0.2) — the
   popover menus stack above floating panel groups only by that numeric margin.
-- Dragging a panel into an already-open popout group now flows through `applyOp` too:
+- Dragging a panel into an already-open popout group emits `LayoutOp.popOutInto` (never a
+  pseudo-edge dock): `DockviewEngine.#handleWillDrop` and `#handleGroupWillDrop` classify a
+  target group found in `#popoutWindowKeys` directly, ahead of `#toDropSite`, and delegate to
+  `#handlePopoutWillDrop` — flat placement semantics (every dockview group-model will-drop
+  kind — tab, header space, content — means "into this window"; the tree's flat panel list
+  cannot represent a sub-window split anyway), an imperative per-panel `PanelApiImpl.moveTo` under the
+  moving lock (mirroring `restorePopouts`'s joins, so no spurious `LayoutOp.close` ops),
+  floating-source a11y teardown, and a fail-closed veto (preventDefault, no op) when no
+  subject resolves to a live panel. A subject already living in the target window skips the
+  move but still emits its op — the reducer's `LayoutOp.popOutInto` case is a same-reference no-op
+  for an already-listed id, so it self-heals desync. The sync side:
   `DockviewEngine.#popoutGroupSubs` wires the popout group's own `onWillDrop` (closing the veto
   bypass, mirroring `#groupWillDropSubs`'s per-zone-group wiring) plus `onDidAddPanel`/
   `onDidRemovePanel` (keeping `#poppedOutGroupPanels`'s per-group array in sync with dockview's
