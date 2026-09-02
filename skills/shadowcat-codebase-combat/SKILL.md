@@ -145,7 +145,26 @@ separately enforces a per-turn movement budget against the same documents this s
     (`history::staged_history`) instead of emitting a second write to the same document, which
     `SqliteRepository::apply_intent` would reject outright (at most one `Operation::Update` per
     document per batch, and a second `Create` of a document the batch already created has no valid
-    pre-image at all).
+    pre-image at all). These records are also the client's turn-hook evidence:
+    `deriveCombatHookEvents` (`combat-hooks.ts`, owned by `shadowcat-codebase-client-shell`) walks
+    the records a command's history write placed after the pre-command current record
+    (`crossedRecords`, located by `(round, turn)` identity so eviction and fast-forward both
+    resolve) and emits `combat:turn-start`/`turn-end` per crossed boundary — a GM's hooks name
+    every auto-resolved entry, a `lifespan: null` `Event` or a hidden combatant included, with no
+    client-side re-derivation of this walk; a player, who never receives the GM-only history
+    document, gets the combat document's own `turn`/`round` endpoints (`turnWalk`). Nothing infers
+    a turn from a `lifespan` decrement or a combatant delete.
+- `combat::budget` (`BudgetInputs`, `MovementBudget`, `resolve_movement_budget`,
+  `resource_cells`) — the ONE resolution of "this combatant's movement budget, in cells": the
+  `ResourceBinding::Tracked` gate (a `Mirror` binding is no budget), the
+  `combat::eval::resolved_resource` evaluation over the formula host, and the `Interpretation`
+  conversion (`per_cell` under `PerCell`, `1.0` under `Spaces`) live here and nowhere else.
+  `ws::room::resolve_budget` (the movement-budget gate, and through it `handle_pathfind`'s
+  route-preview clamp and `PathResult.budget_cells`) and `SceneEcs::resolved_combats` (the
+  `"combat"` channel's `movement_cells`) both call it, so a `Mirror`-bound `movement.resource` is
+  `movement_cells: None` on the channel exactly as the gate refuses it — pinned by
+  `a_mirror_bound_movement_resource_yields_no_movement_cells_and_an_unresolvable_gate` beside
+  the turn-owner parity test in `scene::tests::combat_index`.
 - `data::validation::validate_containment` — the combat-family placement rule, covering
   `combat-history` alongside `COMBATANT_DOC_TYPE`: a `combat` document is never
   parented and never embedded; a `COMBATANT_DOC_TYPE` OR `combat-history` document is always
