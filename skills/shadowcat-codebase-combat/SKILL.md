@@ -7,12 +7,13 @@ description: "Use when touching Shadowcat's combat clock: the combat/combatant/r
 
 Orientation for the combat clock: the document layer, the server-owned transition/intent
 pipeline that mutates it, turn history, effect-lifecycle expiry, and the per-turn movement-budget
-gate the move executor enforces against it. The document builders and the settings-chain
-provenance resolver (`resolveSettingProvenance`) already exist
-client-side; what does NOT exist yet is anything that DISPATCHES a combat intent from the UI, or a
-tracker/settings-editor UI to host any of it — those are later sub-projects. Everything
-server-side about the clock itself (transitions, gates, history, and formula evaluation through
-`combat::eval`) is built.
+gate the move executor enforces against it. The document builders, the settings-chain
+provenance resolver (`resolveSettingProvenance`), and the client dispatch layer
+(`CombatController`/`CombatApi`, `@shadowcat/core`) all exist client-side, wired into
+`WorldSession`/`AppContext` — what does NOT exist yet is a tracker/settings-editor UI to host any
+of it (M14d). Everything server-side about the clock itself (transitions, gates, history, and
+formula evaluation through `combat::eval`) is built, including the per-recipient `"combat"`
+derived scene channel that resolves resource numbers for the client.
 
 ## Purpose
 
@@ -237,12 +238,26 @@ separately enforces a per-turn movement budget against the same documents this s
   `buildCombatantDoc` (stamps `owner` and, unless `hidden`, an `owner`-role `users` entry so the
   owner may write their own resources — hidden strips both), `buildResourceRegistryDoc`,
   `buildEffectDoc`. The `resource-registry` singleton itself is SERVER-seeded (empty) by the
-  world-config seed path — no client seed helper exists.
+  world-config seed path — no client seed helper exists; a client must fetch the existing
+  singleton (via the world snapshot) and `Update` it, never `Create` a second one — the same
+  singleton-uniqueness gate `data::world_seed::CONFIG_SINGLETON_DOC_TYPES` seeds for all ten
+  config doc types rejects a duplicate `Create` as `RejectReason::Conflict`.
   `resolveSettingProvenance(store, scene, path)` (`SettingPath` includes `` `combat.${...}` ``
   keys) is the client-side mirror of `resolve_combat_rules`'s four-tier precedence, exposed
   per-field for a settings UI — see `shadowcat-codebase-client-shell` for `SYSTEM_CONTRACT` and
   the server-seeded `system-defaults` half of the same chain.
-  None of these client seams wire to a tracker UI yet.
+  `ENGINE_COMBAT_DEFAULTS`/`newCombatEngine` (also `scene-docs.ts`) are pinned against
+  `src/client/core/src/__fixtures__/engine-combat-defaults.json`, the single fixture both this
+  module's Rust tests and the TS test read — the cross-language promotion gap a private-scope
+  default previously left open.
+- `CombatController`/`CombatApi` (`src/client/core/src/combat.ts`) — the framework-neutral client
+  dispatch layer (also `shadowcat.service:combat`, `COMBAT_SERVICE`), owned end-to-end by
+  `shadowcat-codebase-client-shell` (`WorldSession` construction, `AppContext.combat`, the
+  `combat:*` `CoreHooks` derivation and `CombatHookEmitter`) and `shadowcat-codebase-realtime-sync`
+  (`WsClient.combat()`'s `combat_result`/`combat_error` correlation and the `"combat"` channel
+  parsing). This skill owns only the resolved-resource SHAPE the channel carries
+  (`ResourceRegistryEngine`/`Resource`/`ResourceBinding` above) and the intent semantics
+  `CombatController`'s eight dispatch methods target — not the client wiring itself.
 
 ## Hard invariants
 
@@ -455,6 +470,15 @@ separately enforces a per-turn movement budget against the same documents this s
   drops any unknown key that arrived on the wire, so ingress is still closed to unknown-field
   smuggling; it just isn't enforced by the derive itself on these two types the way it is on every
   other engine struct in this module.
+- **`combat::transition::start` RE-RESOLVES `movement`/`turn_control`/`effect_cleanup`/
+  `rewind_restore`/`forward_restore`/`effect_lifecycle` from `resolve_combat_rules`'s chain
+  (scene > world > system) every time a combat starts — these fields are a SNAPSHOT of the
+  resolved chain at that moment, never authored state a `Create` op can pre-stamp and expect to
+  survive.** A `combat` document's `Create` may set any value on these fields; `combat_start`
+  overwrites all of them from the chain unconditionally. To get a non-default value (e.g.
+  `movement.enforcement: "warn"`) on a STARTED combat, the override belongs on the scene
+  document's `engine.combat: CombatDefaults` (the most-specific layer `resolve_combat_rules`
+  reads), not on the combat document itself.
 - **A combatant hydrates into the scene ECS exactly like any other parented document — no special
   casing.** `is_scene_entity` admits any document with a `parent_id` set (or `doc_type == "scene"`
   itself); a combatant's `parent_id` points at its combat, not a scene, but that's irrelevant to

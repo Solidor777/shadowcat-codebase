@@ -590,11 +590,17 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   omits exactly those same walls from a non-GM's ROUTE so its geometry isn't leaked through route
   shape. These are two independent wall-visibility axes serving opposite purposes on the same
   underlying wall set; a `gm_only` wall always springs at `execute_move` regardless of what the
-  router's per-requester set showed. Wire frames `Pathfind`/`PathResult` (`{path, cost, arrested, truncated}` —
+  router's per-requester set showed. Wire frames `Pathfind`/`PathResult` (`{path, cost, arrested, truncated, budget_cells}` —
   `cost` is in CELLS on every movement model, which the client scales by `grid.distance.perCell` for
   display; `arrested` is always disclosed to the requester, no secrecy concern: it only tells them a
   route THEY could already see is truncating, and `truncated` likewise reaches only the requester's
-  own budget-clamped preview)/`PathError` — one-shot to the requesting connection only
+  own budget-clamped preview; `budget_cells` is the mover's REMAINING movement budget in cells
+  under an enforced combat — `None` for a hidden combatant, a non-combatant token, or an
+  unresolvable resource binding — computed by the SAME `ws::room::resource_cells` helper the
+  movement-budget gate's truncation ceiling uses, so a route preview's disclosed number and the
+  executor's own clamp cannot drift apart; `shadowcat-codebase-combat`'s `CombatController`/
+  `CombatApi` consumes it to label a `Warn`-enforcement overage or a `Hard` truncation on the drawn
+  route in scene-tools)/`PathError` — one-shot to the requesting connection only
   (never broadcast); `get_explored` fetched off the scene read lock (no lock across await).
   `Pathfind` also carries an optional `token: Option<Uuid>` (`ws::protocol`): when present
   the server AUTHORIZES it (effectively owned by the requester AND parented to `scene` — the same

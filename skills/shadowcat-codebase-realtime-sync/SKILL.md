@@ -334,17 +334,16 @@ optimistically and roll back on divergence.
   broadcast `Event` echo. They use a separate `chatPending` map whose timer resolves
   (success-assumed) rather than rejects on timeout — see `shadowcat-codebase-chat`.
   **A THIRD family: the 8 `ClientMsg::Combat*` frames** (`CombatStart`/`CombatPause`/`CombatEnd`/
-  `CombatAdvance`/`CombatRewind`/`CombatSort`/`CombatRoll`/`CombatResource`) **+
-  `ServerMsg::CombatError`**, resolved through `WsClient`'s own `combatPending` map — the same
-  asymmetric shape as chat (only a rejection replies by `request_id`; success is confirmed by the
-  broadcast `Event` echo), but with a DIFFERENT, author-filtered FIFO match on success instead of a
-  request_id-keyed timer resolution: `combat()`'s success path resolves the OLDEST entry in
-  `combatPending` only when the incoming `event`'s `command.author` equals
-  `WsClientOptions.selfUserId` — never matched by `request_id` on the success side (only the
-  rejection path, `combat_error`, matches by `request_id`). **Known failure mode:** with
-  `selfUserId` unset, `combat()` silently never resolves via the `event` path at all — it settles
-  only via `combat_error` or its own timeout, since there is no way for this connection to tell its
-  own broadcast echo apart from any other user's. See `shadowcat-codebase-combat`.
+  `CombatAdvance`/`CombatRewind`/`CombatSort`/`CombatRoll`/`CombatResource`), resolved through
+  `WsClient`'s own `combatPending` map by `request_id` on BOTH paths — a dedicated
+  `ServerMsg::CombatResult { request_id, seq }` answers an accepted intent (originator-only, never
+  broadcast) and `ServerMsg::CombatError { request_id, reason }` answers a rejection; there is no
+  echo-matching on success. Pre-M14c-6, `combat()`'s success path resolved the OLDEST
+  `combatPending` entry on a self-authored broadcast `Event` (an author-echo FIFO matching neither
+  `request_id` nor the specific intent that entry was waiting on, and silently never resolving at
+  all with `selfUserId` unset) — a real defect present since M14b, closed by `CombatResult`'s
+  addition: an entry now resolves only once its `combat_result` has arrived AND `nextExpected` has
+  advanced past its seq, both keyed by `request_id`. See `shadowcat-codebase-combat`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
   selection.** Unlike `MoveRequest`/`handle_pathfind` (which SELECT server state and so must
   derive-from-token, per the never-fork table in `shadowcat-codebase-core`), `ScenePing` relays

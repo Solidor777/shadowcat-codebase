@@ -92,6 +92,26 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 - `AppContext.pathfind` — correlated-request seam: issues a
   `Pathfind` frame via `WsClient.pathfind` and resolves with `PathResult` or rejects with
   `PathError`; wired through `WorldSession` and consumed by `scene-tools` measure-tool route mode.
+- **`AppContext.combat` / `COMBAT_SERVICE`** — `WorldSession` constructs its `CombatController`
+  (`@shadowcat/core`, owned by `shadowcat-codebase-combat`) IN ITS OWN CONSTRUCTOR, before any
+  world is entered, so `CombatControllerDeps.world`/`role` are LIVE GETTERS
+  (`() => this.world ?? ""`, `() => (this.role === "gm" ? "gm" : ...)`), never construction-time
+  snapshots — the same shape a plain field could not express, since `this.world` is still `null`
+  at construction time. `WorldSession.enter`/`leave` open/close a `"combat"` scene subscription
+  (`subscribeScene("combat", ...)`) that feeds `CombatController.setResolved`; `leave` also resets
+  it to empty. The first nine `CoreHooks` entries (`combat:start`/`end`/`round-start`/
+  `round-end`/`turn-start`/`turn-end`/`rewind`/`effect-tick`/`effect-expired`, declared via
+  `declare module "./hooks" { interface CoreHooks {...} }` in `@shadowcat/core`'s
+  `combat-hooks.ts`) are the FIRST concrete entries the generic `HookBus`/`CoreHooks` merge-point
+  (`src/client/core/src/hooks.ts`) ever gained — no skill currently owns that merge-point's
+  general mechanics beyond this one concrete use. `WorldSession.onCommand` runs a cheap
+  `commandTouchesCombat` pre-scan
+  before paying for a pre-image `Map` lookup, so an ordinary token drag never enters the combat
+  derivation path. `deriveCombatHookEvents` reads the authoritative `DocumentStore` pre/post
+  image, never the optimistic view, and `CombatHookEmitter` emits in strict seq order.
+  `AppContext.combat` is exposed to every module/Svelte surface exactly like `AppContext.pathfind`;
+  all `setAppContext` fixture sites default it to a real `CombatController` over the fixture's
+  `documents`, never a stub.
 - `WsClient.moveRequest(scene, tokenId, path) → Promise<MoveStream>` — correlated-request mirror of
   `pathfind`: sends `MoveRequest`, resolves with the broadcast `MoveStream` when the matching
   `move_stream` frame arrives (mover's `request_id` correlates; the resolved value signals success
