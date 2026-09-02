@@ -690,8 +690,8 @@ with zero message-specific plumbing in any of those subsystems.
   `permissions.property_overrides`, populated by `roll_property_overrides` at
   message-Create time and re-populated on every recalc — never a chat-specific redaction
   filter; `outcome`/`recalc_history`/`roll_id` stay visible to every recipient.**
-  `roll_property_overrides` (renamed from `roll_embed_property_overrides` once it also covered
-  `Segment::TableDraw`) is recomputed from scratch against the CURRENT `content` on
+  `roll_property_overrides` (its name covers both `RollEmbed` and `TableDraw` segments — see the
+  `push_draw_overrides` note below) is recomputed from scratch against the CURRENT `content` on
   every call (never incrementally patched), so a message's override set always matches what it
   actually carries; `build_message_doc` calls it at Create, `handle_recalc_roll` calls it again
   after every recalculation and writes the result to `/permissions/property_overrides` in the

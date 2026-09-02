@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-tables-notes
-description: "Use when touching Shadowcat's rollable tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Covers src/server/src/data/engine/table.rs, src/server/src/tables/, the `TableDraw`/`DrawnRow`/`roll_property_overrides` portions of src/server/src/chat/mod.rs, src/client/core/src/table-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. A `notes` document type is NOT yet implemented — this skill's name anticipates it; do not assume note-taking coverage exists here. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules, invoke shadowcat-codebase-documents-permissions."
+description: "Use when touching Shadowcat's rollable tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Covers src/server/src/data/engine/table.rs, src/server/src/tables/, the `TableDraw`/`DrawnRow`/`roll_property_overrides` portions of src/server/src/chat/mod.rs, src/client/core/src/table-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. A "notes" document type is NOT yet implemented — this skill's name anticipates it; do not assume note-taking coverage exists here. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules, invoke shadowcat-codebase-documents-permissions."
 ---
 
 # Shadowcat — Rollable Tables
@@ -141,9 +141,9 @@ chat message it produces.
     `Extract<ChatSegment, {kind:"table_draw"}>` — that narrowing is undocumentable by TypeDoc, an
     invariant `shadowcat-codebase-core` states generally). `chatSegmentSchemaImpl` is
     `z.union([nonRecursiveChatSegmentSchemaImpl, tableDrawSegmentSchemaImpl])` rather than one
-    `z.discriminatedUnion` — a `discriminatedUnion` cannot host a recursive `z.lazy(...)` member,
-    so the 8 non-recursive segment kinds stay one `discriminatedUnion` and the recursive
-    `table_draw` member is unioned in separately via `z.lazy`.
+    Zod's discriminated-union validator — it cannot host a recursive lazy member, so the 8
+    non-recursive segment kinds stay one discriminated union and the recursive `table_draw`
+    member (`tableDrawSegmentSchemaImpl`) is unioned in separately as a lazy schema.
   - `ws-client.ts` — `DrawTableOptions{tableId, channel, count?, actorOwner?, audience?}`,
     `WsClient.drawTable(opts) -> Promise<void>` — same `trackChatOp`/`chatPending` correlation as
     `sendChatMessage`/`recalcRoll`.
@@ -151,8 +151,9 @@ chat message it produces.
     `worldSession.svelte.ts`/`Table.svelte`; see `shadowcat-codebase-client-shell`.
   - `SegmentList.svelte` — the `table_draw` render branch: a `RollTooltip` over the
     row-selecting roll, then the matched row's `content` and each `row.nested` entry rendered
-    through a RECURSIVE self-import of `SegmentList` itself (Svelte 5's replacement for the
-    deprecated `<svelte:self>`), or a "no matching row" message when `row` is absent/null. A
+    through a RECURSIVE self-import of `SegmentList` itself (the Svelte-5-idiomatic way to
+    self-reference a component, in place of `<svelte:self>`), or a "no matching row" message
+    when `row` is absent/null. A
     `doc_link` segment additionally renders a Draw button when its target resolves to a `table`
     document in the local store.
 
@@ -177,7 +178,7 @@ chat message it produces.
 
 ## Gotchas
 
-- **A `notes` document type does not exist yet.** This skill's name anticipates a future
+- **A "notes" document type does not exist yet.** This skill's name anticipates a future
   note-taking feature; nothing in this skill or in the current codebase implements one — do not
   infer note-document coverage from the skill's name.
 - **`TableEntry`'s content resolves at DRAW time, never at table-authoring/ingest time.** A
@@ -197,7 +198,7 @@ chat message it produces.
 ## Pointers
 
 - `docs/superpowers/specs/2026-09-02-m19-tables-notes-chat-media-design.md` — the design spec
-  (rollable tables is the delivered slice; a `notes` document type is scoped in the same spec but
+  (rollable tables is the delivered slice; a "notes" document type is scoped in the same spec but
   NOT part of this delivery).
 - `docs/superpowers/plans/2026-09-02-m19b-rollable-tables.md` — the implementation plan this
   skill's Key files section tracks task-for-task.

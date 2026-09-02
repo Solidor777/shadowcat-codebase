@@ -746,8 +746,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - `shadowcat-codebase-chat` — the first (and so far only) consumer of `gm_role`, via its
   `Audience` enum's `PermissionSet` mapping (see that skill's Key files & seams). Also owns the
   worked `property_overrides` example this skill's `collect_overrides` gotcha above warns about:
-  `chat::roll_embed_property_overrides` computes GM-only `property_overrides` entries for a
-  `RollEmbed`'s `spec`/`raw`/`recalc_history[].previous_raw` fields, and the `WriteOrigin::
+  `chat::roll_property_overrides` computes GM-only `property_overrides` entries for a
+  `RollEmbed`'s `spec`/`raw`/`recalc_history[].previous_raw` fields (and, recursively, a
+  `TableDrawSegment`'s own `spec`/`raw` at every nesting depth), and the `WriteOrigin::
   ServerMessageRevision` exact-path admission for writing `/permissions/property_overrides`
   (an origin/doc_type/path-scoped extension of the general `apply_intent` access-grant
   mechanism above, with no other consumer) is documented there rather than here, same
