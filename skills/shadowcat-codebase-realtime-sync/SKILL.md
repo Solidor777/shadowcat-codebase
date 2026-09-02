@@ -341,7 +341,7 @@ optimistically and roll back on divergence.
   echo-matching on success. Pre-M14c-6, `combat()`'s success path resolved the OLDEST
   `combatPending` entry on a self-authored broadcast `Event` (an author-echo FIFO matching neither
   `request_id` nor the specific intent that entry was waiting on, and silently never resolving at
-  all with `selfUserId` unset) — a real defect present since M14b, closed by `CombatResult`'s
+  all with `selfUserId` unset) — a longstanding defect closed by `CombatResult`'s
   addition: an entry now resolves only once its `combat_result` has arrived AND `nextExpected` has
   advanced past its seq, both keyed by `request_id`. See `shadowcat-codebase-combat`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
