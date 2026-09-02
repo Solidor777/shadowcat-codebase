@@ -26,25 +26,45 @@ is the `base` derivation at Create plus ordinary Create validation.
 
 ## Key files & seams
 
-- The server `merge` module (`src/server/src/merge/`, beside `formula`/`dice`) — the exact
-  behavioural twin of the retired TS engine, unit-by-unit:
-  - `tree.rs` — `structural_diff`, `deep_equal`, pointer escape/tokenize/`delete_pointer`/
-    `set_pointer` helpers, `merge3_tree`, `take_template`, `same_result`, `paths_overlap`. Sorted-
-    key traversal keeps output order-independent (the corpus pins order).
+- The server `merge` module (`src/server/src/merge/`, beside `formula`/`dice`) — the server-owned
+  merge engine that replaced the retired TS engine; its contracts are stated in its own terms and
+  pinned by the conformance corpus below, not by a client twin:
+  - `tree.rs` — `structural_diff`, `deep_equal`, pointer escape/`tokenize`/`get_pointer`
+    (`pub(crate)`)/`delete_pointer`/`set_pointer` helpers (fallible — `PointerError`, never a
+    panic on a malformed or non-container path), `merge3_tree`, `take_template`, `same_result`,
+    `HiddenPointers` (`excludes_parent`/`withholds`). Overlap is `data::permission::paths_overlap`
+    (one predicate, not a merge-local copy). Sorted-key traversal keeps output order-independent
+    (the corpus pins order).
   - `embedded.rs` — `merge3_embedded` (`source.id` correlation, never index), `revert_embedded`,
-    `revert_child`, `restamp_subtree`, `EmbeddedBaseChild`.
-  - `bands.rs` — `MergeBase`/`MergeBands` (`#[ts(export)]`), `snapshot_base`, `bands_tree`/
-    `base_from_child` adapters, `placement_exclusions`/`is_placement_excluded` (token
-    `/engine/x|y|rotation`, hardcoded as before).
+    `revert_child`, `restamp_subtree`.
+  - `bands.rs` — `MergeBase`/`EmbeddedBaseChild` (`#[ts(export)]` — the client's types, reached
+    through `@shadowcat/types`), `MergeBands` (server-internal, NO ts-rs export: it never crosses
+    the wire), `snapshot_base`, `derive_create_base`, `bands_tree`/`base_from_child` adapters,
+    `placement_exclusions`/`is_placement_excluded` (token `/engine/x|y|rotation`, hardcoded as
+    before).
   - `plan.rs` — `merge3`, `compute_pull`, `compute_revert`, `plan_to_update` (whole-band emission;
-    absent-vs-empty-collection `null` rule; `/base` refresh = the template's current snapshot),
-    `apply_resolutions`.
+    absent-vs-empty-collection `null` rule; `/base` refresh = `snapshot_base` of the template the
+    merge ran against, emitted — like every other band — ONLY when it differs from the stored
+    value, so an in-sync instance yields an update with no changes and the handlers report
+    `Applied` without publishing), `apply_resolutions` (every `Set` first, then every `Delete` in
+    descending `pointer_key` order — deepest and highest-indexed first, so no splice renumbers a
+    path still waiting; fallible: an unapplicable "theirs" is `Err`, never a panic).
+  - `visibility.rs` — the `MergeVisibility` oracle (`hidden(side, doc)`, `Side::Template`/
+    `Side::Child`): `AllVisible` (tests/corpus) and `RequesterView { template, child }` (production,
+    backed by `permission::hidden_own_pointers`). Visibility is resolved by document IDENTITY at
+    every embedded depth, never by array index — the live child index and the merged OUTPUT index
+    are different spaces (a dropped preceding sibling shifts one and not the other). An
+    unanswerable oracle fails the merge closed (`MergeError::VisibilityUnknown`).
   - `mod.rs` — the public surface + `MergeConflict` (`#[ts(export)]`; `path`/`base`/`parent`/
-    `child`/`parentKind`, `base`/`parent`/`child` absent — not `null` — when that side has no value).
+    `child`/`parentKind`, `base`/`parent`/`child` absent — not `null` — when that side has no value),
+    `MergeError { CorruptBase, VisibilityUnknown, Pointer(PointerError) }`.
   A JSON conformance corpus (`src/client/core/src/__fixtures__/merge-conformance.json`),
   GENERATED from the TS engine's live output before its deletion, is run forever by the Rust
-  suite (`merge::tests::conformance`) — that generation transcript is the equivalence evidence for
-  the port; a divergence in either language fails the corpus, not a hand-written expectation.
+  suite (`merge::tests::conformance`) — the generation transcript
+  (`scripts/merge-corpus-generation.log`) is the equivalence evidence for the port; a divergence
+  fails the corpus, not a hand-written expectation. ONE deliberate delta is recorded in the
+  fixture's own `amendments` key: the `/base`-only-when-changed rule above (four revert cases
+  amended by hand).
 - The three intents (`ws::protocol::ClientMsg::MergePull`/`MergePush`/`MergeRevert`,
   `ServerMsg::MergeResult`/`MergeError`) — a stateless two-call flow. WITHOUT `resolutions`: the
   server computes the plan from LIVE documents; conflict-free commits immediately (under
@@ -52,37 +72,55 @@ is the `base` derivation at Create plus ordinary Create validation.
   by `MergeResult` alone); conflicted returns the conflict set (per-instance for push) and writes
   nothing. WITH `resolutions` (the caller's "theirs" paths, per instance for push): the server
   RECOMPUTES the plan from live documents and rejects (`MergeErrorKind::StaleResolutions`/
-  `UnknownResolution`, both carrying the FRESH outcome) unless every submitted path is a CURRENT
-  conflict path — there is no server-side session state; interleaving edits are caught by the
-  recompute, never by OCC on a stale pre-image. Revert never conflicts.
+  `UnknownResolution`/`Unresolvable`, each carrying the FRESH outcome) unless every submitted path
+  is a CURRENT conflict path whose template side the current merged shape can take — there is no
+  server-side session state; interleaving edits are caught by the recompute, never by OCC on a
+  stale pre-image. Revert never conflicts.
   - `MergeOutcome::Pull { child_id, status: Applied | Conflicts(Vec<MergeConflict>) }`,
     `MergeOutcome::Push { template_id, instances: Vec<PushInstanceOutcome> }` (per-instance
     `{ instance_id, name, status: Applied | Conflicts(_) | Excluded }` — `name` is the
     pusher-VISIBLE display name for the modal's group label), `MergeOutcome::Revert { child_id,
     status: Applied }`.
-  - **Hidden-conflict rule (egress).** Every replied conflict set is filtered to the paths the
-    REQUESTER can see in BOTH documents — a conflict whose path overlaps a property-override
-    subtree hidden from the requester is (a) removed from the replied set and (b) auto-resolved
-    child-wins in the applied result (the child value already sits in the merged bands; excluding
-    the conflict from the set `apply_resolutions` sees achieves both). The merge COMPUTATION and
-    the committed WRITE stay over the UNREDACTED documents — this also fixes the legacy
-    hidden-field-dropping behaviour a redacted-view-computed whole-band write used to have. A GM
-    sees everything, so a GM's conflict sets are unchanged.
+  - **Visibility rule (the PARENT side is the requester-visible template).** Pull, revert AND
+    push build the template side of the merge from `merge_intents::visible_template` —
+    `filter_properties(template, requester_access)`, the template with every property whose
+    override the requester cannot READ removed, the same `property_overrides`/`Access::can_see`
+    classifier egress uses. A template-hidden path is EXCLUDED from the parent diff
+    (`HiddenPointers::excludes_parent`, overlap semantics: a hidden subtree and every path under
+    or above it), so a value the requester cannot see never moves into an instance in either
+    direction (pull cannot copy it in; push cannot copy it into an instance the pusher cannot
+    fully see; revert keeps the instance's own value there). The CHILD side stays UNREDACTED;
+    a child-hidden path WITHHOLDS its conflict from the wire (`HiddenPointers::withholds`) with
+    the child-wins default standing, and an embedded template-deletion conflict is withheld
+    whenever the child hides anything. The stored `/base` refresh is `snapshot_base` of that
+    requester-visible template, so the client's `syncState` — which compares the stored base
+    against `snapshotBase` of its own redacted view — reads in-sync after a merge. A GM sees
+    everything, so a GM's merges and conflict sets are unchanged. An unreadable template is
+    `NotFound` for pull/revert (existence-hiding, matching push).
   - **Push existence-hiding.** An instance the pusher cannot see AT ALL is OMITTED from
     `instances` entirely — no entry, name, or count (true existence-hiding parity with redaction:
     the pusher's store never contained it). `Excluded` then means exactly one thing: visible but
     not writable.
-  - `MergeErrorKind`: `NotFound` (child/template missing), `NotAnInstance` (no `source`),
-    `Forbidden` (the owner-or-GM gate), `StaleResolutions(MergeOutcome)`/`UnknownResolution
-    (MergeOutcome)` (both carry the fresh outcome so the client re-opens its modal without a round
-    trip), plus shared validation/IO errors.
+  - `MergeErrorKind`: `NotFound` (child/template missing OR unreadable), `NotAnInstance` (no
+    `source`), `Forbidden` (the owner-or-GM gate), `CorruptBase` (a stored base that does not
+    parse — fail-closed), `StaleResolutions(MergeOutcome)`/`UnknownResolution(MergeOutcome)`/
+    `Unresolvable(MergeOutcome)` (each carries the fresh outcome so the client re-opens its modal
+    without a round trip; `Unresolvable` is the ancestor/descendant conflict shape — the instance
+    replaced a container with a scalar the template edited inside, so "theirs" has nowhere to
+    land), and `Internal`. **Push commit contract:** instances commit ONE BY ONE (not atomically);
+    every resolution is folded before the first commit, so a resolutions rejection precedes any
+    write, while a commit failure mid-loop leaves the earlier instances committed with their
+    `Event`s broadcast — no ledger rides the error; the fresh outcome is recomputed from live
+    documents, in which an already-committed instance reads `Applied`, and a re-sent intent
+    commits the remainder.
   - Authorization: pull/revert require GM or the child's EFFECTIVE owner (server's
     `effective_owner` rule) AND every capability the computed `Update`'s change paths require
     (`required_cap_for_path`, the same predicate `apply_intent`'s per-op gate uses — never a
     guessed band list). Push requires GM or effective owner of the TEMPLATE plus `/embedded` write
     on it, then per instance: same-world, VISIBLE to the pusher (`Repository::instances_of`,
-    a `json_extract(source, '$.id')`-keyed query over the stored `source` pointer, replicating the
-    client store's same-world reach for push), writable per the same per-path derivation. Authorized
+    `source_pack IS NULL AND source_id = ?` over the `documents` table's `source_id`/`source_pack`
+    columns and `idx_documents_source`, replicating the client store's same-world reach for
+    push), writable per the same per-path derivation. Authorized
     writes commit under `WriteOrigin::TemplateMerge` (per-op capability gates waived — the handler
     already derived them; scope/size/engine/containment/schema/OCC all still run), mirroring
     `CombatTransition`/`ConfigSeed`.
@@ -91,42 +129,52 @@ is the `base` derivation at Create plus ordinary Create validation.
   `findInstances` (display only — the authoritative instance set for push is server-side),
   `syncState`, `canPull`, `canPush`, `pull`, `push`, `revert`, `cancel`.
   - `pull(childId)`/`push(templateId)`/`revert(childId)` send `MergePull`/`MergePush`/
-    `MergeRevert` via the injected `sendMergeIntent: (msg) => Promise<WireMergeOutcome>` (wired
-    through `WorldSession.mergeIntent` → `WsClient.merge`, a one-shot correlated request/reply —
-    the same shape as `pathfind`/`search`, distinct from `combat`/chat's broadcast-echo
-    confirmation, because the reply itself carries the computed outcome).
+    `MergeRevert` via the injected `sendMergeIntent: (msg, opts) => Promise<WireMergeOutcome>`
+    (wired through `WorldSession.mergeIntent` → `WsClient.merge`, a one-shot correlated
+    request/reply — the same shape as `pathfind`/`search`, distinct from `combat`/chat's
+    broadcast-echo confirmation, because the reply itself carries the computed outcome). The
+    controller sizes `opts.timeoutMs` per request: `MERGE_TIMEOUT_BASE_MS` for pull/revert,
+    plus `MERGE_TIMEOUT_PER_INSTANCE_MS` per visible instance for push (the server commits push
+    instances one by one before replying). `#inFlight` guards re-entry per child/template id
+    while a reply is pending — a second send would race the first's commit and be refused as
+    stale.
   - A conflicted `MergeResult` opens `pending: PendingSession | null` (a `$state` the
     `TemplateModalHost` renders); the modal's resolve re-sends the SAME intent type with
     `resolutions` built from the user's per-conflict "theirs" choices. `StaleResolutions`/
-    `UnknownResolution` reopen the modal with the FRESH conflict set the rejection carries — no
-    extra round trip.
+    `UnknownResolution`/`Unresolvable` reopen the modal with the FRESH conflict set the rejection
+    carries — no extra round trip; a rejection whose fresh outcome no longer conflicts is re-sent
+    ONCE as a compute-only call (the rejected call wrote nothing, so the re-send applies it),
+    bounded to one retry before the failure is reported.
   - `canPull(childId)` gates on `#isOwnerOrGm(child)` (`effectiveOwner`, the SAME
     per-doc-override-else-linked-actor-owner rule the server resolves at egress) AND
     `canEdit(child, "/system")` AND `canEdit(child, "/embedded")` — **`/base` is deliberately NOT
-    checked**: the server writes `/base` unconditionally under `WriteOrigin::TemplateMerge` (no
-    client capability maps to it at all — see the documents-permissions skill), so gating this
+    checked**: the server writes `/base` itself under `WriteOrigin::TemplateMerge` (no client
+    capability maps to it at all — see the documents-permissions skill), so gating this
     advisory mirror on `canEdit(child, "/base")` would hide pull/revert from exactly the users the
     server now authorizes.
   - `canPush(templateId)` gates on `#isOwnerOrGm(template)` AND `canEdit(template, "/embedded")`
     AND `findInstances(templateId).length > 0` — covers the TEMPLATE only; per-instance write
     authorization is entirely server-side now (no client-side `#canApplyUpdate` derivation left —
     the server derives it against the actual computed `Update`).
-- `MergeConflictModal` (+ `TemplateModalHost`) — unchanged UX; consumes the GENERATED
-  `WireMergeConflict` (ts-rs mirror of `merge::MergeConflict`) instead of a hand-written type.
-  `ConflictGroup.label` comes from the push outcome's `name`.
+- `MergeConflictModal` (+ `TemplateModalHost`) — unchanged UX; consumes `WireMergeConflict`
+  (the hand-written Zod mirror in the `wire` module of the ts-rs-generated `MergeConflict` —
+  the `wire.test.ts` parity assertions pin the two shapes equal) instead of an engine-produced
+  type. `ConflictGroup.label` comes from the push outcome's `name`.
 - `AppContext.templates: TemplatesApi` (`stampInstance`, `pull`, `push`, `revert`, `findInstances`,
   `syncState`, `canPull`, `canPush`) — unchanged shape; still the seam every sheet/module reaches
   templates through.
 - `@shadowcat/core`'s retained client-side surface — stamping + display only, no merge
-  computation: `structuralDiff`/`deepEqual` (`syncState`'s divergence check), `deletePointer`,
+  computation: `structuralDiff`/`deepEqual` (`syncState`'s divergence check),
   `isPlacementExcluded`/`placementExclusions`, `restampSubtree`/`snapshotBase`/`stampInstance`
   (stamping's clone-then-Create), `findInstances` (display), `syncState`, and the
-  `MergeBase`/`MergeBands`/`EmbeddedBaseChild` types those retained functions still need.
+  `MergeBase`/`EmbeddedBaseChild` types those retained functions still need — ts-rs exports
+  re-exported through `@shadowcat/types`, not hand-written.
   **DELETED**: every function that computed a merge or emitted a merge `Update` client-side (the
   TS twins of `merge3`/`merge3_tree`/`take_template`/`compute_pull`/`compute_revert`/
-  `plan_to_update`/`apply_resolutions`) and their internal helpers, plus the hand-written
-  conflict/plan types those functions produced — a second live merge implementation is a
-  divergence channel, not a safety net, once the server executes every merge.
+  `plan_to_update`/`apply_resolutions`) and their internal helpers (the client-side pointer
+  delete and tokenize functions), plus the hand-written conflict/plan/bands types those functions
+  produced — a second live merge implementation is a divergence channel, not a safety net, once
+  the server executes every merge.
 - `Document.base` — now SERVER-owned and engine-tree-validated. See
   `shadowcat-codebase-documents-permissions` for the field/authz/validation facts; this skill
   covers only the client-side `MergeBase` snapshot SHAPE that `snapshotBase`/`stampInstance` still
@@ -151,7 +199,16 @@ is the `base` derivation at Create plus ordinary Create validation.
 - **Placement exclusions are per-doc_type and checked everywhere** (`is_placement_excluded`/
   `placement_exclusions`) — pull, revert, push, AND the client's `syncState`'s "changed"
   determination must all exclude the same paths, or a token's own on-scene position would
-  spuriously flag as "template_changed" or get clobbered by a merge.
+  spuriously flag as "template_changed" or get clobbered by a merge. The server set and the
+  client's `placementExclusions`/`isPlacementExcluded` are therefore a must-agree pair, as are
+  `snapshot_base` and the client's `snapshotBase` (the badge compares the `/base` the server
+  writes against the client reduction of its redacted view).
+- **The parent side of every merge is the requester-VISIBLE template, and visibility resolves by
+  document identity, never by index.** A template-hidden path never moves into an instance in
+  either direction; a child-hidden conflict is withheld with the child-wins default standing;
+  the `/base` refresh is the visible template's snapshot. Any new merge entry point takes a
+  `MergeVisibility` and threads it through every embedded level — an `AllVisible` in production
+  code, or an index-addressed visibility lookup, is the leak this rule exists to prevent.
 - **Push's instance scope is server-derived same-world SEE + WRITE, per instance, against the
   ACTUAL computed Update** — never a guessed band list, and never the client's own reach. An
   instance invisible to the pusher is omitted entirely (existence-hiding); a visible-but-

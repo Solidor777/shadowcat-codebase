@@ -27,16 +27,22 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `PermissionSet.gm_role: Option<DocRole>` (`#[serde(default)]`, ts-rs exported) — see Hard
   Invariants below.
   - `base: Option<serde_json::Value>` (`#[serde(default)]`, `#[ts(type = "unknown")]`) —
-    the opaque 3-way-merge snapshot the generic templates system stamps onto an instance at
-    stamp/pull/push/revert time (see `shadowcat-codebase-templates` for the client-side
-    `MergeBase` shape/algorithm). Purely a client-owned blob: the server never interprets it.
-    `data::permission::required_cap_for_path` maps `/base` (and any subtree under it, e.g.
-    `/base/system/hp`) to `cap::WRITE_FIELDS` — no dedicated capability, and not a per-band
-    decision either: it derives the whole write-fields branch from the shared band set via
-    `writes_a_content_band` (see the redaction-classifier invariant below). `/source` (the
-    sibling field naming what a document is an instance OF) stays unmapped/immutable —
-    `required_cap_for_path` returns `None` for it, so no write path can ever re-target an
-    existing document at a different template.
+    the 3-way-merge snapshot (`merge::bands::MergeBase` shape) of an instance's mergeable bands
+    as of its last sync with its template. SERVER-OWNED: a `Create` derives it from the
+    document's own validated bands (`merge::bands::derive_create_base` in `apply_intent`'s Create
+    arm — any client-supplied value is discarded, no `source` → `null`, embedded children never
+    carry one), and the ONLY writer afterwards is a server merge under
+    `WriteOrigin::TemplateMerge`, whose whole-band `/base` refresh is the single server-owned
+    field write `apply_intent`'s capability gate lets through (`/base/...` sub-paths stay
+    rejected for every origin). `data::permission::required_cap_for_path` maps `/base` to NO
+    capability — the same posture as `/source` — because the write side reads `WRITABLE_BANDS`
+    (`name`/`engine`/`system`), from which `base` is absent by design (see the classifier
+    invariant below). A client-origin post-image carrying `base` on an embedded child is
+    rejected fail-closed before the shape walks (`merge::bands::embedded_carries_base`).
+    `/source` (the sibling field naming what a document is an instance OF) stays
+    unmapped/immutable — `required_cap_for_path` returns `None` for it, so no write path can
+    ever re-target an existing document at a different template. The merge engine itself:
+    `shadowcat-codebase-templates`.
   - `world_of(doc: &Document) -> Option<Uuid>` (`pub(crate)`) — the single chokepoint for
     "which world does this doc scope to" (`Scope::World { world_id } => Some(world_id)`,
     `Scope::Compendium => None`). Two call shapes: (1) a caller that already knows the world it
@@ -196,8 +202,8 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `/engine/vision` override on a default-built scene doc); `remove_pointer` no-ops through it; reads
   yield absent (the client's `getPointer` → `undefined`; serde_json's `Value::pointer` server-side →
   `None` — `data::command` has no bespoke pointer-read helper of its own; the unrelated
-  `merge::tree::get_pointer` is private to the merge module's own tree walk and is not part of
-  this ingress family). The LEAF null-vs-absent distinction is preserved (`null !=
+  `merge::tree::get_pointer` is `pub(crate)` for the merge engine's own tree walk and is not
+  part of this ingress family). The LEAF null-vs-absent distinction is preserved (`null !=
   absent` for a leaf value). Forking this null-handling across the two languages is the never-fork
   defect class — parity is pinned by matching tests on each side.
 - `data::permission` — the redaction core:
@@ -227,7 +233,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     envelope shape); a `Within` result redacts through `strip_pointer`. The band set itself is
     stated in exactly one place — see the redaction-classifier invariant below.
     `/base` takes the whole-band treatment, but its visibility is NOT driven by
-    `property_overrides` at all — see the `base` egress invariant below.
+    `property_overrides` at all — see the `base` egress invariant below. The hidden-pointer list
+    itself is `hidden_own_pointers(doc, access)` (`pub(crate)`; `own_overrides` classifies the
+    document's own `property_overrides` plus the hardcoded `/base` rule) — `filter_properties`
+    consumes it, `collect_overrides` derives its recursive walk from the same per-level function,
+    and the merge engine's `RequesterView` oracle reads it per document so merge visibility and
+    egress visibility are ONE classifier, never two that agree by inspection.
   - `redact_change(change, gm_only)` redacts field-level change events on the broadcast path;
     `collect_hidden` (its companion that builds the `gm_only`/hidden-path list for embedded-depth
     redaction) applies the same unconditional `/base` policy at every embedded depth.
@@ -243,12 +254,15 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   structural validation (size caps, field-path validity, `deny_unknown_fields`); `data::validation`
   applies the same `MAX_SYSTEM_BYTES` (256 KiB) cap to `engine` as to `system`, checked
   independently per block. `base` gets the SAME independent size cap
-  (`validate_system_size`'s cap function, shared across all three blocks) but is explicitly
-  `EXEMPT` from `validate_engine_tree` — the tree walker only ever visits `/engine`, never
-  `/base`, because `base` is a historical snapshot that may legitimately hold a stale
-  `engine`/`system` shape from before the current schema (a template edited after an instance
-  stamped from it); running current-schema validation against a deliberately-historical blob
-  would be wrong, not defense-in-depth.
+  (`validate_system_size`'s cap function, shared across all three blocks) AND is walked by
+  `validate_engine_tree`: the walker shape-checks the `MergeBase`/`EmbeddedBaseChild` structure
+  recursively (`validate_base_node`/`check_base_node_shape` — every band key present, an
+  embedded record carrying a string `sourceId`, no unknown keys) and normalizes each `engine`
+  band inside it under the owning doc_type — the root's own for the root record, and for an
+  embedded base child the doc_type of the LIVE embedded child its `sourceId` correlates to
+  (`snapshot_base`'s keying); a record with no live counterpart is shape-checked only, never
+  normalized, because it is historical. Validation is ingest-time, so a legacy stale-schema
+  `base` is re-validated only when the document is rewritten.
 - `data::validation::validate_system_schema_tree` (tier-2) — a read-only recursive
   `system`-band structural gate, run beside (not instead of) `validate_engine_tree`.
   `validate_value_against_schema(value, schema) -> Result<(), SchemaMismatch>` is the pure
@@ -289,6 +303,15 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   writes ever get** — there is no second check downstream to catch a permissive predicate. Full
   mechanism, the exact call sites that construct it, and the authz-bypass this exemption exists to
   prevent: `shadowcat-codebase-combat`.
+- **`WriteOrigin::TemplateMerge` is the template-merge origin — the same capability-skip shape
+  as `CombatTransition`, set ONLY by `ws::conn::merge_intents`.** The handler derives
+  authorization against the ACTUAL computed `Update` (owner-or-GM plus `required_cap_for_path`
+  over every change path — `update_authorized`) before publishing, so this chokepoint's
+  actor-holds-the-required-capability test is the only thing waived; `required_cap_for_path`'s MAPPING still
+  applies (an immutable envelope path is rejected for every origin) with exactly one exception,
+  the whole-band `/base` refresh this origin alone may write. Scope, size, engine, containment,
+  schema and OCC all still run. Because the chokepoint stands down, `update_authorized` is the
+  ONLY authorization a merge write gets — the same consequence `combat::authorize` carries.
 - **`WriteOrigin::ConfigSeed` is the world-config seed/refresh origin — the same capability-skip
   shape as `CombatTransition` (`WriteOrigin::skips_capability_gates` is the ONE predicate every
   capability-gate site in `apply_intent` reads; `ServerMessageRevision` deliberately does NOT
@@ -478,13 +501,17 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   and carries zero enforcement authority; the server-side `apply_intent` load is the only copy
   that matters.
 - **Redaction operates on content bands, never on the structural envelope — and ingress and egress
-  read ONE classifier, never agree by inspection.** `data::permission::REDACTABLE_BANDS: [&str; 4]`
-  (`name`, `engine`, `system`, `base`) is the ONE statement of the band set, and THREE paths derive
-  from it rather than re-spelling it: whole-document egress (`filter_properties`), the change-delta
-  broadcast path (`collect_hidden`) — both via `redaction_target` — and the write-capability rule
-  (`required_cap_for_path`, via `writes_a_content_band`). Adding a fifth band therefore cannot make
-  a path redactable without also making it writable under `cap::WRITE_FIELDS`, and cannot let the
-  delta path diverge from whole-document egress. A second symbol is shared the same way:
+  read ONE classifier each, never agree by inspection.** `data::permission::REDACTABLE_BANDS:
+  [&str; 4]` (`name`, `engine`, `system`, `base`) is the ONE statement of the EGRESS band set:
+  whole-document egress (`filter_properties`) and the change-delta broadcast path
+  (`collect_hidden`) both derive from it via `redaction_target`, so the delta path cannot diverge
+  from whole-document egress. The WRITE side reads `WRITABLE_BANDS: [&str; 3]` (`name`, `engine`,
+  `system`) via `writes_a_content_band` — a strict subset stated separately ON PURPOSE: `base` is
+  redactable but never client-writable (server-owned, see the `base` seam above), and the
+  asymmetry is a visible decision rather than one constant two sides read for different
+  meanings. Adding a band therefore means deciding both lists explicitly; a band added to only
+  one is either unredacted-but-writable or redacted-but-unwritable, and which of those is
+  intended must be stated. A second symbol is shared the same way:
   `band_has_interior`, the leaf rule stating that `name` is a display string with no interior.
   What is deliberately NOT shared is the residual-segment rule, because the two classify different
   input domains — `required_cap_for_path` classifies a `FieldChange` path, `redaction_target`
