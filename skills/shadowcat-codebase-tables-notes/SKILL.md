@@ -117,8 +117,9 @@ chat message it produces.
     non-overlap, never exhaustive coverage).
 - `chat::Segment::TableDraw(TableDrawSegment)` — the one `Segment` variant chat's own parser can
   NEVER produce (only `tables::draw::draw_table` builds one); `TableDrawSegment{table_id,
-  table_name, roll_id, formula, outcome, spec: Option<Box<RollSpec>>, raw: Option<Box<RawRoll>>,
-  row: Option<DrawnRow>}`, `DrawnRow{index, label, content: Vec<Segment>, nested:
+  table_name, roll_id, formula, outcome, spec, raw, row}` (`spec`/`raw` are boxed `Option`s
+  holding the row-selecting roll's `RollSpec`/`RawRoll`; `row` is an `Option<DrawnRow>`),
+  `DrawnRow{index, label, content: Vec<Segment>, nested:
   Vec<TableDrawSegment>}`. GM-only redaction (`spec`/`raw`, at EVERY depth) is computed by
   `chat::roll_property_overrides` → `push_draw_overrides` (recurses through `row.nested`) — same
   `permissions.property_overrides` mechanism `RollEmbed` uses, never a chat-specific or
@@ -197,10 +198,5 @@ chat message it produces.
 
 ## Pointers
 
-- `docs/superpowers/specs/2026-09-02-m19-tables-notes-chat-media-design.md` — the design spec
-  (rollable tables is the delivered slice; a "notes" document type is scoped in the same spec but
-  NOT part of this delivery).
-- `docs/superpowers/plans/2026-09-02-m19b-rollable-tables.md` — the implementation plan this
-  skill's Key files section tracks task-for-task.
 - `docs/site/protocol.md`'s "Rollable tables" section — the wire-level summary of `draw_table`.
 - `docs/design/ARCHITECTURE.md` invariant 6 — `table`'s place in the engine-doc-type count.
