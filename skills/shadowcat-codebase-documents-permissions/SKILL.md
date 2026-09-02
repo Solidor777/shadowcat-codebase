@@ -27,15 +27,25 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `PermissionSet.gm_role: Option<DocRole>` (`#[serde(default)]`, ts-rs exported) — see Hard
   Invariants below.
   - `base: Option<serde_json::Value>` (`#[serde(default)]`, `#[ts(type = "unknown")]`) —
-    the 3-way-merge snapshot (`merge::bands::MergeBase` shape) of an instance's mergeable bands
-    as of its last sync with its template. SERVER-OWNED: a `Create` derives it from the
-    document's own validated bands (`merge::bands::derive_create_base` in `apply_intent`'s Create
-    arm — any client-supplied value is discarded, no `source` → `null`, embedded children never
-    carry one), and the ONLY writer afterwards is a server merge under
-    `WriteOrigin::TemplateMerge`, whose whole-band `/base` refresh is the single server-owned
-    field write `apply_intent`'s capability gate lets through (`/base/...` sub-paths stay
-    rejected for every origin). `data::permission::required_cap_for_path` maps `/base` to NO
-    capability — the same posture as `/source` — because the write side reads `WRITABLE_BANDS`
+    the 3-way-merge snapshot (`merge::bands::MergeBase` shape) of the TEMPLATE as of the
+    instance's last sync: ONE canonical, FULL, unredacted value per instance — bands plus the
+    template's mergeable-band policy recorded alongside (`MergeBase::property_overrides`,
+    `EmbeddedBaseChild::property_overrides` spelled `propertyOverrides` on a record; the
+    `writes_a_content_band` set, re-expressed for the holding instance by
+    `merge::bands::relate_tier`) — never relative to the seat that wrote it. SERVER-OWNED: a
+    `Create` derives it from the document's own validated bands (`merge::bands::derive_create_base`
+    in `apply_intent`'s Create arm — any client-supplied value is discarded, no `source` → `null`,
+    embedded children never carry one), after loading the template (a same-batch Create is
+    consulted first; an other-world template reads as absent) to land its policy on the new
+    instance (`merge::bands::propagate_overrides`, additive, under the two documents'
+    effective-owner relation via `load_effective_owner`). The ONLY writer afterwards is a server
+    merge under `WriteOrigin::TemplateMerge`, whose whole-band `/base` refresh
+    (`snapshot_for_instance` of the full template) is the single server-owned field write
+    `apply_intent`'s capability gate lets through (`/base/...` sub-paths stay rejected for every
+    origin); the same write carries the propagated policy as a `/permissions/property_overrides`
+    change, which `merge_intents::update_authorized` exempts beside `/base` because it can only
+    narrow an audience. `data::permission::required_cap_for_path` maps `/base` to NO capability —
+    the same posture as `/source` — because the write side reads `WRITABLE_BANDS`
     (`name`/`engine`/`system`), from which `base` is absent by design (see the classifier
     invariant below). A client-origin post-image carrying `base` on an embedded child is
     rejected fail-closed before the shape walks (`merge::bands::embedded_carries_base`).
@@ -232,16 +242,25 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     indistinguishable from a document that never carried one, breaking the client's stable
     envelope shape); a `Within` result redacts through `strip_pointer`. The band set itself is
     stated in exactly one place — see the redaction-classifier invariant below.
-    `/base` takes the whole-band treatment, but its visibility is NOT driven by
-    `property_overrides` at all — see the `base` egress invariant below. The hidden-pointer list
-    itself is `hidden_own_pointers(doc, access)` (`pub(crate)`; `own_overrides` classifies the
-    document's own `property_overrides` plus the hardcoded `/base` rule) — `filter_properties`
-    consumes it, `collect_overrides` derives its recursive walk from the same per-level function,
-    and the merge engine's `RequesterView` oracle reads it per document so merge visibility and
-    egress visibility are ONE classifier, never two that agree by inspection.
+    `/base` takes the whole-band treatment as an unconditional `OwnerOrGm` floor, and INSIDE it
+    every pointer the snapshot's own recorded policy names is hidden at the recorded tier — see
+    the `base` egress invariant below. The hidden-pointer list itself is
+    `hidden_own_pointers(doc, access)` (`pub(crate)`; `own_overrides` classifies the document's
+    own `property_overrides`, appends the hardcoded `/base` floor, and walks the stored snapshot's
+    recorded policy through `base_policy` into `/base{pointer}` /
+    `/base/embedded/<coll>/<k>{pointer}` entries) — `filter_properties` consumes it,
+    `collect_overrides` derives its recursive walk from the same per-level function, and the
+    merge engine's `RequesterView` oracle reads it per document so merge visibility and egress
+    visibility are ONE classifier, never two that agree by inspection. The removal step is ONE
+    procedure too: `redact_pointers(whole, hidden)` (`pub(crate)`) — `filter_properties` applies
+    it to a whole document under the recipient's hidden set, and `merge::plan::merge3` applies it
+    to a stored base's band tree under the TEMPLATE's hidden set, so the merge's base and parent
+    inputs are reduced identically.
   - `redact_change(change, gm_only)` redacts field-level change events on the broadcast path;
     `collect_hidden` (its companion that builds the `gm_only`/hidden-path list for embedded-depth
-    redaction) applies the same unconditional `/base` policy at every embedded depth.
+    redaction) reads the same `own_overrides` at every embedded depth, so a whole-band `/base`
+    delta is stripped of the recorded hidden pointers exactly as a `/system` delta is stripped
+    of the document's own.
 - `data::search` — `index_content` (full) vs `index_content_public` (redacted):
   the index is **partitioned by visibility**, not redacted after the fact. `index_content` sweeps
   the `doc_type` unconditionally, the envelope `name` when present, and — through `collect_leaves`,
@@ -256,7 +275,10 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   independently per block. `base` gets the SAME independent size cap
   (`validate_system_size`'s cap function, shared across all three blocks) AND is walked by
   `validate_engine_tree`: the walker shape-checks the `MergeBase`/`EmbeddedBaseChild` structure
-  recursively (`validate_base_node`/`check_base_node_shape` — every band key present, an
+  recursively (`validate_base_node`/`check_base_node_shape` — every band key present, the
+  recorded policy key present under the node's spelling (`base_policy_key`: an absent map would
+  read as "nothing hidden", the fail-open direction for the egress reader) with every entry
+  naming a mergeable band (`writes_a_content_band`) and carrying a `Visibility` tier, an
   embedded record carrying a string `sourceId`, no unknown keys) and normalizes each `engine`
   band inside it under the owning doc_type — the root's own for the root record, and for an
   embedded base child the doc_type of the LIVE embedded child its `sourceId` correlates to
@@ -465,20 +487,29 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   round-trip (e.g. a server-computed `100.0` comes back over the wire and reparses as `PosInt(100)`,
   which raw `==` would treat as unequal to a stored `100`, causing a spurious `Conflict` on an
   otherwise up-to-date write). See the `data::sqlite` seam entry above for the exact comparison rule.
-- **`/base`'s egress visibility is hardcoded `OwnerOrGm`, UNCONDITIONAL — never driven by
-  `property_overrides`.** `filter_properties` and `collect_hidden`/`redact_change` both
-  independently hide `/base` from any recipient who is neither the document's owner nor a GM,
-  regardless of what `permissions.property_overrides` says (a doc author cannot loosen or
-  tighten `/base`'s visibility by setting an override on it — there is none to set). This is
-  load-bearing: `base` is the merge-engine's raw pre-image snapshot of a document's
-  `name`/`engine`/`system`/`embedded` bands, which can itself contain content an ordinary
-  `GmOnly`/`OwnerOrGm` property override elsewhere on the doc was hiding from this same
-  recipient — leaking the snapshot would bypass that override. Be precise about which decision the
-  two paths share: the BAND CLASSIFICATION is shared structurally (both read `redaction_target`,
-  per the classifier invariant below), but `/base`'s unconditional owner-or-GM policy is NOT —
-  `filter_properties` and `collect_hidden` each append `/base` to their own hidden list from their
-  own `can_see(Visibility::OwnerOrGm)` test. That one decision is genuinely duplicated, so any
-  change to `base`'s visibility must land at both call sites.
+- **`/base`'s egress is decided at ONE site, `own_overrides`, by two rules: an unconditional
+  `OwnerOrGm` floor on the whole band, and inside it the policy the snapshot itself records.**
+  Every reader — `filter_properties` (whole-document egress), `collect_hidden`/`redact_change`
+  (the change-delta path, at every embedded depth) and the merge oracle (`RequesterView`) — reads
+  `own_overrides` through `hidden_own_pointers`/`collect_overrides`; there is no second `/base`
+  decision site. The floor is not driven by the document's `property_overrides` (a doc author
+  cannot loosen it — there is no override to set; `validate_property_overrides` admits a
+  `/base…` key, and `recorded_overrides` ignores it as a band policy). Inside the floor,
+  `base_policy` emits one `/base{pointer}` (or `/base/embedded/<coll>/<k>{pointer}`, recursing
+  into records at their SNAPSHOT positions) entry per entry of the stored `MergeBase`'s
+  `property_overrides` / a record's `propertyOverrides` — the template's mergeable-band policy at
+  sync time, already re-expressed for this instance by `merge::bands::relate_tier` (a template
+  `OwnerOrGm` is `GmOnly` here unless the two documents share an effective owner). This is
+  load-bearing: `base` is the FULL template snapshot, which carries content the template's own
+  overrides hide from this same recipient — the instance owner receives it minus exactly what the
+  template hid, a GM whole, nobody else at all, with no template lookup on the egress path and no
+  dependence on the instance's live children (a record whose instance child was deleted locally
+  stays covered by its own recorded policy). Fail-closed: a recorded tier that does not parse or a
+  recorded pointer naming no mergeable band is a `RedactionError`, and the ingest walk admits
+  neither. The client's `syncState` depends on this cut agreeing with the template's own: it reads
+  the stored base through `normalizeBase` (the server's `MergeBase` defaults, so a stripped
+  snapshot key and a nulled template band compare equal) and excludes the recorded policy maps
+  from its diff.
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic
