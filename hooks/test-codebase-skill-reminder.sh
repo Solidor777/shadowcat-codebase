@@ -82,4 +82,11 @@ check c2 "/srv/checkouts/shadowcat/src/server/src/data/engine/combat/tests.rs" "
 check c3 "C:/Dev/Shadowcat/src/server/src/combat/transition.rs"       "shadowcat-codebase-combat"
 check c4 "/srv/checkouts/shadowcat/src/server/src/combat/mod.rs"      "shadowcat-codebase-combat"
 
+# `tables-notes` precedes `documents-permissions` (shared src/server/src/data/) — absolute
+# paths per the real Edit/Write payload shape.
+check t1 "C:/Dev/Shadowcat/src/server/src/data/engine/table.rs"       "shadowcat-codebase-tables-notes"
+check t2 "/srv/checkouts/shadowcat/src/server/src/data/engine/table/tests.rs" "shadowcat-codebase-tables-notes"
+check t3 "C:/Dev/Shadowcat/src/server/src/tables/draw.rs"             "shadowcat-codebase-tables-notes"
+check t4 "/srv/checkouts/shadowcat/src/client/core/src/table-docs.ts" "shadowcat-codebase-tables-notes"
+
 echo "ALL HOOK TESTS PASS"

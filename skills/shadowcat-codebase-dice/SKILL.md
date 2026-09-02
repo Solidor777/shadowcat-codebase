@@ -31,7 +31,16 @@ world's `dice-settings` config doc (`chat::settings::resolve_dice_context`, chan
 body, regardless of channel; GM-authored in `module-game-settings`'s Dice section). `ChannelDiceOverride`
 (`data::engine::registries`) is a sibling type of `DiceSettingsEngine` in the world-settings-doc
 family — identical `{mode, direction}` shape, so a channel's override and the document's own
-world default share ONE resolution semantics, never a second merge rule.
+world default share ONE resolution semantics, never a second merge rule. A table draw's
+row-selecting roll uses a FIXED, channel-independent `ParseContext` instead —
+`chat::rolls::TABLE_PARSE_CONTEXT` (`ModeKind::Total`, `Direction::HighWins`) — never the ambient
+`dice-settings` resolution, since a table's outcome must not depend on which channel it happened
+to be drawn into. `chat::rolls::validate_table_formula(notation) -> Result<(), RollError>`
+ingress-validates a `DrawRule::Formula` row's notation at `TableEngine::validate` time: resolves
+references through `NoHostResolver` (a table's row-range notation may carry no host-bound
+reference), parses under `TABLE_PARSE_CONTEXT`, runs `validate_pre_roll`, and refuses a resolved
+`Mode::SuccessCount` (`RollError::TableNeedsTotal` — a row's inclusive `lo..=hi` range only makes
+sense against a single total, never a success count).
 
 ## Purpose
 

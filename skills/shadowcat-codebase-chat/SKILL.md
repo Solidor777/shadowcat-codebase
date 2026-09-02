@@ -181,7 +181,7 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   counts; `MAX_ROLL_RECORDS=1000`
   post-roll; `MAX_EXPERTISE=100`; `MAX_DIE_SIDES=10_000`; `MAX_INLINE_ROLLS=8`),
   `DieKind::validate()` per group, `entropy_seed()` (fresh `Uuid::new_v4` fold per roll —
-  nothing persists the seed; a stored outcome's naturals reproduce it), `scan_body` (BALANCED
+  nothing persists the seed; a stored outcome's naturals reproduce it), `scan_body_capped` (BALANCED
   `[[…]]` span grammar — single-bracket nesting depth so notation `[label]`s survive;
   `roll:`-prefixed spans are buttons, `|` splits a label), `execute_roll` /
   `validate_formula` (parse+caps without rolling, for buttons), `RollError` + Display.
@@ -205,7 +205,7 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   `formula`/`outcome`, and both are PERSISTED (not discarded) onto the embed — `spec`/`raw` are
   what let a GM later recalculate the roll via `handle_recalc_roll`; `roll_id` (a fresh `Uuid`) is
   the stable identity a recalc targets, never the segment's array index.
-  Normal/Emote bodies are `scan_body`-chunked — Text chunks sanitize EACH INDEPENDENTLY
+  Normal/Emote bodies are `scan_body_capped`-chunked — Text chunks sanitize EACH INDEPENDENTLY
   (markdown spanning an inline roll doesn't survive, documented), Inline chunks execute,
   Button chunks validate-only. Ambient `ParseContext` = `resolve_dice_context(repo, world,
   channel)` (the `dice-settings` config doc: a `channel_overrides` entry for the SENDING channel
@@ -248,7 +248,7 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   produced). Reuses `WriteOrigin::ServerMessageRevision` as this origin's THIRD producer (after
   `handle_edit_message`/`handle_delete_message`), publishing a single `Operation::Update` that
   writes BOTH `/engine` (the mutated content) AND `/permissions/property_overrides`
-  (recomputed via `roll_embed_property_overrides`, since a freshly-appended
+  (recomputed via `roll_property_overrides`, since a freshly-appended
   `RecalcEntry.previous_raw` needs its own GM-only override entry) — the exact two-path
   admission `apply_intent`'s `ServerMessageRevision` branch grants (see chokepoint 4 below).
   Rate-limited via the same `PingRateLimiter`/`budget_per_min` shape as
@@ -312,15 +312,19 @@ with zero message-specific plumbing in any of those subsystems.
     toggle (`chat::sanitize::sanitize` never lets a raw image URL reach the client — see
     `sanitize`'s `ImageSource` extraction below) and instead becomes a typed `Segment::Image{
     asset_id, alt}` referencing an asset THIS SERVER already holds, produced either directly from a
-    `[[asset:<uuid>|alt]]` span (`chat::rolls::scan_body`, ingest-time, no network) or
+    `[[asset:<uuid>|alt]]` span (`chat::rolls::scan_body_capped`, ingest-time, no network) or
     asynchronously via the `chat::post_publish` `InlineImage` job (a Markdown/HTML image URL is
     fetched server-side, asset-ified, then republished — see "Post-publish enrichment" below). The
     server never stores or forwards an external image URL verbatim; the client never fetches one.
     `Segment::DocLink{target, label}` remains a structured REFERENCE (a doc/token id + a display
     label), not inline formatting or markup, so it stays a distinct typed variant rather than
-    folding into `Html`.
+    folding into `Html`. `Segment::TableDraw(TableDrawSegment)` — the one variant chat's OWN
+    parser can never produce (only `tables::handle_draw_table` builds one) — carries a rollable
+    table's executed draw (formula/outcome/GM-only spec+raw/matched row, recursive through
+    `TableDrawSegment.row.nested`); see `shadowcat-codebase-tables-notes` for the draw-resolution
+    side and `roll_property_overrides`'s `push_draw_overrides` note above for its redaction.
   - `Segment::DocLink{target: DocLinkTarget, label}` — a free-form in-body link to a document or
-    token, recognized by `chat::rolls::scan_body` from a `[[doc:<uuid>|<label>]]` or
+    token, recognized by `chat::rolls::scan_body_capped` from a `[[doc:<uuid>|<label>]]` or
     `[[token:<uuid>|<label>]]` span (same `[[...]]` bracket-depth grammar as `[[roll:...]]`; the
     `|<label>` half is REQUIRED, unlike roll's optional label). `DocLinkTarget` is `Doc{doc_id,
     embedded_path: Option<String>}` | `Token{token_id}` (`#[serde(tag="kind",
@@ -485,22 +489,31 @@ with zero message-specific plumbing in any of those subsystems.
   `handle_edit_message` (`ScanMode::NoExecute` — inline rolls validate structurally only, per the
   roll-immutability invariant below) call, extracted so a `[[doc:]]`/`[[roll:]]`/`[[asset:]]` span
   and `sanitize`'s markdown-derived `image_urls` compose identically on send and on edit. Chunks
-  through `chat::rolls::scan_body`; each `Text` chunk independently calls `sanitize` and
-  accumulates BOTH its `segments` and its `image_urls` across the whole body (markdown spanning a
+  through `chat::rolls::scan_body_capped`; each `Text` chunk independently calls `sanitize` and
+  accumulates its `segments` across the whole body (markdown spanning a
   chunk boundary does not survive — same documented per-chunk-independent sanitize limit as
-  before). An `[[asset:<uuid>|alt]]` span becomes a `Segment::Image{asset_id, alt}` directly, no
+  before); `image_urls` is deduped ACROSS chunks too (first-seen URL wins), not only within one
+  chunk's own `sanitize` call, so the same image referenced before and after an inline roll queues
+  one job, not two. An `[[asset:<uuid>|alt]]` span becomes a `Segment::Image{asset_id, alt}` directly, no
   network fetch, no existence check (mirrors `DocLink`'s own no-existence-check-at-ingest
   design — a dangling `asset_id` is a client fail-closed-at-render concern via
   `ctx.assets.url`); an `[[asset:<uuid>]]` (no `|alt`) referencing an asset the repository cannot
   find as a valid asset UUID fails the compose with `ComposeError::Roll(RollError::UnknownAsset)`
-  (grammar-adjacent to `[[roll:]]`'s own malformed-span errors, surfaced the SAME way — see
-  `build_roll_error_notice` below, NOT a hard `ChatError`). The composed `image_urls` returned
+  (grammar-adjacent to `[[roll:]]`'s own malformed-span errors, but the two `compose_message`
+  callers surface a `ComposeError::Roll`/`SendMessageError::Roll` DIFFERENTLY: `handle_send_message`
+  catches it and authors a whispered `MessageKind::System` notice instead — see
+  `build_roll_error_notice` below, never a hard `ChatError` on that path — while
+  `handle_edit_message` returns it DIRECTLY as the edit's `ChatError`, since an edit's
+  rejected-intent path has no notice-authoring step to route through). The composed `image_urls` returned
   alongside `segments` is what `handle_send_message`/`handle_edit_message` pass on to
   `link_preview::enrich` to queue `InlineImage` jobs (see next section) — this is why the
   enrich-stage gate below is `policy.previews_enabled() || !image_urls.is_empty()`, not
   `previews_enabled()` alone: a world can enable `images` without `hyperlinks`, and such a world's
   markdown image URLs must still reach the post-publish pipeline even though link previews stay
-  off.
+  off. `enrich` itself takes a separate `scan_previews: bool` (= `previews_enabled()`) parameter
+  gating ONLY its own href/oEmbed scan over the message's `Html` segments — the two concerns are
+  independent, so a world with `hyperlinks: true, link_previews: Some(false), images: true` still
+  gets its images queued without also scanning for link previews.
 - `chat::settings` — `ChatContentPolicy{markdown, html, images, hyperlinks,
   emails: bool}`, all `#[serde(default)]` = `false`, stored as the `system` body of the single
   per-world `chat-settings` config `Document` (`CHAT_SETTINGS_DOC_TYPE`). `resolve_content_policy
@@ -674,15 +687,21 @@ with zero message-specific plumbing in any of those subsystems.
   logic implicitly changes chat behavior too — there is no separate chat-specific override to
   audit, but also no chat-specific safety net.
 - **`spec`/`raw` on a `RollEmbed` (and every `RecalcEntry.previous_raw`) are GM-only via
-  `permissions.property_overrides`, populated by `roll_embed_property_overrides` at
+  `permissions.property_overrides`, populated by `roll_property_overrides` at
   message-Create time and re-populated on every recalc — never a chat-specific redaction
   filter; `outcome`/`recalc_history`/`roll_id` stay visible to every recipient.**
-  `roll_embed_property_overrides` is recomputed from scratch against the CURRENT `content` on
+  `roll_property_overrides` (renamed from `roll_embed_property_overrides` once it also covered
+  `Segment::TableDraw`) is recomputed from scratch against the CURRENT `content` on
   every call (never incrementally patched), so a message's override set always matches what it
   actually carries; `build_message_doc` calls it at Create, `handle_recalc_roll` calls it again
   after every recalculation and writes the result to `/permissions/property_overrides` in the
   SAME `Operation::Update` as the mutated `/engine` — the one write shape `apply_intent`'s
-  `ServerMessageRevision` branch admits at that exact path (chokepoint 4 above).
+  `ServerMessageRevision` branch admits at that exact path (chokepoint 4 above). A
+  `Segment::TableDraw(TableDrawSegment)` — produced only by `tables::handle_draw_table`, never by
+  chat's own parser — recurses the SAME GM-only treatment through `push_draw_overrides`: its own
+  `spec`/`raw` at `/engine/content/{i}/spec|raw`, and recursively through every
+  `TableDrawSegment.row.nested` entry at `/engine/content/{i}/row/nested/{j}/...` — a nested draw
+  arbitrarily deep still redacts at every level, see `shadowcat-codebase-tables-notes`.
 
 ## Gotchas
 
@@ -797,7 +816,7 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   `@doc` trigger button opens a live document-search popover (`AppContext.searchDocuments`,
   same cancellation-guard `$effect` pattern as `ActorsPanel`'s live search) and inserts a
   `[[doc:<id>|<label>]]`/`[[token:<id>|<label>]]` span at the cursor; the inserted label strips
-  all of `[`/`]`/`|` in one pass (an unstripped `[` would desync `scan_body`'s bracket-depth
+  all of `[`/`]`/`|` in one pass (an unstripped `[` would desync `scan_body_capped`'s bracket-depth
   scan) and falls back to the id's first 8 characters if stripping leaves it empty (an empty
   label is `RollError::MalformedDocLink`, rejecting the whole message). Separately,
   `AppContext.speakAsToken` (`SpeakAsToken`, a `ui-kit`-local stable-instance/mutate-in-place

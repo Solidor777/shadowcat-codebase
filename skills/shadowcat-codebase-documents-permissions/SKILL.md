@@ -73,7 +73,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - `data::engine` — the typed `engine`-band structs + the ingress-validation
   registry, one submodule per doc-type family (`data::engine::token`, `data::engine::scene`,
   `data::engine::geometry`, `data::engine::registries`) plus the `data::engine` module itself:
-  `is_engine_doc_type(doc_type) -> bool` (the 23-entry registry:
+  `is_engine_doc_type(doc_type) -> bool` (the 25-entry registry:
   `is_engine_doc_type::token`/`is_engine_doc_type::scene`/`is_engine_doc_type::wall`/
   `is_engine_doc_type::region`/`is_engine_doc_type::light`/`is_engine_doc_type::drawing`/
   `is_engine_doc_type::template`/`is_engine_doc_type::actor`/`is_engine_doc_type::message`/
@@ -81,10 +81,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `is_engine_doc_type::light-gradation`/`is_engine_doc_type::chat-settings`/
   `is_engine_doc_type::dice-settings`/`is_engine_doc_type::channel-registry`/
   `is_engine_doc_type::faction-registry`/`is_engine_doc_type::condition-registry`/
+  `is_engine_doc_type::asset_folder`/`is_engine_doc_type::table`/
   `is_engine_doc_type::combat`/`is_engine_doc_type::combatant`/
   `is_engine_doc_type::resource-registry`/`is_engine_doc_type::effect`/
   `is_engine_doc_type::system-defaults`/`is_engine_doc_type::combat-history` — the combat family
-  plus `system-defaults`, see `shadowcat-codebase-combat`),
+  plus `system-defaults`, see `shadowcat-codebase-combat`; `table` (rollable tables) is
+  standalone, never embedded/parented, see `shadowcat-codebase-tables-notes`),
   `validate_engine(doc_type, engine)
   -> Result<(), DataError>` (deserializes the body against that doc_type's typed struct;
   `deny_unknown_fields` on every struct — engine-defined types WITHOUT an `engine` body error, and
