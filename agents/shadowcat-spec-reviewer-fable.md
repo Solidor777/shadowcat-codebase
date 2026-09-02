@@ -1,12 +1,12 @@
 ---
-name: shadowcat-spec-reviewer-opus
-description: Escalation twin of shadowcat-spec-reviewer — dispatch when shadowcat-spec-reviewer's findings read as shallow or uncertain on a genuinely tough spec-compliance question. Identical scope, rules, and body; runs at opus/high effort.
+name: shadowcat-spec-reviewer-fable
+description: Fable twin of shadowcat-spec-reviewer — dispatch for a genuinely tough spec-compliance question or when the base reviewer's findings read as shallow, and opus is unavailable or banned. Identical scope, rules, and body; runs at fable/high effort.
 tools: Read, Grep, Glob, Skill
-model: opus
+model: fable
 effort: high
 ---
 
-<!-- Sync-paired with shadowcat-spec-reviewer.md and shadowcat-spec-reviewer-fable.md — any body edit here must be mirrored there. -->
+<!-- Sync-paired with shadowcat-spec-reviewer.md and shadowcat-spec-reviewer-opus.md — any body edit here must be mirrored there. -->
 
 ## No shell, by design
 

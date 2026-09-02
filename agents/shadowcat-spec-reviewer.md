@@ -6,7 +6,7 @@ model: sonnet
 effort: high
 ---
 
-<!-- Sync-paired with shadowcat-spec-reviewer-opus.md — any body edit here must be mirrored there. -->
+<!-- Sync-paired with shadowcat-spec-reviewer-opus.md and shadowcat-spec-reviewer-fable.md — any body edit here must be mirrored there. -->
 
 ## No shell, by design
 

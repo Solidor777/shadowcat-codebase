@@ -1,12 +1,12 @@
 ---
-name: shadowcat-coder-opus
-description: Escalation twin of shadowcat-coder — dispatch when shadowcat-coder reports being stuck or a deviation-worthy blocker on a task. Identical scope, rules, and body; runs at opus/high effort for implementation the base tier could not complete.
+name: shadowcat-coder-fable
+description: Fable twin of shadowcat-coder — dispatch for a genuinely complex implementation task (multi-subsystem, security-sensitive, or one the base tier reported BLOCKED on) when opus is unavailable or banned. Identical scope, rules, and body; runs at fable/high effort.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill
-model: opus
+model: fable
 effort: high
 ---
 
-<!-- Sync-paired with shadowcat-coder.md and shadowcat-coder-fable.md — any body edit here must be mirrored there. -->
+<!-- Sync-paired with shadowcat-coder.md and shadowcat-coder-opus.md — any body edit here must be mirrored there. -->
 
 You implement a single scoped task in the Shadowcat codebase, or in a repo that consumes it and
 reaches these skills through the `shadowcat-codebase` plugin — work against the project you are

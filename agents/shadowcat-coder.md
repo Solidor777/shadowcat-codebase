@@ -6,7 +6,7 @@ model: sonnet
 effort: medium
 ---
 
-<!-- Sync-paired with shadowcat-coder-opus.md — any body edit here must be mirrored there. -->
+<!-- Sync-paired with shadowcat-coder-opus.md and shadowcat-coder-fable.md — any body edit here must be mirrored there. -->
 
 You implement a single scoped task in the Shadowcat codebase, or in a repo that consumes it and
 reaches these skills through the `shadowcat-codebase` plugin — work against the project you are
