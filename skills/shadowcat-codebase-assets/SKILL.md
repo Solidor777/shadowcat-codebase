@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-assets
-description: "Use when touching Shadowcat assets: upload (single-shot or chunked sessions), the WebP conversion pipeline + retained originals + thumb/preview derivatives, explicit/derived tags, `asset_folder` documents, the query/PATCH/bulk/reconvert/original routes, serve/replace/delete, ETag/version revalidation, upload rate limits, out-of-band AssetChanged broadcasts (every `AssetOp`), the client asset REST + chunked-upload client + AssetResolver, or the asset-browser UI module (panel, folder tree, pick overlay). Covers src/server/src/data/asset{.rs,/} + src/server/src/data/sqlite/assets.rs + src/server/src/http/assets{.rs,/} + src/client/core/src/asset* + src/modules/asset-browser. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat assets: upload (single-shot or chunked sessions), the WebP conversion pipeline + retained originals + thumb/preview derivatives, explicit/derived tags (incl. Provenance::ChatImage from inline chat images), `asset_folder` documents, the query/PATCH/bulk/reconvert/original routes, serve/replace/delete, ETag/version revalidation, upload rate limits, out-of-band AssetChanged broadcasts (every `AssetOp`), the client asset REST + chunked-upload client + AssetResolver, or the asset-browser UI module (panel, folder tree, pick overlay). Covers src/server/src/data/asset{.rs,/} + src/server/src/data/sqlite/assets.rs + src/server/src/http/assets{.rs,/} + src/client/core/src/asset* + src/modules/asset-browser. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Assets
@@ -23,7 +23,12 @@ pipeline-derived tags.
 
 - `data::asset` — `Asset { …, folder_id, tags, derived_tags, meta: AssetMeta }` (`AssetMeta` is
   `#[serde(flatten)]`ed: `width/height/has_alpha/animated/original_content_type/
-  original_byte_size/original_retained/conversion_note`). `Provenance { Uploaded, LinkPreview }`.
+  original_byte_size/original_retained/conversion_note`). `Provenance { Uploaded, LinkPreview,
+  ChatImage }` — `ChatImage` marks an asset created by `chat::post_publish::resolve_inline_image`
+  from a Markdown/HTML image URL in a chat message (see `shadowcat-codebase-chat`'s
+  `chat::body::compose_message`/`InlineImage` job); a `[[asset:<uuid>|alt]]` span instead
+  references an EXISTING asset directly and creates nothing, so it carries no provenance tag of
+  its own.
   The shared commit tail: `process_staged_blocking` (runs `process::process_staged` on the
   blocking pool, removes the staged stem on failure) → `commit_staged_asset(repo, tmp, final,
   asset, derived_tags)` (moves canonical + siblings, inserts the row, writes both tag sets).
@@ -40,8 +45,10 @@ pipeline-derived tags.
 - `data::asset::tags` — `derive(DeriveInput { content_type, meta, folder_names, provenance })`
   → sorted derived set: kind ("image" + subtype, or "other"), "animated"/"gif-animated",
   "square", "large" (either axis ≥ `LARGE_AXIS_PX` = 2048), "transparent", every ancestor
-  folder name, and the provenance tag (`UPLOADED_TAG` | `LINK_PREVIEW_TAG`).
-  `provenance_of(derived)` recovers provenance from a stored set. `normalize_tags` (+
+  folder name, and the provenance tag (`UPLOADED_TAG` | `LINK_PREVIEW_TAG` | `CHAT_IMAGE_TAG`).
+  `provenance_of(derived: &[String]) -> Provenance` (single-arg — recovers provenance from the
+  DERIVED tag set alone, never the explicit GM-set tags) recovers provenance from a stored set.
+  `normalize_tags` (+
   `MAX_TAG_CHARS`/`MAX_TAGS`) is the one rule for GM-set tags, applied by the routes
   (`uploads::validate_tags`) and by bundle import alike.
 - `data::asset::query` — the repo's vocabulary: `AssetFilter { folder: Option<FolderFilter>,
@@ -113,7 +120,9 @@ pipeline-derived tags.
 - **Every commit+file-op pair holds the read side of `AppState.write_barrier`** — and never
   the network-bound stream or the CPU-bound conversion (`process_staged_blocking`, on the
   blocking pool) before it. The chunked
-  `complete_session` and the link-preview pipeline join the same exclusion.
+  `complete_session` and the link-preview/`chat::post_publish` pipelines (link previews' `og:image`,
+  oEmbed thumbnails, AND `resolve_inline_image`'s `Provenance::ChatImage` commits — all three go
+  through the same `create_asset_from_bytes` entry point) join the same exclusion.
 - **The bytes decide the content type.** `detect_image_type` sniffs PNG/JPEG/GIF/WebP/BMP/TIFF
   magic and SVG text (every type `process` has a branch for); a client's declared `image/*` the
   bytes disprove becomes `application/octet-stream` (`label_content_type`); a non-image
@@ -199,3 +208,6 @@ pipeline-derived tags.
 - Relationships:
   `graphify query "asset upload process derivatives tags folder query AssetChanged"`.
 - History: [[m8b-assets]], [[commit-db-row-before-swapping-file]].
+- `shadowcat-codebase-chat` — `chat::post_publish::resolve_inline_image`, `Segment::Image`, and
+  `chat::body::compose_message`'s `[[asset:<uuid>|alt]]` span — the two chat-side producers of a
+  `Provenance::ChatImage` asset and of a message referencing an asset by id.

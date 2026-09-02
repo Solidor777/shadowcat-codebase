@@ -351,8 +351,15 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   region grid so fixed-position modal chrome is never clipped (the merge-conflict modal
   precedent is a Table-mounted host instead; new app-level modals should prefer the surface).
   The overlay contribution is deliberately un-gated (any member picks); the browser PANEL
-  contribution is `gmOnly`. Consumers: scene-tools `AssetPicker`'s browse affordance and
-  `VisualKindEditor`'s face/frames/sheet picks.
+  contribution is `gmOnly`. Consumers: scene-tools `AssetPicker`'s browse affordance,
+  `VisualKindEditor`'s face/frames/sheet picks, and `module-chat-composer`'s `image-insert` button
+  (inserts a `[[asset:<uuid>|alt]]` chat span — see `shadowcat-codebase-chat`).
+- **`SegmentList.svelte`/`RollTooltip.svelte` live in `@shadowcat/ui-kit`**, not
+  `module-chat-card` — the chat message segment renderer (and its single `{@html}` sink) was
+  extracted here so it can be a plain `{segments, channel}`-driven component reused without
+  pulling in the whole chat-card module; `module-chat-card`'s `MessageCard.svelte` delegates to
+  it. Full segment-kind/invariant detail lives in `shadowcat-codebase-chat`, not here — this is
+  the module-boundary/ownership fact, not the rendering contract.
 - AppContext seams (wired in `Table`): `uiState {getPanelLayout, setPanelLayout}`
   (narrow; the shell owns storage), `panels: PanelsApi & PanelsChipsView` — the shell
   constructs ONE `PanelsBridge` (`$state`-backed so
@@ -380,9 +387,17 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 - `src/modules/{entry,core-ui,panels,stage,topbar,statusbar,settings,game-settings,scene-browser,
   chat,chat-composer,chat-card}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind
   `<Entry onEnterWorld>`); core-ui owns the layout grid + region surfaces into the singleton
-  `root` (its main region hosts `shadowcat.surface:panel-host`; the grid cell carries
-  `min-height: 0` + `overflow: hidden` — the growth cap that keeps tall content scrolling
-  INSIDE panels instead of blowing the 1fr track past 100vh); the grid's compact/expanded
+  `root` (its main region hosts `shadowcat.surface:panel-host`; BOTH cells of the `1fr` row —
+  `.main` AND `.toolrail` — carry the growth cap (`min-height: 0` + a non-visible `overflow-y`),
+  because a grid row is at least as tall as its tallest item's minimum contribution: one
+  uncapped cell grows the row, the grid and every sibling past 100vh, the document becomes
+  scrollable, and a canvas rect measured before a scroll lands raw-coordinate gestures off the
+  canvas — which is how a `ToolRail` taller than the row once broke token placement. `.main`
+  hides overflow (the panel host owns inner scrolling); `.toolrail` scrolls its stacked
+  contributions itself (`overflow-y: auto`, `overflow-x: hidden`). `Layout.test` enumerates
+  the row's cells against the cap, reading component styles through jsdom's cascade — core-ui's
+  vitest config compiles them with `emitCss: false`, since vitest never attaches an emitted CSS
+  asset to the document); the grid's compact/expanded
   switch is keyed SOLELY off `sizeClass()` (48rem, `ui-kit`'s single breakpoint axis) — no
   media query; `grid-template-rows` reserves a fixed `2rem` statusbar row in both states.
   panels = the panel manager ([[shadowcat-codebase-panels]]); stage = the canvas stage well

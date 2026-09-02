@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-chat
-description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card — the {@html} boundary + roll/preview rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat*. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), inline chat images (Segment::Image, chat::body::compose_message, the InlineImage post-publish job, Provenance::ChatImage), the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card, plus ui-kit's SegmentList — the {@html} boundary + roll/preview/image rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat* + src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Chat Core
@@ -68,7 +68,15 @@ guarded, per `validate_url` below).
   takes an `EnrichDeps<'a> { repo, fetch: LinkPreviewDeps<'a> }` bundle rather than a flat
   parameter list — the repository handle a persisted-cache lookup needs, grouped in with the
   existing `client`/`cache`/`rate` fetch bundle to stay under clippy's too-many-arguments limit,
-  same restructuring pattern as `PostPublishDeps`/`data::asset::NewAssetBytes`.
+  same restructuring pattern as `PostPublishDeps`/`data::asset::NewAssetBytes`. `enrich` ALSO
+  takes `image_urls: &[sanitize::ImageSource]` (`chat::body::compose_message`'s second return
+  value): each valid, non-blocked-URL source (`validate_url` — the SAME SSRF guard the link-scrape
+  path uses, not a separate check), rate-limited the same way, is queued as a
+  `PendingEnrichment::InlineImage{image_url, alt}` job, capped at `MAX_INLINE_IMAGES=4`
+  independently of `MAX_PREVIEWS_PER_MESSAGE` (an image-heavy message can carry both link previews
+  and inline images up to their own separate caps). The call site's gate is
+  `previews_enabled() || !image_urls.is_empty()`, not `previews_enabled()` alone — see
+  `chat::body::compose_message` above for why.
 - **`LinkPreviewCache`** (in-memory, on `WsState`): URL→`(Instant, Option<LinkPreview>)`,
   positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
   fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. This
@@ -121,6 +129,21 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   `fetch_image_bytes` (the same SSRF-guarded client `fetch_preview` uses) and asset-ifies it via
   `data::asset::create_asset_from_bytes` with `created_by: None` — see `shadowcat-codebase-assets`
   for that shared commit path and the `created_by: None` convention.
+- **`resolve_inline_image`** — the `PendingEnrichment::InlineImage` resolver, structurally a
+  mirror of `resolve_preview_image` with ONE difference: a preview target's `link_preview_cache`
+  row already exists (the synchronous scrape wrote it), so `resolve_preview_image` only ever
+  `set`s the image column; an inline image's URL has no such prior row, so `resolve_inline_image`
+  `upsert_link_preview_cache`s a fresh one before `set_link_preview_cache_image`. Cache hit ⇒
+  reuses the stored `image_asset_id` verbatim (`ResolvedEnrichment::NewImageSegment(Segment::
+  Image{asset_id, alt})`, no re-fetch); cache miss ⇒ `fetch_image_bytes(client, url,
+  Duration::from_secs(5), MAX_INLINE_IMAGE_BYTES)` (the inline-image byte cap, independent of
+  `MAX_IMAGE_BYTES`'s preview-thumbnail cap — `fetch_image_bytes` takes the cap as a parameter
+  precisely so the two callers can differ) → `create_asset_from_bytes` with
+  `Provenance::ChatImage`, `created_by: None` (see `shadowcat-codebase-assets`) → cache-write →
+  `NewImageSegment`. `publish_resolved`'s `ResolvedEnrichment::NewImageSegment(segment)` arm
+  simply pushes the resolved `Segment::Image` onto `content` — unlike a `LinkPreview`/`OEmbed`
+  patch, there is no existing segment to update; the image segment did not exist in the message
+  at all until this background job resolved it.
 - **`resolve_oembed`/`resolve_thumbnail_asset`** — queries `provider.endpoint(post_url)` (the
   allowlisted host, `post_url` only ever contributes the `url` query VALUE — never the endpoint
   host) via `fetch_json_bytes`, deserializes into `OEmbedResponse` (structurally incapable of
@@ -199,8 +222,14 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   (an executed inline roll's audit record cannot be erased by editing around it), or when the
   new content parses to kind `Roll` (no editing INTO a roll). The stored-kind check is
   deliberately UNCONDITIONAL because `kind: Roll` + `audience: Whisper` IS reachable via the
-  frame `audience` field (no `/w` token ⇒ `parse_command` still runs). Edits never call
-  `scan_body` — `[[…]]` in an edit stays literal text. **Recalculation is the one deliberate
+  frame `audience` field (no `/w` token ⇒ `parse_command` still runs). Edits DO now route through
+  `chat::body::compose_message` under `ScanMode::NoExecute` — a `[[doc:]]`/`[[token:]]`/
+  `[[asset:]]` span in edited content composes into its typed segment the same as on send, and a
+  `[[roll:]]` button span VALIDATES structurally (a malformed formula still fails the edit), but
+  `ScanMode::NoExecute` guarantees no inline `[[Ndm]]` roll is ever EXECUTED by an edit — the
+  distinction this bullet's title protects is "an edit can never mint a new rolled outcome," not
+  "an edit treats `[[…]]` as inert text" (that was the pre-`compose_message` behavior; it changed).
+  **Recalculation is the one deliberate
   exception to immutability**, gated entirely differently (see the next bullet) — it does not
   weaken this check, since `handle_edit_message` still refuses to touch `content` at all.
 - **Recalculation (`handle_recalc_roll`):** the ONLY path that ever mutates an existing
@@ -273,16 +302,23 @@ with zero message-specific plumbing in any of those subsystems.
     reserved for future server-authored notices — NO parse path can ever produce it, proven by an
     exhaustive test) and `Segment` (tagged enum: `Text{text}` — verbatim, client renders as a DOM
     text node; `Html{sanitized_html}` — a run of already-`ammonia`-cleaned HTML, produced ONLY by
-    `sanitize::sanitize`, client renders via `innerHTML`) — both serde-only, NO ts-rs; they live
+    `sanitize::sanitize`, client renders via `innerHTML`; `Image{asset_id, alt}` — see below) —
+    both serde-only, NO ts-rs; they live
     inside the `engine` JSON body, not the wire frame, so the client
-    declares its own Zod mirror later. **Design note:** inline formatting/links/images do
-    NOT get their own
-    typed `Segment` variants — they stay INSIDE a `Segment::Html` run as ordinary sanitized markup
-    (`<strong>`/`<a>`/`<img>`). A separate typed `Link`/`Image` segment would require re-parsing
-    already-sanitized HTML to extract them, duplicating work `ammonia` already did; `Html` is the
-    single content-bearing rich variant. `Segment::DocLink{target, label}` does not contradict
-    this: it is a structured REFERENCE (a doc/token id + a display label), not inline formatting
-    or markup, so it stays a distinct typed variant rather than folding into `Html`.
+    declares its own Zod mirror later. **Design note (revised for `Image`):** inline
+    formatting/hyperlink markup does NOT get its own typed `Segment` variant — it stays INSIDE a
+    `Segment::Html` run as ordinary sanitized markup (`<strong>`/`<a>`). Images are the deliberate
+    EXCEPTION: an `<img>` is stripped from every `Html` run regardless of the `images` policy
+    toggle (`chat::sanitize::sanitize` never lets a raw image URL reach the client — see
+    `sanitize`'s `ImageSource` extraction below) and instead becomes a typed `Segment::Image{
+    asset_id, alt}` referencing an asset THIS SERVER already holds, produced either directly from a
+    `[[asset:<uuid>|alt]]` span (`chat::rolls::scan_body`, ingest-time, no network) or
+    asynchronously via the `chat::post_publish` `InlineImage` job (a Markdown/HTML image URL is
+    fetched server-side, asset-ified, then republished — see "Post-publish enrichment" below). The
+    server never stores or forwards an external image URL verbatim; the client never fetches one.
+    `Segment::DocLink{target, label}` remains a structured REFERENCE (a doc/token id + a display
+    label), not inline formatting or markup, so it stays a distinct typed variant rather than
+    folding into `Html`.
   - `Segment::DocLink{target: DocLinkTarget, label}` — a free-form in-body link to a document or
     token, recognized by `chat::rolls::scan_body` from a `[[doc:<uuid>|<label>]]` or
     `[[token:<uuid>|<label>]]` span (same `[[...]]` bracket-depth grammar as `[[roll:...]]`; the
@@ -413,21 +449,29 @@ with zero message-specific plumbing in any of those subsystems.
   backtick-run/code-span rule. Table sortedness
   is pinned by a test (`binary_search_by_key` silently breaks on a mis-sorted row).
 - `chat::sanitize` — `sanitize(raw: &str, policy: &ChatContentPolicy) ->
-  Vec<Segment>`, the content-security boundary. `!policy.markdown && !policy.html` short-
-  circuits to a single `Segment::Text` (identical to `plain_text_content`, the fail-closed
-  baseline). Otherwise: `pulldown-cmark` renders Markdown to an HTML string (when `markdown` is
+  Sanitized{segments: Vec<Segment>, image_urls: Vec<ImageSource>}` (was a bare `Vec<Segment>`;
+  `Sanitized` and `ImageSource{url, alt}` are re-exported from `chat::mod` alongside `sanitize`),
+  the content-security boundary. `!policy.markdown && !policy.html` short-
+  circuits to a single `Segment::Text` + empty `image_urls` (identical to `plain_text_content`,
+  the fail-closed baseline). Otherwise: `pulldown-cmark` renders Markdown to an HTML string (when
+  `markdown` is
   on; when `html` is off, cmark's raw-HTML events are DOWNGRADED to escaped `Text` events rather
   than dropped, so an author's embedded tag becomes inert display text, e.g. `<b>` → `&lt;b&gt;`,
   never silently vanishing and never reaching `ammonia` as live markup) or is passed straight
-  through (html-only), then the WHOLE string crosses `ammonia::Builder::clean()` exactly once —
-  the single security boundary — producing one `Segment::Html`. `ammonia_for(policy)` narrows
+  through (html-only). An `<img>` is ALWAYS stripped from the HTML string by `ammonia` regardless
+  of the `images` toggle — a raw external image URL never reaches the client — but before
+  stripping, `sanitize` walks the pre-`ammonia` HTML for genuine `<img src alt>` tags (same
+  genuine-tag extraction discipline `link_preview::enrich`'s href scan uses, not a substring scan)
+  and collects each into `image_urls: Vec<ImageSource>`, gated on `policy.images` (no images
+  policy ⇒ empty list, same as no hyperlinks ⇒ no link-preview candidates). The WHOLE HTML string
+  still crosses `ammonia::Builder::clean()` exactly once — the single security boundary —
+  producing one `Segment::Html` with NO `<img>` inside it. `ammonia_for(policy)` narrows
   ammonia's already-safe default (which already strips `<script>`/`<style>`/the `style`
-  attribute/`javascript:`/`data:` schemes) further per toggle: `images: false` removes `<img>`
-  entirely; `images: true` adds, through `ammonia::attribute_filter`, a lexical image-source
-  extension allowlist (`.png/.jpg/.jpeg/.webp/.gif`,
-  checked after stripping `?query`/`#fragment` but NOT scheme/host — a filename-suffix heuristic,
-  not real content-type verification; a genuine external host with an allowlisted-looking
-  extension still passes, tracked as follow-up); `hyperlinks: false` removes `<a>`; `emails`
+  attribute/`javascript:`/`data:` schemes) further per toggle: `<img>` is unconditionally removed
+  regardless of `images` (the extracted `image_urls` are the ONLY surviving trace of a source
+  message's image markup — see `chat::body::compose_message`/`chat::link_preview::enrich`'s
+  `InlineImage` job below for how they become a `Segment::Image`); `hyperlinks: false` removes
+  `<a>`; `emails`
   gates whether `mailto:` is in the allowed URL scheme set (always `http`/`https`). CSS is
   ALWAYS stripped regardless of any toggle (belt-and-suspenders re-removal of `style` on every
   currently-whitelisted tag, not just reliance on ammonia's default). **`url_relative(Deny)` is
@@ -435,6 +479,28 @@ with zero message-specific plumbing in any of those subsystems.
   (`//evil.example/pixel.gif`) through unfiltered — invisible to the `url_schemes` allowlist,
   which only inspects URLs that HAVE a scheme — and would otherwise let a smuggled tracking pixel
   fire for every recipient of a whispered/GM-only message.
+- `chat::body::compose_message(body: &str, deps: ComposeDeps<'_>, mode: ScanMode) ->
+  Result<(Vec<Segment>, Vec<sanitize::ImageSource>), ComposeError>` — the shared chunk→segment
+  composer BOTH `handle_send_message` (`ScanMode::Execute` — inline rolls actually roll) and
+  `handle_edit_message` (`ScanMode::NoExecute` — inline rolls validate structurally only, per the
+  roll-immutability invariant below) call, extracted so a `[[doc:]]`/`[[roll:]]`/`[[asset:]]` span
+  and `sanitize`'s markdown-derived `image_urls` compose identically on send and on edit. Chunks
+  through `chat::rolls::scan_body`; each `Text` chunk independently calls `sanitize` and
+  accumulates BOTH its `segments` and its `image_urls` across the whole body (markdown spanning a
+  chunk boundary does not survive — same documented per-chunk-independent sanitize limit as
+  before). An `[[asset:<uuid>|alt]]` span becomes a `Segment::Image{asset_id, alt}` directly, no
+  network fetch, no existence check (mirrors `DocLink`'s own no-existence-check-at-ingest
+  design — a dangling `asset_id` is a client fail-closed-at-render concern via
+  `ctx.assets.url`); an `[[asset:<uuid>]]` (no `|alt`) referencing an asset the repository cannot
+  find as a valid asset UUID fails the compose with `ComposeError::Roll(RollError::UnknownAsset)`
+  (grammar-adjacent to `[[roll:]]`'s own malformed-span errors, surfaced the SAME way — see
+  `build_roll_error_notice` below, NOT a hard `ChatError`). The composed `image_urls` returned
+  alongside `segments` is what `handle_send_message`/`handle_edit_message` pass on to
+  `link_preview::enrich` to queue `InlineImage` jobs (see next section) — this is why the
+  enrich-stage gate below is `policy.previews_enabled() || !image_urls.is_empty()`, not
+  `previews_enabled()` alone: a world can enable `images` without `hyperlinks`, and such a world's
+  markdown image URLs must still reach the post-publish pipeline even though link previews stay
+  off.
 - `chat::settings` — `ChatContentPolicy{markdown, html, images, hyperlinks,
   emails: bool}`, all `#[serde(default)]` = `false`, stored as the `system` body of the single
   per-world `chat-settings` config `Document` (`CHAT_SETTINGS_DOC_TYPE`). `resolve_content_policy
@@ -582,9 +648,10 @@ with zero message-specific plumbing in any of those subsystems.
   `parseMessageEngine(doc) -> ChatMessageEngine | null` (parses `doc.engine` not `doc.system`;
   fail-closed: wrong doc_type or ANY
   malformed body → null, never partial) + `isKnownSegment` (unknown segment kinds parse as
-  opaque forward-compat and render as nothing, but the fallback REFUSES kinds "text"/"html" so
+  opaque forward-compat and render as nothing, but the fallback REFUSES kinds "text"/"html"/
+  "image" so
   a malformed known-kind segment fails the whole message instead of being misclassified —
-  load-bearing, pinned by tests). A Rust-side body-shape change MUST update that file by hand
+  load-bearing, pinned by tests; eight known segment kinds total as of `image`). A Rust-side body-shape change MUST update that file by hand
   (drift notes at both ends), not a regenerated binding. `MAX_MESSAGE_CHARS` is mirrored there
   for composer pre-validation (JS `.length` counts UTF-16 units vs the server's
   `chars().count()` — divergence is fail-safe: client can only over-block). `PermissionSet`
@@ -664,6 +731,10 @@ with zero message-specific plumbing in any of those subsystems.
   is rejected (`SendMessageError::TooLong`) without running any of those DB round-trips. Without
   this, one cheap `SendMessage` frame could force one sequential DB query per (attacker-supplied)
   recipient.
+- **`previews_enabled() || !image_urls.is_empty()` gates enrichment, not `previews_enabled()`
+  alone.** A world with `images: true, hyperlinks: false` still reaches `link_preview::enrich`
+  (to queue `InlineImage` jobs) even though its `previews_enabled()` is false — treating the two
+  conditions as equivalent will silently drop that world's inline images.
 - **A message's sender always retains `DocRole::Owner` in `permissions.users`**, regardless of the
   message's `Audience` or any later `gm_role`/world-role change — e.g. a Player who posts to a
   `GmOnly` channel permanently keeps read/search access to their own message even if never
@@ -735,8 +806,23 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   selected and the current user is GM or the effective owner (`ownerFloorApplies`, advisory-only
   — the server re-authorizes via `effective_owner_of` regardless), and the composer reads
   `.tokenId` for a "Speaking as: {name}" indicator and calls `.consume()` on send, giving the
-  pending token precedence over the sticky actor `<select>` when building `actor_owner`.
+  pending token precedence over the sticky actor `<select>` when building `actor_owner`. An
+  `image-insert` button (`data-testid="image-insert"`), gated on the world's `chat-settings`
+  `images` toggle, opens `AppContext.pickAsset` and inserts a `[[asset:<uuid>|alt]]` span at the
+  cursor — the label falls back to `id.slice(0, 8)` unconditionally (no asset-name-lookup surface
+  exists on `AppContext` to populate a real name).
 - **`@shadowcat/module-chat-card`** — fail-closed render (`parseMessageEngine` null ⇒ nothing).
+  **The segment renderer + the `{@html}` sink live in `@shadowcat/ui-kit`, not this module:**
+  `SegmentList.svelte` (`src/client/ui-kit/src/SegmentList.svelte`) is the extracted
+  `{segments, channel}`-driven renderer for EVERY `ChatSegment` kind (text/html/doc_link/
+  roll_embed/roll_button/link_preview/oembed/**image**) — `MessageCard.svelte` delegates to it
+  (`<SegmentList segments={sys.content} channel={sys.channel} />`) rather than looping segments
+  itself; `RollTooltip.svelte` lives in ui-kit alongside it (a `SegmentList`-only dependency). An
+  `image` segment renders as `<a href={ctx.assets.url(s.asset_id)}><img
+  src={ctx.assets.url(s.asset_id, "preview")} alt={s.alt} loading="lazy"></a>` — always through
+  `AssetResolver.url`, this server's own asset endpoint, never a raw external URL (none is ever
+  stored on the segment to begin with). Moving the renderer does not relocate the invariant below,
+  only its file.
   **GM recalc menu + recalculated badge:** `MessageCard.svelte` renders a `recalc-menu` (one row
   per base die — reroll/remove buttons plus a bounded numeric replace input, each calling
   `sendRecalc` → `ctx.chat.recalc(message.id, rollId, [op])`) ONLY for the BLOCK form (a
@@ -758,9 +844,11 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   (visible sizing would balloon an inline text-flow chip). Escape dismisses via a document-level
   listener while open (not just the focused-trigger keydown, so it also dismisses from a
   hover-only-open state).
-  **THE `{@html}` INVARIANT: the module's single `{@html}` sink renders only an
+  **THE `{@html}` INVARIANT: `SegmentList`'s single `{@html}` sink (in ui-kit, see above) renders
+  only an
   `isKnownSegment`-narrowed `kind:"html"` segment's `sanitized_html` (ammonia-produced);
-  Text segments are text nodes (`white-space: pre-wrap`); every other string interpolates
+  Text segments are text nodes (`white-space: pre-wrap`); an `image` segment renders through an
+  `<img src>` bound to `AssetResolver.url`, never `{@html}`; every other string interpolates
   escaped.** Header: author via `ctx.members` (`list_members` is member-visible, not GM-only —
   chat name resolution needs it), actor name via
   the real `resolveTokenActor`/`actorDisplayName` fail-closed chokepoint (an
@@ -785,6 +873,13 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
 - `shadowcat-codebase-documents-permissions` — the `Document`/`PermissionSet`/redaction/search
   machinery a message rides, including the `gm_role` field (owned there, load-bearing here — see
   that skill's Hard Invariants for what `Some(role)` does to `resolve_access`'s GM branch).
+- `shadowcat-codebase-assets` — `Provenance::ChatImage`, `create_asset_from_bytes`/
+  `NewAssetBytes`, and the stable-asset-id serving path `Segment::Image`/`AssetResolver.url`
+  read; the `created_by: None` convention `resolve_inline_image`/`resolve_preview_image`/
+  `resolve_thumbnail_asset` all share.
+- `shadowcat-codebase-client-shell` — `AppContext.pickAsset`/`assets: AssetResolver` (the
+  composer's image-insert button and `SegmentList`'s `<img>` rendering both go through it), and
+  `@shadowcat/ui-kit`'s module boundary where `SegmentList.svelte`/`RollTooltip.svelte` now live.
 - `shadowcat-codebase-realtime-sync` — `Room::publish`, WS `Intent`/`SendMessage` dispatch,
   broadcast/resync, and the HTTP `write_ops` mirror guard.
 - graphify: `graphify explain "chat"` / `graphify query "how does SendMessage reach a stored
