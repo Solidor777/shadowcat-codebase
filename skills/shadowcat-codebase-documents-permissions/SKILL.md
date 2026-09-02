@@ -195,7 +195,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `skip_serializing_if` serialize as `null`, so this is the common case — e.g. a scene's
   `/engine/vision` override on a default-built scene doc); `remove_pointer` no-ops through it; reads
   yield absent (the client's `getPointer` → `undefined`; serde_json's `Value::pointer` server-side →
-  `None` — there is no bespoke server `get_pointer`). The LEAF null-vs-absent distinction is preserved (`null !=
+  `None` — `data::command` has no bespoke pointer-read helper of its own; the unrelated
+  `merge::tree::get_pointer` is private to the merge module's own tree walk and is not part of
+  this ingress family). The LEAF null-vs-absent distinction is preserved (`null !=
   absent` for a leaf value). Forking this null-handling across the two languages is the never-fork
   defect class — parity is pinned by matching tests on each side.
 - `data::permission` — the redaction core:

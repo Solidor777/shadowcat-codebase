@@ -1,191 +1,171 @@
 ---
 name: shadowcat-codebase-templates
-description: "Use when touching Shadowcat's generic templates/3-way-merge engine: stamp/pull/push/revert of a document instance against its template, `Document.base` (the opaque merge snapshot), `@shadowcat/core`'s `merge`/`templates` modules (structuralDiff, merge3Tree/merge3/merge3Embedded, restampSubtree, takeTemplate, placement exclusions, snapshotBase, stampInstance, computePull/computeRevert, planToUpdate, applyResolutions, findInstances, syncState), `TemplatesController`/`AppContext.templates`, the field-level conflict modal (`MergeConflictModal`/`TemplateModalHost`), or the host-rendered `TemplateControls`/`SheetHost` chrome every sheet gets for free. Templates are not a doc_type — any document can be a template or an instance via `source`. Invoke shadowcat-codebase-core first; for the server-side `base` field/authz see shadowcat-codebase-documents-permissions, for the sheet-panel wrapper mechanics see shadowcat-codebase-sheets."
+description: "Use when touching Shadowcat's generic templates/3-way-merge engine: the server-side `merge` module (structural_diff, merge3_tree/merge3/merge3_embedded, restamp_subtree, take_template, placement exclusions, snapshot_base, compute_pull/compute_revert, plan_to_update, apply_resolutions, `MergeConflict`), the three merge intents (`MergePull`/`MergePush`/`MergeRevert`, `MergeResult`/`MergeError`, `ws::conn::merge_intents`), `Document.base` (the server-owned, engine-tree-validated merge snapshot), `TemplatesController`/`AppContext.templates` (an intent sender), the field-level conflict modal (`MergeConflictModal`/`TemplateModalHost`), the host-rendered `TemplateControls`/`SheetHost` chrome every sheet gets for free, or `@shadowcat/core`'s retained stamp/display surface (`stampInstance`, `snapshotBase`, `findInstances`, `syncState`). Templates are not a doc_type — any document can be a template or an instance via `source`. Invoke shadowcat-codebase-core first; for the server-side `base` field/authz see shadowcat-codebase-documents-permissions, for the sheet-panel wrapper mechanics see shadowcat-codebase-sheets."
 ---
 
 # Shadowcat — Templates & 3-Way Merge Engine
 
 Orientation for the generic templates system: any document can be stamped as a reusable
 template, instanced elsewhere, and later pulled from / pushed to / reverted against its
-template via a client-side 3-way merge — no server-side merge logic, no `template` doc_type.
+template via a SERVER-side 3-way merge — no `template` doc_type.
 
 ## Purpose
 
 A "template" is just a document another document's `source: { id, ... }` field points at
-(`Document.source`). The templates system adds the machinery to keep an instance and its
-template's mergeable content (`name`/`engine`/`system`/`embedded`) in sync over time, using a
-classic 3-way merge (base/mine/theirs) where "base" is a client-owned snapshot
-(`Document.base`) taken at stamp time or the last successful sync. This is entirely client-core
-algorithm + client-ui-kit orchestration; the server only stores/redacts/size-caps the opaque
-`base` blob (`Document.base` — see `shadowcat-codebase-documents-permissions`) and never
-interprets or merges anything itself.
+(`Document.source`). The templates system keeps an instance and its template's mergeable content
+(`name`/`engine`/`system`/`embedded`) in sync over time, using a classic 3-way merge (base/mine/
+theirs) where "base" is a SERVER-owned snapshot (`Document.base`) derived at Create and refreshed
+by every successful merge write. **The server owns the merge**: `MergePull`/`MergePush`/
+`MergeRevert` intents ride the `CombatRoll` reply pattern (`ServerMsg::MergeResult`/
+`ServerMsg::MergeError`, correlated by `request_id`), the server computes the plan, derives
+authorization against the actual computed `Update`, and commits under
+`WriteOrigin::TemplateMerge`. The client's `TemplatesController` is an intent sender: it opens the
+conflict modal on a conflicted reply and re-sends the intent with the user's resolutions. Stamping
+stays a client-composed `Create` — it is a clone, not a merge, and the server's authority over it
+is the `base` derivation at Create plus ordinary Create validation.
 
 ## Key files & seams
 
-- The `merge` module — the pure 3-way diff/merge algorithm, no store/Svelte
-  dependency:
-  - `structuralDiff(base, now, prefix)` → `Diff[]` (leaf-level added/changed/removed vs base).
-  - `merge3Tree(base, parentNow, childNow, exclusions)` → `{ merged, conflicts }` at the tree
-    level: **arrays merge wholesale** (either side's whole-array change wins outright, or
-    conflicts if both changed — arrays have no stable per-element identity to diff), **objects
-    merge key-level** (each key independently: parent-only / child-only / both-same /
-    both-different-conflict). `merge3Tree.exclusions` drops matching paths from the parent side entirely
-    (never merge, never conflict) — the placement-exclusion mechanism (below).
-  - `merge3Embedded(baseChildren, theirsChildren, mineChildren)` — **internal helper, not
-    exported from `@shadowcat/core`** (used only inside `merge3`); correlates embedded children
-    across base/mine/theirs **by `source.id`, never by array index or embedded-array position**
-    — an instance's embedded children were themselves stamped from the template's embedded
-    children, so `source.id` is the only stable cross-side key. Handles instance-added
-    (mine-only, kept) and base-missing (fail-safe: kept, not silently dropped) cases; a
-    correlated triple with a real conflict is kept pending, not merged.
-  - `merge3(base: MergeBase, parentNow: WireDocument, childNow: WireDocument, exclusions:
-    string[])` → `MergePlan { mergedBands, conflicts: Conflict[] }` — the top-level entry point:
-    merges `name`/`engine`/`system` bands (via `merge3Tree`, forwarding `merge3.exclusions`) plus
-    `embedded` (via `merge3Embedded`) in one pass.
-  - `restampSubtree(doc)` — deep-clones a document tree for use as a fresh `base`/instance
-    (guards against the aliasing hazard in `[[embedded-copy-needs-deep-clone]]`).
-  - `takeTemplate(root, conflict)` — applies "theirs" for one conflicted leaf, used by conflict
-    resolution.
-  - `isPlacementExcluded(path, exclusions)` / `placementExclusions(docType)` — per-doc_type
-    paths that are always instance-owned and never merged/pulled/pushed (e.g. a token's on-scene
-    `x`/`y`) — checked by every pull/revert/push computation in the `templates` module, not re-derived
-    per call site.
-  - Types: `Diff`, `Conflict` (`{ path, base, parent, child, parentKind: "set" | "delete" }` —
-    `parent`/`child` are `undefined` when that side deleted the key; `parentKind` records how
-    "take template" resolves it. Conceptually `parent`≈"theirs" (the template) and `child`≈"mine"
-    (the instance), but the field names on the type are `parent`/`child`, not "mine"/"theirs"),
-    `MergeBase` (the `base` snapshot shape: `{ name, engine, system, embedded }`), `MergeBands`
-    (the merged-band result shape), `EmbeddedBaseChild`, `MergePlan`.
-- The `templates` module — the stamp/sync operations built on the `merge` module:
-  - `snapshotBase(doc) -> MergeBase` — takes the `base` snapshot from a document's current
-    mergeable bands (called at stamp time and after every successful pull/push/revert).
-  - `stampInstance(source, opts: StampOpts) -> WireDocument` — clones `source` into a new
-    instance: sets `source: { id: source.id, ... }`, deep-clones embedded children via
-    `restampSubtree`, then assigns `stamped.base = snapshotBase(stamped)` — a snapshot of the
-    ASSEMBLED new instance (post-clone, with its fresh `id`/`scope`/`owner`/`source`), not a
-    direct call against `source`. The mergeable content (`name`/`engine`/`system`/`embedded`) is
-    equivalent either way since it's cloned verbatim from `source`, but the call target is the
-    stamped document, not the template.
-  - `computePull(child, template) -> MergePlan` / `computeRevert(child, template) ->
-    WireOperation` — pull = 3-way merge (child's local edits + template's edits, base = child's
-    stored `base`); revert = discard local edits, reset to template's current state.
-  - `planToUpdate(child, template, mergedBands) -> WireOperation` — turns a resolved
-    `MergeBands` into ONE `Update` op, refreshing `/base` to `snapshotBase(template)` — the
-    TEMPLATE's current snapshot, not a snapshot of the merged result. This is deliberate: it
-    makes `syncState`, run immediately after this op lands, compare the child's new stored
-    `base` against the template's CURRENT state and correctly read `SyncState.up_to_date` rather
-    than falsely `SyncState.template_changed` (a merged-result snapshot would already differ from the
-    template's live state the instant the template changes again, or in edge cases immediately).
-    **Emits whole-band `FieldChange`s (`/name`, `/engine`, `/system`, `/embedded/<coll>`),
-    never per-leaf changes** — deliberately, not because no leaf-removal mechanism exists: a
-    merge result can add/remove/reorder embedded collection members and touch multiple leaves
-    across `name`/`engine`/`system`/`embedded` at once, and whole-band replacement is the
-    simpler, correct operation for reconciling that across a 3-way merge, distinct from
-    `FieldChange.remove`'s narrow single-leaf-deletion use case (see the
-    `data::command::remove_pointer` entry in `shadowcat-codebase-documents-permissions`, and
-    `SystemTreeEditor.removeField` for its consumer). `set_pointer` itself still cannot delete a
-    key or resize an array via a leaf-path Update — that part of the wire boundary is unchanged
-    — but `planToUpdate` choosing band-level emission over per-leaf `FieldChange.remove`s is a
-    design choice for merge results, not a limitation being worked around.
-  - `applyResolutions(mergedBands, conflicts, theirs: Set<string>) -> MergeBands` — folds a
-    user's per-conflict "mine"/"theirs" picks (from the modal) back into the merged result.
-  - `findInstances(templateId, all: Iterable<WireDocument>) -> WireDocument[]` — same-world scan
-    over a document snapshot (typically `store.snapshot()`) for every doc whose `source.id`
-    matches; says nothing about per-instance write authorization (a caller doing push must
-    additionally filter by its own `canEdit`, see `TemplatesController.push` below).
-  - `syncState(child, template) -> SyncState` (`"none" | "up_to_date" | "template_changed"`) —
-    derived comparison of the child's stored `base` against the template's current state.
-  - Types: `StampOpts`, `SyncState`.
-- `TemplatesController` — thin glue
-  (constructed by the shell alongside `SheetsController`/`PanelsBridge`, imports no module) that
-  calls the pure `templates` module's functions, opens a conflict-resolution session
-  (`pending: PendingSession | null`, a `$state` the `TemplateModalHost` renders) when a plan has
-  conflicts, and dispatches the resolved `WireOperation` via the injected `dispatchIntent`.
-  Methods: `stampInstance`, `findInstances`, `syncState`, `canPull`, `canPush`, `pull`, `push`,
-  `revert`, `cancel`. `canPull(childId)` gates on the private `#isOwnerOrGm(child)` (`role ===
-  "gm" || effectiveOwner(child, documents) === selfId` — from
-  `@shadowcat/core`'s `effectiveOwner`, the SAME per-doc-override-else-linked-actor-owner rule the
-  server resolves at egress; a literal `doc.owner` read here would fork it) AND the
-  injected `canEdit(child, "/base")` AND `canEdit(child, "/system")` AND `canEdit(child,
-  "/embedded")` (an advisory client-side mirror of the server's real authority — WRITE_FIELDS ∪
-  MANAGE_EMBEDDED). **`canPush(templateId)` DOES call `canEdit`**, but only one leg of that union:
-  `#isOwnerOrGm(template)` AND `canEdit(template, "/embedded")` AND
-  `findInstances(templateId).length > 0`. The two predicates are NOT the same check and neither
-  is a superset by accident — `canPull` gates the bands a pull writes onto the INSTANCE, while
-  `canPush` gates the TEMPLATE only. Per-instance write authorization is DERIVED, not enumerated:
-  `TemplatesController.#canApplyUpdate(inst, op)` checks every `op.changes[].path` of an actual
-  computed `Update` (from `planToUpdate`) against `canEdit(inst, path)`, so the check always
-  matches whatever bands that instance's merge happens to touch — including `/embedded/<coll>` —
-  with nothing to keep in sync by hand. `push` calls it twice per instance: once against the
-  provisional Update built from `computePull`'s pre-resolution `mergedBands` (gates entry into the
-  dispatch-now/conflict-modal split — an instance failing here never reaches the modal at all),
-  and — for an instance that entered the conflict modal — again inside `#openSession`'s `resolve`,
-  against the FINAL Update built after `applyResolutions`, since resolving a conflict toward
-  "theirs" can newly touch a path the provisional Update never touched (e.g. taking the template's
-  side of an embedded-deletion conflict). Either exclusion is logged via the injected `logger.warn`,
-  listing every excluded instance in one call, rather than silently leaving that instance stale.
-  `#openSession`'s `resolve` runs the same derivation for BOTH its callers (`push`'s multi-group
-  sessions and `pull`'s single-group session) — without it, `resolve` would dispatch every entry's
-  Update with no capability filter at all, including for `pull`'s conflict path.
-- `MergeConflictModal` (+ `TemplateModalHost`) — the
-  field-level conflict resolution UI: renders one `ConflictGroup` per pending child
-  (`{ key, label, conflicts: Conflict[] }`; the type lives in
-  the `mergeConflict` module — a plain TS module, because a named type export
-  from a `.svelte` file is invisible to plain tsc consumers like TypeDoc), lets the user pick
-  mine/theirs per leaf path, and
-  calls the session's `resolve(theirsByGroup: Map<string, Set<string>>)`. `TemplateModalHost`
-  just renders `MergeConflictModal` when `controller.pending` is non-null — mount once per
-  `Table` alongside the root `<Surface>`.
-- `TemplateControls` — the host-rendered chrome: a source
-  badge (template name + `syncState`) and pull/revert (if `canPull`) / push (if `canPush`)
-  buttons, reactive via `createSubscriber`/`subscribe()` on `ctx.documents` (same pattern as
-  every sheet — see `shadowcat-codebase-sheets` Hard Invariants). Rendered by `SheetHost`
-  above every sheet body, so ALL doc_types get template chrome for free without opting in — see
-  `shadowcat-codebase-sheets`'s `#register` entry for the wrapper mechanics.
-- `AppContext.templates: TemplatesApi` (`stampInstance`,
-  `pull`, `push`, `revert`, `findInstances`, `syncState`, `canPull`, `canPush`) — the seam every
-  sheet/module reaches the merge engine through; never call `TemplatesController` directly from a
-  module.
-- `Table` — constructs the real `TemplatesController` (deps:
-  `session.store`/`session.documents`/`dispatchIntent`/`role`/`selfId`/`canEdit`+a logger),
-  provides it into `setAppContext({ templates: {...} })`, and mounts
-  `<TemplateModalHost controller={templates} />` once alongside `<Surface
-  contract="shadowcat.surface:root" />`.
+- The server `merge` module (`src/server/src/merge/`, beside `formula`/`dice`) — the exact
+  behavioural twin of the retired TS engine, unit-by-unit:
+  - `tree.rs` — `structural_diff`, `deep_equal`, pointer escape/tokenize/`delete_pointer`/
+    `set_pointer` helpers, `merge3_tree`, `take_template`, `same_result`, `paths_overlap`. Sorted-
+    key traversal keeps output order-independent (the corpus pins order).
+  - `embedded.rs` — `merge3_embedded` (`source.id` correlation, never index), `revert_embedded`,
+    `revert_child`, `restamp_subtree`, `EmbeddedBaseChild`.
+  - `bands.rs` — `MergeBase`/`MergeBands` (`#[ts(export)]`), `snapshot_base`, `bands_tree`/
+    `base_from_child` adapters, `placement_exclusions`/`is_placement_excluded` (token
+    `/engine/x|y|rotation`, hardcoded as before).
+  - `plan.rs` — `merge3`, `compute_pull`, `compute_revert`, `plan_to_update` (whole-band emission;
+    absent-vs-empty-collection `null` rule; `/base` refresh = the template's current snapshot),
+    `apply_resolutions`.
+  - `mod.rs` — the public surface + `MergeConflict` (`#[ts(export)]`; `path`/`base`/`parent`/
+    `child`/`parentKind`, `base`/`parent`/`child` absent — not `null` — when that side has no value).
+  A JSON conformance corpus (`src/client/core/src/__fixtures__/merge-conformance.json`),
+  GENERATED from the TS engine's live output before its deletion, is run forever by the Rust
+  suite (`merge::tests::conformance`) — that generation transcript is the equivalence evidence for
+  the port; a divergence in either language fails the corpus, not a hand-written expectation.
+- The three intents (`ws::protocol::ClientMsg::MergePull`/`MergePush`/`MergeRevert`,
+  `ServerMsg::MergeResult`/`MergeError`) — a stateless two-call flow. WITHOUT `resolutions`: the
+  server computes the plan from LIVE documents; conflict-free commits immediately (under
+  `WriteOrigin::TemplateMerge`, confirmed to the client by the ordinary broadcast `Event` echo, not
+  by `MergeResult` alone); conflicted returns the conflict set (per-instance for push) and writes
+  nothing. WITH `resolutions` (the caller's "theirs" paths, per instance for push): the server
+  RECOMPUTES the plan from live documents and rejects (`MergeErrorKind::StaleResolutions`/
+  `UnknownResolution`, both carrying the FRESH outcome) unless every submitted path is a CURRENT
+  conflict path — there is no server-side session state; interleaving edits are caught by the
+  recompute, never by OCC on a stale pre-image. Revert never conflicts.
+  - `MergeOutcome::Pull { child_id, status: Applied | Conflicts(Vec<MergeConflict>) }`,
+    `MergeOutcome::Push { template_id, instances: Vec<PushInstanceOutcome> }` (per-instance
+    `{ instance_id, name, status: Applied | Conflicts(_) | Excluded }` — `name` is the
+    pusher-VISIBLE display name for the modal's group label), `MergeOutcome::Revert { child_id,
+    status: Applied }`.
+  - **Hidden-conflict rule (egress).** Every replied conflict set is filtered to the paths the
+    REQUESTER can see in BOTH documents — a conflict whose path overlaps a property-override
+    subtree hidden from the requester is (a) removed from the replied set and (b) auto-resolved
+    child-wins in the applied result (the child value already sits in the merged bands; excluding
+    the conflict from the set `apply_resolutions` sees achieves both). The merge COMPUTATION and
+    the committed WRITE stay over the UNREDACTED documents — this also fixes the legacy
+    hidden-field-dropping behaviour a redacted-view-computed whole-band write used to have. A GM
+    sees everything, so a GM's conflict sets are unchanged.
+  - **Push existence-hiding.** An instance the pusher cannot see AT ALL is OMITTED from
+    `instances` entirely — no entry, name, or count (true existence-hiding parity with redaction:
+    the pusher's store never contained it). `Excluded` then means exactly one thing: visible but
+    not writable.
+  - `MergeErrorKind`: `NotFound` (child/template missing), `NotAnInstance` (no `source`),
+    `Forbidden` (the owner-or-GM gate), `StaleResolutions(MergeOutcome)`/`UnknownResolution
+    (MergeOutcome)` (both carry the fresh outcome so the client re-opens its modal without a round
+    trip), plus shared validation/IO errors.
+  - Authorization: pull/revert require GM or the child's EFFECTIVE owner (server's
+    `effective_owner` rule) AND every capability the computed `Update`'s change paths require
+    (`required_cap_for_path`, the same predicate `apply_intent`'s per-op gate uses — never a
+    guessed band list). Push requires GM or effective owner of the TEMPLATE plus `/embedded` write
+    on it, then per instance: same-world, VISIBLE to the pusher (`Repository::instances_of`,
+    a `json_extract(source, '$.id')`-keyed query over the stored `source` pointer, replicating the
+    client store's same-world reach for push), writable per the same per-path derivation. Authorized
+    writes commit under `WriteOrigin::TemplateMerge` (per-op capability gates waived — the handler
+    already derived them; scope/size/engine/containment/schema/OCC all still run), mirroring
+    `CombatTransition`/`ConfigSeed`.
+- `TemplatesController` (`src/client/ui-kit/src/templatesController.svelte.ts`) — an INTENT
+  SENDER, constructed by the shell alongside `SheetsController`. Methods: `stampInstance`,
+  `findInstances` (display only — the authoritative instance set for push is server-side),
+  `syncState`, `canPull`, `canPush`, `pull`, `push`, `revert`, `cancel`.
+  - `pull(childId)`/`push(templateId)`/`revert(childId)` send `MergePull`/`MergePush`/
+    `MergeRevert` via the injected `sendMergeIntent: (msg) => Promise<WireMergeOutcome>` (wired
+    through `WorldSession.mergeIntent` → `WsClient.merge`, a one-shot correlated request/reply —
+    the same shape as `pathfind`/`search`, distinct from `combat`/chat's broadcast-echo
+    confirmation, because the reply itself carries the computed outcome).
+  - A conflicted `MergeResult` opens `pending: PendingSession | null` (a `$state` the
+    `TemplateModalHost` renders); the modal's resolve re-sends the SAME intent type with
+    `resolutions` built from the user's per-conflict "theirs" choices. `StaleResolutions`/
+    `UnknownResolution` reopen the modal with the FRESH conflict set the rejection carries — no
+    extra round trip.
+  - `canPull(childId)` gates on `#isOwnerOrGm(child)` (`effectiveOwner`, the SAME
+    per-doc-override-else-linked-actor-owner rule the server resolves at egress) AND
+    `canEdit(child, "/system")` AND `canEdit(child, "/embedded")` — **`/base` is deliberately NOT
+    checked**: the server writes `/base` unconditionally under `WriteOrigin::TemplateMerge` (no
+    client capability maps to it at all — see the documents-permissions skill), so gating this
+    advisory mirror on `canEdit(child, "/base")` would hide pull/revert from exactly the users the
+    server now authorizes.
+  - `canPush(templateId)` gates on `#isOwnerOrGm(template)` AND `canEdit(template, "/embedded")`
+    AND `findInstances(templateId).length > 0` — covers the TEMPLATE only; per-instance write
+    authorization is entirely server-side now (no client-side `#canApplyUpdate` derivation left —
+    the server derives it against the actual computed `Update`).
+- `MergeConflictModal` (+ `TemplateModalHost`) — unchanged UX; consumes the GENERATED
+  `WireMergeConflict` (ts-rs mirror of `merge::MergeConflict`) instead of a hand-written type.
+  `ConflictGroup.label` comes from the push outcome's `name`.
+- `AppContext.templates: TemplatesApi` (`stampInstance`, `pull`, `push`, `revert`, `findInstances`,
+  `syncState`, `canPull`, `canPush`) — unchanged shape; still the seam every sheet/module reaches
+  templates through.
+- `@shadowcat/core`'s retained client-side surface — stamping + display only, no merge
+  computation: `structuralDiff`/`deepEqual` (`syncState`'s divergence check), `deletePointer`,
+  `isPlacementExcluded`/`placementExclusions`, `restampSubtree`/`snapshotBase`/`stampInstance`
+  (stamping's clone-then-Create), `findInstances` (display), `syncState`, and the
+  `MergeBase`/`MergeBands`/`EmbeddedBaseChild` types those retained functions still need.
+  **DELETED**: every function that computed a merge or emitted a merge `Update` client-side (the
+  TS twins of `merge3`/`merge3_tree`/`take_template`/`compute_pull`/`compute_revert`/
+  `plan_to_update`/`apply_resolutions`) and their internal helpers, plus the hand-written
+  conflict/plan types those functions produced — a second live merge implementation is a
+  divergence channel, not a safety net, once the server executes every merge.
+- `Document.base` — now SERVER-owned and engine-tree-validated. See
+  `shadowcat-codebase-documents-permissions` for the field/authz/validation facts; this skill
+  covers only the client-side `MergeBase` snapshot SHAPE that `snapshotBase`/`stampInstance` still
+  produce and the server still consumes.
 
 ## Hard invariants
 
 - **Templates are not a doc_type.** Any document can be a template (something else points a
   `source` at it) or an instance (has a `source`) or both. `stampInstance` is fully generic —
   never gate it on `doc_type`.
-- **Embedded correlation is by `source.id`, never index/position** — see `merge3Embedded` above;
-  it is what keeps embedded children correlated when either side reorders, adds or removes one
-  between syncs.
-- **Merge emission is band-level, never per-leaf.** `planToUpdate` always emits whole-band
-  `FieldChange`s (`/name`, `/engine`, `/system`, one per changed `/embedded/<coll>` — the WHOLE
-  collection array, never a per-index path) — deliberate for merge results, since a merge can
-  add/remove/reorder embedded collection members and touch multiple leaves at once, making
-  whole-band replacement simpler and correct there. This is distinct from `FieldChange.remove`
-  (`data::command::remove_pointer`), a sibling leaf-level object-key-deletion mechanism on the
-  same `Operation::Update`/`FieldChange` wire shape, used by `SystemTreeEditor.removeField` for
-  narrow-OCC single-leaf deletion — `planToUpdate` not using it for merge results is a design
-  choice, not evidence no such mechanism exists. `set_pointer` itself remains leaf-set-only
-  (still cannot delete a key or resize an array via a leaf-path Update); any future change to
-  `planToUpdate` that tries to emit finer-grained changes must confirm it's actually the better
-  fit for the merge-result case, not just that a leaf-removal path exists.
-- **Placement exclusions are per-doc_type and checked everywhere** (`isPlacementExcluded`/
-  `placementExclusions`) — pull, revert, AND `syncState`'s "changed" determination must all
-  exclude the same paths, or a token's own on-scene position would spuriously flag as
-  "template_changed" or get clobbered by a pull.
-- **`push`'s instance scope is same-world SEE **and** WRITE**, not just `findInstances`' same-
-  world SEE — `TemplatesController.push` derives write authorization per instance via
-  `#canApplyUpdate` (against the actual computed Update, never a guessed band list) before
-  deciding dispatch-now vs. conflict groups, and `#openSession`'s `resolve` re-derives it against
-  the FINAL resolved Update before dispatch; skipping either derivation would attempt to silently
-  write instances the pusher cannot edit.
-- **`Document.base` is the client-owned merge snapshot; the server treats it as fully opaque** —
-  see `shadowcat-codebase-documents-permissions` for its `#[ts(type="unknown")]` typing, its
-  exemption from `validate_engine_tree`, its independent size cap, and its hardcoded
-  `OwnerOrGm`-only egress visibility (a real security-relevant fact, not merge-engine trivia).
+- **Embedded correlation is by `source.id`, never index/position** — `merge::embedded::
+  merge3_embedded` keys instance/template/base children by `source.id`, so reordering, adding, or
+  removing an embedded child between syncs never desyncs correlation.
+- **Merge emission is band-level, never per-leaf.** `merge::plan::plan_to_update` always emits
+  whole-band `FieldChange`s (`/name`, `/engine`, `/system`, one per changed `/embedded/<coll>` —
+  the WHOLE collection array, never a per-index path) — deliberate for merge results, since a
+  merge can add/remove/reorder embedded collection members and touch multiple leaves at once. This
+  is distinct from `FieldChange.remove` (`data::command::remove_pointer`), a sibling
+  leaf-level object-key-deletion mechanism used by `SystemTreeEditor.removeField` for narrow-OCC
+  single-leaf deletion — `plan_to_update` not using it for merge results is a design choice, not
+  evidence no such mechanism exists.
+- **Placement exclusions are per-doc_type and checked everywhere** (`is_placement_excluded`/
+  `placement_exclusions`) — pull, revert, push, AND the client's `syncState`'s "changed"
+  determination must all exclude the same paths, or a token's own on-scene position would
+  spuriously flag as "template_changed" or get clobbered by a merge.
+- **Push's instance scope is server-derived same-world SEE + WRITE, per instance, against the
+  ACTUAL computed Update** — never a guessed band list, and never the client's own reach. An
+  instance invisible to the pusher is omitted entirely (existence-hiding); a visible-but-
+  not-writable instance is `Excluded`, never silently stale.
+- **`Document.base` is the SERVER-owned merge snapshot** — see
+  `shadowcat-codebase-documents-permissions` for its ingest-time `validate_engine_tree` walk, its
+  Create-time derivation (discarding any client-supplied value), its capability carve-out (`/base`
+  maps to NO client capability), its independent size cap, and its hardcoded `OwnerOrGm`-only
+  egress visibility.
+- **A merge intent's authorization is derived against the ACTUAL COMPUTED `Update`, per instance
+  (push) — never a guessed capability set.** This is what makes `Excluded`/`Forbidden` precise
+  rather than approximate, and what lets the same `required_cap_for_path` predicate serve both the
+  advisory client mirror (`canPull`/`canPush`) and the real server gate without the two ever being
+  asked to agree by inspection.
 
 ## Gotchas
 
@@ -193,19 +173,24 @@ interprets or merges anything itself.
   `ctx.templates.*`, which reads the same underlying store) must call the component's own
   `subscribe()` first — same freeze-at-first-read hazard as every other sheet
   (`shadowcat-codebase-sheets` Hard Invariants). The calls are present; dropping one is silent.
-- `merge3Embedded` is intentionally NOT exported from `@shadowcat/core`'s public surface —
-  it's an implementation detail of `merge3`. Do not import it directly from a
-  module or ui-kit component; go through `merge3`/`computePull`/`computeRevert`.
+- `merge::embedded::merge3_embedded` is an internal helper of `merge3`, not part of the module's
+  public surface — do not call it directly from a WS handler or another server module; go through
+  `merge3`/`compute_pull`/`compute_revert`.
 - A template's own document is not special — pulling/pushing reads/writes it through the exact
-  same `ctx.documents`/`dispatchIntent` seam as any instance; there's no separate "template
-  document" type or table.
+  same document/intent seam as any instance; there's no separate "template document" type or
+  table.
+- **`TemplatesController.push`/`pull` no longer compute anything locally** — a caller reasoning
+  about "what happens on pull" must read the SERVER's `merge::plan::compute_pull`/
+  `ws::conn::merge_intents` handler, not the client controller, which is now a thin intent sender
+  plus modal orchestration.
 
 ## Pointers
 
-- **Generated API** — `/api/ts/modules/_shadowcat_core.html` (TypeDoc — the `merge`/`templates`
-  modules). No dedicated rustdoc page: the server only stores/redacts/size-caps the opaque `base`
-  blob (see `shadowcat-codebase-documents-permissions`'s generated-API pointer for that). Produce
-  with `pnpm build:all`.
+- **Generated API** — `/api/rust/shadowcat/merge/` (rustdoc, private items included — the server
+  merge module) and `/api/rust/shadowcat/ws/conn/merge_intents/` (the intent handlers).
+  `/api/ts/modules/_shadowcat_core.html` (TypeDoc — the retained `merge`/`templates` client
+  modules: stamping + display only). No dedicated TypeDoc page for the deleted merge computation.
+  Produce with `pnpm build:all`.
 - Server-side `base` field/authz/redaction: `shadowcat-codebase-documents-permissions`.
 - Sheet-panel wrapper mechanics (`SheetHost`, `#register`): `shadowcat-codebase-sheets`.
-- Relationships: `graphify query "merge3 stampInstance TemplatesController base snapshot"`.
+- Relationships: `graphify query "merge3 compute_pull TemplatesController base snapshot MergePull"`.
