@@ -26,9 +26,9 @@ is the `base` derivation at Create plus ordinary Create validation.
 
 ## Key files & seams
 
-- The server `merge` module (`src/server/src/merge/`, beside `formula`/`dice`) — the server-owned
-  merge engine that replaced the retired TS engine; its contracts are stated in its own terms and
-  pinned by the conformance corpus below, not by a client twin:
+- The server `merge` module (`src/server/src/merge/`, beside `formula`/`dice`) — the ONLY merge
+  engine (the client computes no merge); its contracts are stated in its own terms and pinned by
+  the conformance corpus below, not by a client twin:
   - `tree.rs` — `structural_diff`, `deep_equal`, pointer escape/`tokenize`/`get_pointer`
     (`pub(crate)`)/`delete_pointer`/`set_pointer` helpers (fallible — `PointerError`, never a
     panic on a malformed or non-container path), `merge3_tree`, `take_template`, `same_result`,
@@ -106,8 +106,8 @@ is the `base` derivation at Create plus ordinary Create validation.
     parse — fail-closed), `StaleResolutions(MergeOutcome)`/`UnknownResolution(MergeOutcome)`/
     `Unresolvable(MergeOutcome)` (each carries the fresh outcome so the client re-opens its modal
     without a round trip; `Unresolvable` is the ancestor/descendant conflict shape — the instance
-    replaced a container with a scalar the template edited inside, so "theirs" has nowhere to
-    land), and `Internal`. **Push commit contract:** instances commit ONE BY ONE (not atomically);
+    holds a scalar where the template edited a leaf inside a container, so "theirs" has nowhere
+    to land), and `Internal`. **Push commit contract:** instances commit ONE BY ONE (not atomically);
     every resolution is folded before the first commit, so a resolutions rejection precedes any
     write, while a commit failure mid-loop leaves the earlier instances committed with their
     `Event`s broadcast — no ledger rides the error; the fresh outcome is recomputed from live
