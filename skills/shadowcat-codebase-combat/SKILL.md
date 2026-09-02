@@ -11,7 +11,7 @@ gate the move executor enforces against it. The document builders, the settings-
 provenance resolver (`resolveSettingProvenance`), and the client dispatch layer
 (`CombatController`/`CombatApi`, `@shadowcat/core`) all exist client-side, wired into
 `WorldSession`/`AppContext` — what does NOT exist yet is a tracker/settings-editor UI to host any
-of it (M14d). Everything server-side about the clock itself (transitions, gates, history, and
+of it — a later sub-project. Everything server-side about the clock itself (transitions, gates, history, and
 formula evaluation through `combat::eval`) is built, including the per-recipient `"combat"`
 derived scene channel that resolves resource numbers for the client.
 
@@ -249,7 +249,7 @@ separately enforces a per-turn movement budget against the same documents this s
   `ENGINE_COMBAT_DEFAULTS`/`newCombatEngine` (also `scene-docs.ts`) are pinned against
   `src/client/core/src/__fixtures__/engine-combat-defaults.json`, the single fixture both this
   module's Rust tests and the TS test read — the cross-language promotion gap a private-scope
-  default previously left open.
+  default leaves open otherwise.
 - `CombatController`/`CombatApi` (`src/client/core/src/combat.ts`) — the framework-neutral client
   dispatch layer (also `shadowcat.service:combat`, `COMBAT_SERVICE`), owned end-to-end by
   `shadowcat-codebase-client-shell` (`WorldSession` construction, `AppContext.combat`, the
