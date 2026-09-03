@@ -389,6 +389,24 @@ separately enforces a per-turn movement budget against the same documents this s
   `CombatantEngine.initiative` at read time; `order` is what a running combat actually iterates,
   mutated only by `combat::transition`'s own functions (`rebuild_order` folds in a combatant a
   restore re-`Create`s or a fresh addition without dropping anyone the record never captured).
+  **`order` is a second, independently-stored statement of combat membership, and it can drift
+  from the queried `combatant` children it names — an ordinary document `Move` re-parents a
+  `combatant` out of (or into) a combat without ever touching `order`.** `Working::from_snapshot`
+  (the sole entry point for `start`/`advance`, the two transitions that actually walk `order`) runs
+  `heal_order` first, dropping any entry that no longer resolves against the freshly-queried
+  `combatants` — through `drop_departed`, the SAME "still a member" test `rebuild_order`'s own
+  `reconcile_membership` shares rather than re-derives — so a stale entry can never reach
+  `settle_turn`'s combatant lookup and permanently brick the clock behind `CombatError::NotFound`.
+  **`heal_order` is deliberately DROP-ONLY: it never appends a `combatants` entry `order` doesn't
+  name.** A combatant present in `combatants` but absent from `order` — whether moved in, or
+  `Create`d without an `order` entry from the start — is `order` alone indistinguishable from a
+  combatant the GM deliberately staged without rolling it into initiative (a real, permanent,
+  end-to-end-tested state: a scenario asserts a `hidden: true` combatant "never enters
+  `order`/`turn`" across a whole round). Auto-appending on every `advance` would silently roll a
+  staged/hidden combatant into the clock on its own, which is a regression, not a fix. Only an
+  EXPLICIT resort (`CombatSort`/`CombatRoll`, both already routing an arrival through
+  `rebuild_order`'s full filter-append-then-sort) may decide to admit an arrival — never the
+  unconditional per-transition heal.
 - **At most one `active: true` combat per scene, decided ONCE per batch through a single running
   map, not two independently-consulted sets.** `SqliteRepository::apply_intent`'s Phase 1 first
   pre-scans the WHOLE batch (before any per-op validation runs) to compute the local set of every
