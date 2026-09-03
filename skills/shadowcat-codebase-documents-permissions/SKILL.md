@@ -531,10 +531,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   lacking a parseable `owner_standing` is a `RedactionError`, and the ingest walk admits none of
   these. The client's `syncState` depends on the SNAPSHOT half of this cut agreeing with the
   template's own (the recorded `owner_standing` is an access fact the client never compares — see
-  `shadowcat-codebase-templates`): it reads the stored base through `normalizeBase` (the server's
-  `MergeBase` defaults, so a stripped snapshot key and a nulled template band compare equal) and,
-  since the recorded policy is now verbatim, compares it key for key like every other part of the
-  snapshot rather than excluding it.
+  `shadowcat-codebase-templates`): it reads the stored base through `normalizeBase`, which reads a
+  redaction-stripped content band (`name`/`engine`/`system`) as `null` — matching a nulled hidden
+  band on the live template — while treating an absent structural key (`embedded`, the policy map,
+  a record's `sourceId`, never themselves redacted) as malformed rather than coalescing it. Since
+  the recorded policy is now verbatim, `syncState` compares it key for key like every other part of
+  the snapshot rather than excluding it.
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic

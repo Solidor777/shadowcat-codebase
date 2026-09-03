@@ -74,8 +74,11 @@ is the `base` derivation at Create plus ordinary Create validation.
     `/permissions/property_overrides` change carrying the propagated policy; `/base` refresh =
     `StoredBase { snapshot: snapshot_base(template), owner_standing }` — the FULL template's
     CURRENT snapshot, never the requester's view, under the standing THIS write resolved —
-    emitted, like every other band, ONLY when it differs from the stored value read through
-    `MergeBase`'s own defaults, so an in-sync instance yields an update with no changes and the
+    emitted, like every other band, ONLY when it differs from the stored value strictly re-parsed
+    as `MergeBase` plus a parseable `owner_standing` — never coalesced: an unparseable or
+    incomplete stored value reads as `Value::Null`, which can never equal the freshly-computed
+    refresh, so a malformed stored base always emits the `/base` change rather than silently
+    passing as in-sync; a genuinely in-sync instance yields an update with no changes and the
     handlers report `Applied` without publishing), `apply_resolutions` (every `Set` first, then
     every `Delete` in descending `pointer_key` order — deepest and highest-indexed first, so no
     splice renumbers a path still waiting; fallible: an unapplicable "theirs" is `Err`, never a
@@ -211,8 +214,15 @@ is the `base` derivation at Create plus ordinary Create validation.
   computation: `structuralDiff`/`deepEqual` (`syncState`'s divergence check),
   `isPlacementExcluded`/`placementExclusions`, `isMergeableBandPointer` (the client twin of
   `writes_a_content_band`, so `snapshotBase` records the same policy the server does),
-  `normalizeBase` (reads a stored base with the server's `MergeBase` defaults — a stripped
-  snapshot key and a nulled template band compare equal), `restampSubtree`/`snapshotBase`/
+  `normalizeBase` (parses a stored base against the shape ingest requires, but distinguishes the
+  three MERGEABLE content bands from the STRUCTURAL keys around them: `name`/`engine`/`system` may
+  be legitimately absent — the server's own egress redaction removes any of them wholesale from a
+  recipient's redacted `/base` copy — and their absence reads as `null`, matching a nulled hidden
+  band on the live template; `embedded`/`property_overrides` (`propertyOverrides` on a record) and
+  a record's `sourceId` are never named by a recorded policy entry and so are never redacted —
+  their absence at any depth means malformed/foreign data, and `normalizeBase` returns `null` for
+  the whole node, which `syncState` then treats exactly like a genuinely absent `base`),
+  `restampSubtree`/`snapshotBase`/
   `stampInstance` (stamping's clone-then-Create), `findInstances` (display), `syncState` (its
   diff excludes placement paths and the recorded policy maps — the snapshot's policy is
   re-expressed for the instance, the template's verbatim, and a policy change already shows
