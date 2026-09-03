@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-chat
-description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), inline chat images (Segment::Image, chat::body::compose_message, the InlineImage post-publish job, Provenance::ChatImage), the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card, plus ui-kit's SegmentList — the {@html} boundary + roll/preview/image rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat* + src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), inline chat images (Segment::Image, chat::body::compose_message, the InlineImage post-publish job, Provenance::ChatImage), the synchronous chat::body::compose_static composer + chat::NOTE_CONTENT_POLICY a note's server-derived body uses (see shadowcat-codebase-tables-notes for the note engine doc type itself), the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card, plus ui-kit's SegmentList — the {@html} boundary + roll/preview/image rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat* + src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Chat Core
@@ -514,6 +514,21 @@ with zero message-specific plumbing in any of those subsystems.
   gating ONLY its own href/oEmbed scan over the message's `Html` segments — the two concerns are
   independent, so a world with `hyperlinks: true, link_previews: Some(false), images: true` still
   gets its images queued without also scanning for link previews.
+- `chat::body::compose_static(body: &str, policy: &ChatContentPolicy, max_spans: usize) ->
+  Result<Vec<Segment>, RollError>` — `compose_message`'s SYNCHRONOUS sibling, for a document body
+  composed at write time with no repository/network access (first consumer:
+  `data::engine::note::NoteEngine::derive_body`, see `shadowcat-codebase-tables-notes`). Shares
+  `scan_body_capped`'s chunk grammar, but an `Inline` OR `Button` span always becomes an unexecuted
+  `Segment::RollButton` (never a `Segment::RollEmbed` — there is no per-caller host to resolve a
+  reference against, and a document save must never roll dice as a side effect), and an `Image`
+  chunk gets no existence/policy check beyond the alt-length cap (the caller's own policy already
+  gates whether images are structurally possible; there is no async repository lookup to run one
+  here). `Sanitized.image_urls` is discarded outright — no outbound fetch exists on the caller's
+  write path, so a markdown image renders only as its alt text.
+- `chat::NOTE_CONTENT_POLICY` (`chat::settings`) — the fixed `ChatContentPolicy`
+  `compose_static`'s first consumer (`NoteEngine::derive_body`) always passes, independent of the
+  world's own `chat-settings` document: markdown/hyperlinks/images on, html/emails/link-previews
+  off.
 - `chat::settings` — `ChatContentPolicy{markdown, html, images, hyperlinks,
   emails: bool}`, all `#[serde(default)]` = `false`, stored as the `system` body of the single
   per-world `chat-settings` config `Document` (`CHAT_SETTINGS_DOC_TYPE`). `resolve_content_policy

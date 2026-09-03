@@ -1,23 +1,28 @@
 ---
 name: shadowcat-codebase-tables-notes
-description: "Use when touching Shadowcat's rollable tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Covers src/server/src/data/engine/table.rs, src/server/src/tables/, the `TableDraw`/`DrawnRow`/`roll_property_overrides` portions of src/server/src/chat/mod.rs, src/client/core/src/table-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. A "notes" document type is NOT yet implemented — this skill's name anticipates it; do not assume note-taking coverage exists here. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules, invoke shadowcat-codebase-documents-permissions."
+description: "Use when touching Shadowcat's rollable tables OR rich-text notes. Tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Notes: the `note` engine doc type (`NoteEngine{source, body, sort}`), `data::engine::note`'s server-derived-body ingress arm, `chat::body::compose_static`/`chat::NOTE_CONTENT_POLICY`, `data::sqlite::notes::check_note_parent`'s parent-tree placement, and the client `note-docs` module (`buildNoteDoc`/`parseNoteBody`). Covers src/server/src/data/engine/table.rs, src/server/src/data/engine/note.rs, src/server/src/tables/, src/server/src/data/sqlite/notes.rs, the `TableDraw`/`DrawnRow`/`roll_property_overrides`/`compose_static`/`NOTE_CONTENT_POLICY` portions of src/server/src/chat/, src/client/core/src/table-docs.ts, src/client/core/src/note-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides and for `compose_static`/`NOTE_CONTENT_POLICY` themselves, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules and the note-tree placement mechanics `check_note_parent` plugs into, invoke shadowcat-codebase-documents-permissions."
 ---
 
-# Shadowcat — Rollable Tables
+# Shadowcat — Rollable Tables & Notes
 
-Orientation for rollable tables: a `table` document is authored/edited like any other document
-(no special write path — plain `Create`/`Update` through the generic engine-ingress gate), but is
-only ever *drawn from* through one server-owned resolution pipeline
-(`tables::handle_draw_table` → `tables::draw::draw_table`) that rolls, matches a row, and posts
-the result to chat as a `Segment::TableDraw`. Nothing about a table's OWN document lifecycle is
-special; everything about a DRAW is centralized to close cheating/leak surface a client-side
-resolver could not close (row-selecting roll state must stay GM-only, and a malicious or
-misconfigured table chain must not recurse forever or fan out unboundedly).
+Orientation for two independent engine doc types that share this skill because they were delivered
+together: a `table` document is authored/edited like any other document (no special write path —
+plain `Create`/`Update` through the generic engine-ingress gate), but is only ever *drawn from*
+through one server-owned resolution pipeline (`tables::handle_draw_table` →
+`tables::draw::draw_table`) that rolls, matches a row, and posts the result to chat as a
+`Segment::TableDraw`. A `note` document is ALSO authored/edited like any other document, but its
+`body` is unconditionally SERVER-DERIVED from `source` on every Create/Update post-image, through
+the same chat sanitizer/span-grammar boundary a chat message's content crosses — nothing about a
+table's OWN document lifecycle or a note's OWN document lifecycle is special; everything about a
+table DRAW is centralized (row-selecting roll state must stay GM-only, and a malicious or
+misconfigured table chain must not recurse forever or fan out unboundedly), and everything about a
+note's body derivation happens synchronously at ingest (no client-side rendering, no dedicated
+write frame).
 
 ## Purpose
 
-Delivers one engine doc type (`table`) and one action (`draw_table`) that turns it into a chat
-message. A table's `TableEngine` is either `DrawRule::Weighted` (rolls `1d<sum-of-row-weights>`,
+**Tables** deliver one engine doc type (`table`) and one action (`draw_table`) that turns it into a
+chat message. A table's `TableEngine` is either `DrawRule::Weighted` (rolls `1d<sum-of-row-weights>`,
 matches the row whose cumulative weight reaches the total — always has a match by construction)
 or `DrawRule::Formula` (rolls the table's own dice notation, matches the row whose inclusive
 `RowRange` contains the total — may match nothing). A matched row's `results` resolve into plain
@@ -25,6 +30,15 @@ content (`text`/`doc`/`image` entries, the SAME segment shapes chat's own `[[…
 and `nested` — one `TableDrawSegment` per `TableEntry::Draw` entry, recursing through another
 full `draw_table` call. A draw is NEVER stored back onto the table document; it exists only as the
 chat message it produces.
+
+**Notes** deliver one engine doc type (`note`) with no action of its own: `NoteEngine{source, body,
+sort}` — the author writes `source` (markdown), and `data::engine::mod`'s `"note"` arm of
+`normalize_engine` derives `body: Vec<Segment>` from it via `chat::compose_static` under the fixed
+`chat::NOTE_CONTENT_POLICY`, on every Create AND every Update post-image. A client's own `body` is
+never trusted or partially honored — it is unconditionally overwritten. Notes form a `parent_id`
+tree of notes (`data::sqlite::notes::check_note_parent`) and are private to their author by default
+(client-side convention: `buildNoteDoc` stamps `permissions.default: "none"` with the author granted
+`Owner`).
 
 ## Key files & seams
 
@@ -158,6 +172,67 @@ chat message it produces.
     `doc_link` segment additionally renders a Draw button when its target resolves to a `table`
     document in the local store.
 
+### Notes — key files & seams
+
+- `data::engine::note` — `NoteEngine{source: String, body: Vec<Segment>, sort: i64}`,
+  `NOTE_DOC_TYPE = "note"`, `MAX_NOTE_SOURCE_CHARS = 65_536`, `MAX_NOTE_SPANS = 64` (the non-text
+  `[[...]]`-span cap `compose_static` enforces for a note body — deliberately larger than chat's
+  own `MAX_INLINE_ROLLS = 8`, since a journal page is far longer than one chat message).
+  `NoteEngine::validate` checks only `source`'s length — `body` is never validated here because it
+  is unconditionally overwritten before a note is ever stored, so a client-supplied `body` (however
+  shaped) can never survive ingress. `NoteEngine::derive_body` sets `self.body =
+  chat::compose_static(&self.source, &chat::NOTE_CONTENT_POLICY, MAX_NOTE_SPANS)`, mapping a scan/
+  parse failure to `RollError`'s player-presentable `Display` text. Registered in
+  `is_engine_doc_type`/`normalize_engine`'s `"note"` arm (deserialize → `validate` → `derive_body` →
+  re-serialize — the SAME order every other validating engine arm follows, so `body` lands in the
+  stored row, the `world_events` entry, and the returned `Command` identically); `data::validation`'s
+  `validate_containment` forbids a `note` as an embedded child (same shape as the `table`/
+  `asset_folder`/combat-family rules), but — unlike `table` — a `note` MAY carry a `parent_id`.
+- `chat::body::compose_static(body, policy, max_spans) -> Result<Vec<Segment>, RollError>` — the
+  SYNCHRONOUS sibling of `chat::body::compose_message` a note's ingress arm calls (also usable by
+  any other document body that composes at write time with no repository/network access): a `Text`
+  chunk sanitizes under `policy`; an `Inline` OR `Button` `[[...]]` span validates (never executes —
+  a document save must never roll dice as a side effect) and becomes an unexecuted
+  `Segment::RollButton` (an inline `[[formula]]` is NOT a `Segment::RollEmbed` here, unlike
+  `compose_message`'s Execute mode); a `DocLink` chunk passes its parsed target/label straight
+  through; an `Image` chunk becomes a `Segment::Image` with NO existence check (no outbound fetch or
+  repository lookup exists on this write path) — `Sanitized.image_urls` is deliberately DISCARDED,
+  so a markdown image in a note renders only as its alt text and only an explicit `[[asset:...]]`
+  span produces an image.
+- `chat::NOTE_CONTENT_POLICY` (`chat::settings`) — the FIXED `ChatContentPolicy` a note's body
+  derives under: markdown/hyperlinks/images on, html/emails/link-previews off. Deliberately NOT the
+  world's own `chat-settings` policy — a note is a journal page, not a chat message, so a world that
+  keeps chat plain-text still wants rich notes.
+- `data::sqlite::notes::check_note_parent` — mirrors `data::sqlite::assets::check_asset_folder_parent`
+  exactly: a note's `parent_id`, when set, must name a `note` in the SAME scope, resolved against
+  this batch's own in-flight Creates before the database (same-batch parent+child Creates resolve
+  without a database round trip). Dispatched from the ONE shared `check_parent_placement` helper the
+  Create AND `Operation::Move` arms of both `apply_intent`/`apply_command` already call — the
+  in-flight-batch map `apply_intent` threads through that helper (despite its historical
+  folder-only name) is now populated with BOTH `asset_folder` AND `note` Creates in one batch, since
+  ids are unique regardless of doc_type; `check_move_acyclic`'s cycle walk therefore covers a note's
+  same-batch ancestors for free, with no separate note-specific map. See
+  `shadowcat-codebase-documents-permissions` for the shared placement/cascade mechanics this plugs
+  into.
+- Client (`@shadowcat/core`) — `note-docs.ts`:
+  - `NOTE_DOC_TYPE`, re-exports the ts-rs-generated `NoteEngine` verbatim (like `TableEngine`, a
+    note crosses the wire as a stored, editable document).
+  - `buildNoteDoc(worldId, name, source, opts?: {parentId?, sort?, id?, owner?}) -> WireDocument` —
+    `engine: {source, body: [], sort}` (the placeholder `body` is discarded server-side; `sort`
+    is built as a plain `number`, NOT a bigint, despite `NoteEngine.sort`'s ts-rs bigint typing —
+    a bigint value is not JSON-serializable and `WsClient.send` does a bare JSON stringify call,
+    so a real bigint value breaks every `Create` containing a note; `wire.ts`'s own hand-mirrored
+    types resolve the identical i64/bigint gap by using `number`, and this is the first
+    non-hand-mirrored ts-rs type to construct a real i64 VALUE rather than merely re-export the
+    TYPE — the same trap awaits `table-docs.ts`'s `RowRange.lo`/`hi` the day a real caller
+    constructs one). Private-by-default permissions: `default: "none"`, `users: {[owner]: "owner"}`
+    when `opts.owner` is given — the builder is pure and has no session, so the caller MUST pass the
+    authoring user's id explicitly, or the note is readable by nobody but a GM.
+  - `parseNoteBody(doc) -> (ChatSegment | UnknownSegment)[] | null` — fail-closed: wrong doc_type or
+    a malformed `engine.body` both yield `null`. Validates through chat-docs.ts's exported
+    `SegmentListSchema` (the SAME schema `ChatMessageEngine.content` validates against — a note body
+    and a chat message body share one segment grammar and one validator, never a re-spelled copy).
+
 ## Hard invariants
 
 - **A draw is resolved server-side, end to end — there is no client-side row-selection fallback
@@ -176,12 +251,20 @@ chat message it produces.
   draw literally rolls `1d<sum>`.** Any future change to `MAX_DIE_SIDES` or to how a `Weighted`
   draw derives its notation must keep this bound aligned — the positive+negative control at the
   exact boundary (`weighted_sum_bound_is_the_chat_die_cap`) is what pins it.
+- **A note's `body` is unconditionally server-derived; a client's own `body` is NEVER partially
+  honored.** `normalize_engine`'s `"note"` arm always overwrites `body` via `derive_body`, on both
+  Create and Update — there is no path where a client-supplied `body` (garbage, stale, or even a
+  plausible-looking segment list) survives ingress. Treat any future reasoning about note body
+  content as "derive from `source`", never "validate the client's `body`".
+- **An inline `[[formula]]` span in a note NEVER executes.** `compose_static` always produces a
+  `Segment::RollButton`, never a `Segment::RollEmbed` — a note save must not roll dice as a side
+  effect of a document write, unlike chat's own `compose_message` (Execute mode).
+- **A note MAY carry a `parent_id`; a table NEVER may.** Do not generalize `table`'s
+  no-parent rule to `note`, or vice versa — they are independent containment decisions
+  (`validate_containment`'s `table` and `note` arms are separate match cases).
 
 ## Gotchas
 
-- **A "notes" document type does not exist yet.** This skill's name anticipates a future
-  note-taking feature; nothing in this skill or in the current codebase implements one — do not
-  infer note-document coverage from the skill's name.
 - **`TableEntry`'s content resolves at DRAW time, never at table-authoring/ingest time.** A
   `Doc`/`Image` entry's target/asset is not existence- or authz-checked when the table itself is
   saved — only when a draw actually resolves it (mirrors chat's own `[[doc:]]`/`[[asset:]]`
@@ -195,8 +278,22 @@ chat message it produces.
   `SendMessageError::TooLong` for an oversized whisper-recipient list** — a draw has no
   author-typed body, so no OTHER `TooLong` case is reachable through this type; do not read it as
   a general content-length cap.
+- **`check_note_parent` shares its in-flight-batch map with `check_asset_folder_parent`** — the
+  map's own name is a historical artifact of once tracking only folders; do not assume it tracks
+  only folders when reading `check_parent_placement`/`check_move_acyclic`.
 
 ## Pointers
 
-- `docs/site/protocol.md`'s "Rollable tables" section — the wire-level summary of `draw_table`.
-- `docs/design/ARCHITECTURE.md` invariant 6 — `table`'s place in the engine-doc-type count.
+- `docs/site/protocol.md`'s "Rollable tables" and "Notes" sections — the wire-level summary of
+  `draw_table` and of a note's server-derived `body`.
+- `docs/design/ARCHITECTURE.md` invariant 6 — `table`'s and `note`'s place in the
+  engine-doc-type count.
+- `shadowcat-codebase-chat` — `chat::body::compose_static`/`compose_message`'s shared chunk
+  grammar, `chat::NOTE_CONTENT_POLICY`, and the `Segment` variants both a table draw and a note
+  body compose into.
+- `shadowcat-codebase-documents-permissions` — the engine-doc-type registry/containment mechanics
+  both `table` and `note` register into, and the generic parent-tree/cascade-delete machinery
+  `check_note_parent` plugs into.
+- `shadowcat-codebase-sheets` — the not-yet-built table/notes sheets are the first UI consumers of
+  `buildTableDoc`/`buildNoteDoc` and `parseNoteBody`; nothing in this skill's own subsystem builds
+  a sheet.

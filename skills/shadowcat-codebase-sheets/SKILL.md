@@ -164,6 +164,20 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
   evolving) but DOES assume the `sheet:` id prefix and the reverse-parseable `docId`/`embeddedPath`
   shape hold for every panelId a `SheetTarget` ever produces (see the panelId-collision invariant).
 
+## Notes/tables sheets
+
+Not yet built — flagged here so a future sheet author starts from the right seams rather than
+re-deriving them. A note sheet renders `note-docs.ts`'s `parseNoteBody(doc)` output through
+`@shadowcat/ui-kit`'s `SegmentList` (the same renderer `module-chat-card` uses for a message's
+`content` — see `shadowcat-codebase-chat`), never a bespoke renderer; a table sheet reuses
+`SegmentList` for row-content previews and `ChatApi.drawTable` for its draw affordance. `/engine/
+source` (a note's own field) and `/engine/rows`/`/engine/draw` (a table's) are `enginePrefix`
+writes under THIS skill's own `basePrefix` derivation pattern (above) — a note/table sheet edits
+`source`/`rows` the same way `ActorSheet`/`ItemSheet` edit any other `engine` field, never by
+hand-deriving a different path shape. `NoteEngine.body`/a table's draw-time content are
+SERVER-DERIVED/resolved — a sheet must never construct or edit either directly. Full engine-body
+shapes and seams: `shadowcat-codebase-tables-notes`.
+
 ## Pointers
 
 - **Generated API** — `/api/ts/modules/_shadowcat_core.html` (TypeDoc — the `sheets` module),
@@ -173,5 +187,7 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
 - Relationships: `graphify query "sheets registry openDocument SheetsController resolveDocRef pickSheet setField"`.
 - Panel-manager internals sheets mount into: [[shadowcat-codebase-panels]].
 - Document/permission model + the client-only `ITEM_DOC_TYPE` doc_type: [[shadowcat-codebase-documents-permissions]].
+- The `table`/`note` engine doc types and their client builders (`buildTableDoc`/`buildNoteDoc`/
+  `parseNoteBody`) a future table/notes sheet builds on: `shadowcat-codebase-tables-notes`.
 - `SheetHost`'s `TemplateControls` chrome + the 3-way merge engine it drives:
   [[shadowcat-codebase-templates]].
