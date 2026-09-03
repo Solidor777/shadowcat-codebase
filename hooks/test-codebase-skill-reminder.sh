@@ -89,4 +89,12 @@ check t2 "/srv/checkouts/shadowcat/src/server/src/data/engine/table/tests.rs" "s
 check t3 "C:/Dev/Shadowcat/src/server/src/tables/draw.rs"             "shadowcat-codebase-tables-notes"
 check t4 "/srv/checkouts/shadowcat/src/client/core/src/table-docs.ts" "shadowcat-codebase-tables-notes"
 
+# The `note` half of `tables-notes` -- added in M19 fold-in review after the note engine/tree/
+# client module globs were skipped in the original plan (routed to documents-permissions or
+# matched nothing at all until this fix).
+check t5 "C:/Dev/Shadowcat/src/server/src/data/engine/note.rs"        "shadowcat-codebase-tables-notes"
+check t6 "/srv/checkouts/shadowcat/src/server/src/data/engine/note/tests.rs" "shadowcat-codebase-tables-notes"
+check t7 "C:/Dev/Shadowcat/src/server/src/data/sqlite/notes.rs"       "shadowcat-codebase-tables-notes"
+check t8 "/srv/checkouts/shadowcat/src/client/core/src/note-docs.ts"  "shadowcat-codebase-tables-notes"
+
 echo "ALL HOOK TESTS PASS"
