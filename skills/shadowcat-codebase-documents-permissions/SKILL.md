@@ -27,31 +27,37 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `PermissionSet.gm_role: Option<DocRole>` (`#[serde(default)]`, ts-rs exported) — see Hard
   Invariants below.
   - `base: Option<serde_json::Value>` (`#[serde(default)]`, `#[ts(type = "unknown")]`) —
-    the 3-way-merge snapshot (`merge::bands::MergeBase` shape) of the TEMPLATE as of the
-    instance's last sync: ONE canonical, FULL, unredacted value per instance — bands plus the
-    template's mergeable-band policy recorded alongside (`MergeBase::property_overrides`,
+    the value stored is `merge::bands::StoredBase` (the `MergeBase` snapshot of the TEMPLATE as
+    of the instance's last sync, flattened, plus `owner_standing: OwnerStanding` — the instance
+    owner's standing on the template at the write that stored it, `permission::owner_standing`):
+    ONE canonical, FULL, unredacted snapshot per instance — bands plus the template's
+    mergeable-band policy recorded alongside VERBATIM (`MergeBase::property_overrides`,
     `EmbeddedBaseChild::property_overrides` spelled `propertyOverrides` on a record; the
-    `writes_a_content_band` set, re-expressed for the holding instance by
-    `merge::bands::relate_tier`) — never relative to the seat that wrote it. SERVER-OWNED: a
-    `Create` derives it from the document's own validated bands (`merge::bands::derive_create_base`
-    in `apply_intent`'s Create arm — any client-supplied value is discarded, no `source` → `null`,
-    embedded children never carry one), after loading the template (a same-batch Create is
-    consulted first; an other-world template reads as absent) to land its policy on the new
-    instance (`merge::bands::propagate_overrides`, additive, under the two documents'
-    effective-owner relation via `load_effective_owner`). The ONLY writer afterwards is a server
-    merge under `WriteOrigin::TemplateMerge`, whose whole-band `/base` refresh
-    (`snapshot_for_instance` of the full template) is the single server-owned field write
-    `apply_intent`'s capability gate lets through (`/base/...` sub-paths stay rejected for every
-    origin); the same write carries the propagated policy as a `/permissions/property_overrides`
-    change, which `merge_intents::update_authorized` exempts beside `/base` because it can only
-    narrow an audience. `data::permission::required_cap_for_path` maps `/base` to NO capability —
-    the same posture as `/source` — because the write side reads `WRITABLE_BANDS`
-    (`name`/`engine`/`system`), from which `base` is absent by design (see the classifier
-    invariant below). A client-origin post-image carrying `base` on an embedded child is
+    `writes_a_content_band` set, never re-expressed) — the snapshot itself is never relative to
+    the seat that wrote it. SERVER-OWNED: a `Create` derives it from the document's own validated
+    bands (`merge::bands::derive_create_base` in `apply_intent`'s Create arm — any client-supplied
+    value is discarded, no `source` → `null`, embedded children never carry one), after loading
+    the template (a same-batch Create is consulted first; an other-world template reads as
+    absent) to land its policy on the new instance VERBATIM
+    (`merge::bands::propagate_overrides`, additive: a pointer lands only where the instance holds
+    no entry, an instance-authored entry is never removed or widened, and a recorded
+    `Visibility::All` is skipped as a no-op audience) and to resolve the owner's standing on the
+    template (`permission::owner_standing`, `OwnerStanding::Stranger` when no template loads).
+    The ONLY writer afterwards is a server merge under `WriteOrigin::TemplateMerge`, whose
+    whole-band `/base` refresh (`StoredBase { snapshot: snapshot_base(template), owner_standing }`
+    — the FULL template's CURRENT snapshot, under the standing THIS write resolved) is the single
+    server-owned field write `apply_intent`'s capability gate lets through (`/base/...` sub-paths
+    stay rejected for every origin); the same write carries the propagated policy as a
+    `/permissions/property_overrides` change, which `merge_intents::update_authorized` exempts
+    beside `/base` because it can only narrow an audience. `data::permission::required_cap_for_path`
+    maps `/base` to NO capability — the same posture as `/source` — because the write side reads
+    `WRITABLE_BANDS` (`name`/`engine`/`system`), from which `base` is absent by design (see the
+    classifier invariant below). A client-origin post-image carrying `base` on an embedded child is
     rejected fail-closed before the shape walks (`merge::bands::embedded_carries_base`).
     `/source` (the sibling field naming what a document is an instance OF) stays
     unmapped/immutable — `required_cap_for_path` returns `None` for it, so no write path can
-    ever re-target an existing document at a different template. The merge engine itself:
+    ever re-target an existing document at a different template. The merge engine itself, and the
+    `OwnerStanding` mechanism `/base`'s OWN egress evaluates the recorded policy under: see
     `shadowcat-codebase-templates`.
   - `world_of(doc: &Document) -> Option<Uuid>` (`pub(crate)`) — the single chokepoint for
     "which world does this doc scope to" (`Scope::World { world_id } => Some(world_id)`,
@@ -492,29 +498,43 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   round-trip (e.g. a server-computed `100.0` comes back over the wire and reparses as `PosInt(100)`,
   which raw `==` would treat as unequal to a stored `100`, causing a spurious `Conflict` on an
   otherwise up-to-date write). See the `data::sqlite` seam entry above for the exact comparison rule.
-- **`/base`'s egress is decided at ONE site, `own_overrides`, by two rules: an unconditional
-  `OwnerOrGm` floor on the whole band, and inside it the policy the snapshot itself records.**
-  Every reader — `filter_properties` (whole-document egress), `collect_hidden`/`redact_change`
-  (the change-delta path, at every embedded depth) and the merge oracle (`RequesterView`) — reads
-  `own_overrides` through `hidden_own_pointers`/`collect_overrides`; there is no second `/base`
-  decision site. The floor is not driven by the document's `property_overrides` (a doc author
-  cannot loosen it — there is no override to set; `validate_property_overrides` admits a
-  `/base…` key, and `recorded_overrides` ignores it as a band policy). Inside the floor,
-  `base_policy` emits one `/base{pointer}` (or `/base/embedded/<coll>/<k>{pointer}`, recursing
-  into records at their SNAPSHOT positions) entry per entry of the stored `MergeBase`'s
-  `property_overrides` / a record's `propertyOverrides` — the template's mergeable-band policy at
-  sync time, already re-expressed for this instance by `merge::bands::relate_tier` (a template
-  `OwnerOrGm` is `GmOnly` here unless the two documents share an effective owner). This is
-  load-bearing: `base` is the FULL template snapshot, which carries content the template's own
-  overrides hide from this same recipient — the instance owner receives it minus exactly what the
-  template hid, a GM whole, nobody else at all, with no template lookup on the egress path and no
-  dependence on the instance's live children (a record whose instance child was deleted locally
-  stays covered by its own recorded policy). Fail-closed: a recorded tier that does not parse or a
-  recorded pointer naming no mergeable band is a `RedactionError`, and the ingest walk admits
-  neither. The client's `syncState` depends on this cut agreeing with the template's own: it reads
-  the stored base through `normalizeBase` (the server's `MergeBase` defaults, so a stripped
-  snapshot key and a nulled template band compare equal) and excludes the recorded policy maps
-  from its diff.
+- **`/base`'s egress is decided at ONE site, `own_overrides`, by THREE rules: an unconditional
+  `OwnerOrGm` floor on the whole band, a further whole-band `GmOnly` floor when the recorded
+  `owner_standing` is `Stranger`, and inside whichever floor stands, the policy the snapshot
+  itself records, related to that standing.** Every reader — `filter_properties` (whole-document
+  egress), `collect_hidden`/`redact_change` (the change-delta path, at every embedded depth) and
+  the merge oracle (`RequesterView`) — reads `own_overrides` through
+  `hidden_own_pointers`/`collect_overrides`; there is no second `/base` decision site. The
+  `OwnerOrGm` floor is not driven by the document's `property_overrides` (a doc author cannot
+  loosen it — there is no override to set; `validate_property_overrides` admits a `/base…` key,
+  and `recorded_overrides` ignores it as a band policy). The SECOND floor is new: the stored value
+  is `StoredBase { snapshot, owner_standing }`, where `owner_standing: OwnerStanding`
+  (`Stranger`/`Reader`/`Owner`, `permission::owner_standing`) is the instance owner's standing on
+  the TEMPLATE at the write that stored the snapshot; a `Stranger` (the owner holds no
+  whole-document READ on the template) makes `base_policy` emit the bare `/base` pointer at
+  `GmOnly` before reading a single recorded entry — closing a gap where an instance whose owner
+  cannot read its own template still leaked the template's content through `/base`. Inside a
+  non-`Stranger` standing, `base_policy` emits one `/base{pointer}` (or
+  `/base/embedded/<coll>/<k>{pointer}`, recursing into records at their SNAPSHOT positions) entry
+  per entry of the stored snapshot's `property_overrides` / a record's `propertyOverrides` — the
+  template's mergeable-band policy at sync time, recorded VERBATIM (never re-expressed at record
+  time) but RELATED to the standing on read (`OwnerStanding::relate`): a recorded `OwnerOrGm`
+  entry — naming the TEMPLATE owner's tier — stands only under `Owner`, else reads as `GmOnly`
+  for this purpose; every other tier is unaffected. This is load-bearing: `base` is the FULL
+  template snapshot, which carries content the template's own overrides hide from this same
+  recipient — an `Owner`-standing instance owner receives it minus exactly what the template hid
+  (its `OwnerOrGm` entries included), a `Reader`-standing owner additionally loses the template
+  owner's `OwnerOrGm` content, a GM receives it whole, a `Stranger` receives nothing, with no
+  template lookup on the egress path and no dependence on the instance's live children (a record
+  whose instance child was deleted locally stays covered by its own recorded policy). Fail-closed:
+  a recorded tier that does not parse, a recorded pointer naming no mergeable band, or a root
+  lacking a parseable `owner_standing` is a `RedactionError`, and the ingest walk admits none of
+  these. The client's `syncState` depends on the SNAPSHOT half of this cut agreeing with the
+  template's own (the recorded `owner_standing` is an access fact the client never compares — see
+  `shadowcat-codebase-templates`): it reads the stored base through `normalizeBase` (the server's
+  `MergeBase` defaults, so a stripped snapshot key and a nulled template band compare equal) and,
+  since the recorded policy is now verbatim, compares it key for key like every other part of the
+  snapshot rather than excluding it.
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic

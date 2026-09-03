@@ -46,29 +46,40 @@ is the `base` derivation at Create plus ordinary Create validation.
     through `@shadowcat/types`; both carry `property_overrides` — `propertyOverrides` on a record
     — the snapshotted document's mergeable-band policy, `recorded_overrides` =
     `permission::writes_a_content_band`'s set), `MergeBands` (server-internal, NO ts-rs export:
-    it never crosses the wire), `snapshot_base`, `snapshot_for_instance` (the `/base` value a
-    merge write stores: the FULL template's snapshot with every recorded tier re-expressed for
-    the instance by `relate_tier`), `propagate_overrides` (the template's policy onto an
-    instance, additive under `Visibility::strictness`, embedded children by `source.id`, tiers
-    re-expressed by `relate_tier`), `relate_tier` (a template `OwnerOrGm` stays only when the two
-    documents share an effective owner, else `GmOnly` — the tier names the owner of the document
-    it sits on), `derive_create_base(doc, template, same_owner)` (propagates, then snapshots the
-    stamped document's own bands and policy), `content_only`, `bands_tree`/`base_from_child`
-    adapters, `placement_exclusions`/`is_placement_excluded` (token `/engine/x|y|rotation`,
-    hardcoded as before).
+    it never crosses the wire), `StoredBase` (`#[ts(export)]` — the value actually stored at
+    `Document.base`: `MergeBase` flattened, plus `owner_standing: OwnerStanding`), `snapshot_base`
+    (the FULL template's snapshot — the tiers it records are the template's OWN, never
+    re-expressed), `propagate_overrides(instance, template)` (the template's policy onto an
+    instance, VERBATIM and additive: a pointer lands only where the instance holds no entry, an
+    instance-held entry — stricter, equal or looser — is never touched; embedded children by
+    `source.id`; a recorded `Visibility::All` is skipped — a no-op audience that would otherwise
+    cost a capability-gated write for zero visibility effect), `derive_create_base(doc, template,
+    owner_standing: OwnerStanding)` (propagates, then snapshots the stamped document's own bands
+    and policy under the caller-supplied standing), `OwnerStanding` (`data::document`;
+    `Stranger`/`Reader`/`Owner` — the instance owner's standing on the TEMPLATE at the write that
+    stored the snapshot, resolved by `permission::owner_standing`; `OwnerStanding::relate` maps a
+    recorded `OwnerOrGm` tier to `GmOnly` unless the standing is `Owner`, used only by
+    `permission::base_policy` when reading `/base`'s OWN egress — content-band propagation onto a
+    live document (`propagate_overrides`) carries `OwnerOrGm` as-is, since on the INSTANCE it
+    names the instance's own owner), `content_only`, `bands_tree`/`base_from_child` adapters,
+    `placement_exclusions`/`is_placement_excluded` (token `/engine/x|y|rotation`, hardcoded as
+    before).
   - `plan.rs` — `merge3` (reduces the stored base's band tree by the TEMPLATE-side hidden set
     through `permission::redact_pointers`, the same procedure `filter_properties` reduced the
-    parent with, so base and parent agree on what the requester may see), `compute_pull`,
-    `compute_revert` (returns `MergeBands`; the caller emits through `plan_to_update`),
-    `plan_to_update(child, template, bands, same_owner)` (whole-band emission;
-    absent-vs-empty-collection `null` rule; a `/permissions/property_overrides` change carrying
-    the propagated policy; `/base` refresh = `snapshot_for_instance` of the FULL template — never
-    the requester's view — emitted, like every other band, ONLY when it differs from the stored
-    value read through `MergeBase`'s own defaults, so an in-sync instance yields an update with
-    no changes and the handlers report `Applied` without publishing), `apply_resolutions` (every
-    `Set` first, then every `Delete` in descending `pointer_key` order — deepest and
-    highest-indexed first, so no splice renumbers a path still waiting; fallible: an unapplicable
-    "theirs" is `Err`, never a panic).
+    parent with, so base and parent agree on what the requester may see), `compute_pull` (parses
+    the child's stored `/base` as a plain `MergeBase` — the recorded `owner_standing` is egress's
+    business, not the merge's), `compute_revert` (returns `MergeBands`; the caller emits through
+    `plan_to_update`), `plan_to_update(child, template, bands, owner_standing: OwnerStanding)`
+    (whole-band emission; absent-vs-empty-collection `null` rule; a
+    `/permissions/property_overrides` change carrying the propagated policy; `/base` refresh =
+    `StoredBase { snapshot: snapshot_base(template), owner_standing }` — the FULL template's
+    CURRENT snapshot, never the requester's view, under the standing THIS write resolved —
+    emitted, like every other band, ONLY when it differs from the stored value read through
+    `MergeBase`'s own defaults, so an in-sync instance yields an update with no changes and the
+    handlers report `Applied` without publishing), `apply_resolutions` (every `Set` first, then
+    every `Delete` in descending `pointer_key` order — deepest and highest-indexed first, so no
+    splice renumbers a path still waiting; fallible: an unapplicable "theirs" is `Err`, never a
+    panic).
   - `visibility.rs` — the `MergeVisibility` oracle (`hidden(side, doc)`, `Side::Template`/
     `Side::Child`): `AllVisible` (tests/corpus) and `RequesterView { template, child }` (production,
     backed by `permission::hidden_own_pointers`). Visibility is resolved by document IDENTITY at
@@ -116,7 +127,7 @@ is the `base` derivation at Create plus ordinary Create validation.
     revert keeps the instance's own value there). A child-hidden path WITHHOLDS its conflict from
     the wire (`HiddenPointers::withholds`) with the child-wins default standing, and an embedded
     template-deletion conflict is withheld by the same rule against its `/system` payload. The
-    stored `/base` is NOT requester-relative: `plan_to_update` writes `snapshot_for_instance` of
+    stored `/base` is NOT requester-relative: `plan_to_update` writes `snapshot_base` of
     the FULL template (`PullDocs::template_full`; push keeps the full template beside the pusher's
     view), so a GM's pull followed by a player's pull on the in-sync instance publishes
     NOTHING and neither seat's badge flips (a requester-relative snapshot rewrote the other seat's
@@ -246,10 +257,11 @@ is the `base` derivation at Create plus ordinary Create validation.
   identity (never by index), and the stored `/base` is one canonical full value.** A
   template-hidden path never moves into an instance's content in either direction; a
   child-hidden conflict is withheld with the child-wins default standing; the `/base` refresh is
-  `snapshot_for_instance` of the FULL template, whoever ran the merge, and the template's policy
-  rides onto the instance with every write (`propagate_overrides`). Any new merge entry point
-  takes a `MergeVisibility` and threads it through every embedded level, hands `plan_to_update`
-  the FULL template and the instance/template owner relation, and never a requester's view — an
+  `snapshot_base` of the FULL template, whoever ran the merge, VERBATIM (the template's own
+  recorded policy, never re-expressed), and rides onto the instance with every write
+  (`propagate_overrides`). Any new merge entry point takes a `MergeVisibility` and threads it
+  through every embedded level, hands `plan_to_update` the FULL template and the resolved
+  `OwnerStanding`, and never a requester's view — an
   `AllVisible` in production code, an index-addressed visibility lookup, or a requester-relative
   `/base` is the leak (or the ping-pong) this rule exists to prevent.
 - **Push's instance scope is server-derived same-world SEE + WRITE, per instance, against the
