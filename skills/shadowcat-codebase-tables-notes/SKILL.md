@@ -53,7 +53,10 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     `weight` is used (and must still be `>= 1`) under BOTH draw rules, even though only
     `Weighted` reads it for selection; `range` must be `Some` under `Formula`, `None` under
     `Weighted`.
-  - `RowRange{lo: i64, hi: i64}` — an inclusive total range; `TableEngine::validate` requires
+  - `RowRange{lo: i32, hi: i32}` — an inclusive total range, deliberately the narrower 32-bit
+    integer width rather than the wider one: a row range bounds a dice roll's total, already well
+    within the narrower width via `MAX_DIE_SIDES`/`MAX_ROLL_DICE`, and the wider width would force
+    ts-rs to emit a client-unconstructible bigint; `TableEngine::validate` requires
     `lo <= hi` and requires every `Formula` row's range to be non-overlapping with every other
     row's (NOT that ranges are exhaustive — a total matching no row's range is a legitimate "no
     matching row" draw, `DrawnRow` absent).
@@ -103,16 +106,31 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     `SendMessageError` variant maps conservatively to `Forbidden` (never leaks anything, and a
     future `SendMessageError` variant compiles here rather than panicking in production).
 - `tables::draw` — the recursive resolver:
-  - `DrawCtx<'a>{repo, ctx, world_defaults, policy, world_id, chain: Vec<Uuid>, budget: usize}` —
+  - `DrawCtx<'a>{repo, ctx, world_defaults, policy, world_id, chain: Vec<Uuid>, budget: usize,
+    image_urls: Vec<chat::ImageSource>, #[cfg(test)] seed: Option<u64>}` —
     `chain` is the DFS-visited-stack cycle guard (table ids on the CURRENT recursion path only,
     not the whole request tree — two sibling branches reusing the same table id are both fine);
     `budget` counts every draw resolved ACROSS THE WHOLE REQUEST (top-level plus every nested
-    fan-out), capped at `MAX_DRAWS_PER_REQUEST=64` regardless of depth.
+    fan-out), capped at `MAX_DRAWS_PER_REQUEST=64` regardless of depth. `image_urls` accumulates
+    inline markdown image sources from every `TableEntry::Text` entry resolved anywhere in the
+    tree (top-level plus every nested fan-out) — `handle_draw_table` runs ONE
+    `chat::enrich_link_previews` call over the assembled message content after every draw
+    resolves, mirroring `chat::body::compose_message`'s own per-message collection, so a row's
+    inline image is asset-ified exactly like a chat message's (see `shadowcat-codebase-chat`'s
+    `link_preview`/`post_publish` machinery — the SAME `LinkPreviewDeps` bundle
+    `MessageRequestCtx` carries is threaded through `DrawTableRequestCtx`). `seed` is a
+    `#[cfg(test)]`-only deterministic roll seed (never compiles into the release binary) —
+    `draw_table` reads it to choose `chat::rolls::execute_roll_with_seed` over
+    `chat::rolls::execute_roll`; set via the `#[cfg(test)]` `draw_table_with_seed` wrapper
+    (never by hand), which lets a row-selection test assert a deterministic matched row across
+    a genuine multi-row table instead of relying on a degenerate single-row (always-hit) or
+    wholly-out-of-range (always-miss) fixture.
   - `draw_table(cx, table_id, depth)` — checks budget/depth/cycle FIRST (in that order), then
     loads+authorizes the table (`resolve_access_world` against `cx.world_defaults`, `cap::READ`
     required — `DrawTableError::Forbidden` on a denial), deserializes+validates the stored
-    `TableEngine`, rolls under `chat::rolls::TABLE_PARSE_CONTEXT` via `chat::rolls::execute_roll`,
-    matches a row (`weighted_row`/`ranged_row`, pure functions), then resolves that row's
+    `TableEngine`, rolls under `chat::rolls::TABLE_PARSE_CONTEXT` via `chat::rolls::execute_roll`
+    (or, in a test build with `cx.seed` set, `chat::rolls::execute_roll_with_seed`), matches a
+    row (`weighted_row`/`ranged_row`, pure functions), then resolves that row's
     `results` via `resolve_row_results`. **`table_id` is pushed onto `cx.chain` for the duration
     of resolving the matched row, popped UNCONDITIONALLY on every path — including the error
     path — by capturing the `Result` via `.map()` BEFORE popping, then propagating via `?` only
@@ -129,6 +147,11 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
   - `ranged_row(rows, total) -> Option<usize>` — the row whose `range` contains `total`; `None`
     is a legitimate "no matching row" outcome, not an error (`TableEngine::validate` guarantees
     non-overlap, never exhaustive coverage).
+  - `resolve_row_results`'s `TableEntry::Text` arm collects `chat::sanitize`'s `image_urls` onto
+    `cx.image_urls` alongside its `segments` — dropping this half of `Sanitized`'s output (as an
+    earlier version did) silently means a row's inline markdown image is never asset-ified, with
+    no error anywhere; see `chat::body::compose_message`'s identical collection for the reused
+    pattern.
 - `chat::Segment::TableDraw(TableDrawSegment)` — the one `Segment` variant chat's own parser can
   NEVER produce (only `tables::draw::draw_table` builds one); `TableDrawSegment{table_id,
   table_name, roll_id, formula, outcome, spec, raw, row}` (`spec`/`raw` are boxed `Option`s
@@ -188,6 +211,18 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
   stored row, the `world_events` entry, and the returned `Command` identically); `data::validation`'s
   `validate_containment` forbids a `note` as an embedded child (same shape as the `table`/
   `asset_folder`/combat-family rules), but — unlike `table` — a `note` MAY carry a `parent_id`.
+  **`MAX_NOTE_SOURCE_CHARS` bounds `source`, not the DERIVED `body` that is actually stored.**
+  `apply_intent`'s Create AND Update arms re-run `validation::validate_system_size` a SECOND
+  time, immediately after `validate_engine_tree` (the call that runs `derive_body` and replaces
+  `doc.engine` with the derived value in place) — the first, earlier `validate_system_size` call
+  only ever sees the client's pre-derivation payload (an empty `body: []`), never the value that
+  is actually persisted, written to `world_events`, and broadcast. A `source` near the char cap
+  made mostly of HTML-escapable characters (`&`/`<`/`>`) expands several-fold through
+  `chat::sanitize`'s escaping, so without the second check a well-formed-looking Create/Update
+  could store, log, and broadcast a body well past `MAX_SYSTEM_BYTES` with no refusal at all.
+  Reusing the same function (rather than a second size rule) is deliberate — this is the general
+  shape any future engine-doc-type whose `normalize_engine` arm DERIVES a stored value (not just
+  validates the submitted one) must repeat.
 - `chat::body::compose_static(body, policy, max_spans) -> Result<Vec<Segment>, RollError>` — the
   SYNCHRONOUS sibling of `chat::body::compose_message` a note's ingress arm calls (also usable by
   any other document body that composes at write time with no repository/network access): a `Text`
@@ -222,10 +257,15 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     is built as a plain `number`, NOT a bigint, despite `NoteEngine.sort`'s ts-rs bigint typing —
     a bigint value is not JSON-serializable and `WsClient.send` does a bare JSON stringify call,
     so a real bigint value breaks every `Create` containing a note; `wire.ts`'s own hand-mirrored
-    types resolve the identical i64/bigint gap by using `number`, and this is the first
+    types resolve the identical i64/bigint gap by using `number`, and this was the first
     non-hand-mirrored ts-rs type to construct a real i64 VALUE rather than merely re-export the
-    TYPE — the same trap awaits `table-docs.ts`'s `RowRange.lo`/`hi` the day a real caller
-    constructs one). Private-by-default permissions: `default: "none"`, `users: {[owner]: "owner"}`
+    TYPE — the identical trap DID land on `table-docs.ts`'s `RowRange.lo`/`hi` once a real
+    `Formula`-table caller constructed one; fixed by narrowing the Rust field width instead
+    (a row range bounds a dice total, already well inside that narrower width), rather than
+    adding a per-caller `number`-construction workaround the way `buildNoteDoc` does for `sort`
+    — the two fields differ in kind, not just history: `sort` genuinely needs the wider width on
+    the Rust side (a client-chosen sibling-ordering value with no natural bound), while
+    `RowRange` never did). Private-by-default permissions: `default: "none"`, `users: {[owner]: "owner"}`
     when `opts.owner` is given — the builder is pure and has no session, so the caller MUST pass the
     authoring user's id explicitly, or the note is readable by nobody but a GM.
   - `parseNoteBody(doc) -> (ChatSegment | UnknownSegment)[] | null` — fail-closed: wrong doc_type or
@@ -281,6 +321,16 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
 - **`check_note_parent` shares its in-flight-batch map with `check_asset_folder_parent`** — the
   map's own name is a historical artifact of once tracking only folders; do not assume it tracks
   only folders when reading `check_parent_placement`/`check_move_acyclic`.
+- **A test named for `check_note_parent` may genuinely be pinning a DIFFERENT mechanism.** Only
+  two shapes actually depend on `check_note_parent` itself: a Create/Move whose new parent exists
+  but is the WRONG doc_type, and a Create/Move whose new parent is a note in ANOTHER WORLD *when
+  no other check reaches the parent first*. On `Create`, that second case is masked: `apply_intent`
+  runs its own generic "an existing parent must be in this world" check
+  (`check_command_scope` on the loaded parent) BEFORE `check_note_parent` even matters, so a
+  foreign-world-parent Create test passes even with `check_note_parent` stubbed to `Ok(())` — verified by mutation. `Move` has no such generic check, so
+  the cross-world case is genuinely `check_note_parent`-dependent ONLY there. A cycle test is
+  `check_move_acyclic`'s; a cascade-delete test is the parent foreign key's. Before citing a test
+  as coverage for this function, stub it and confirm the test actually fails.
 
 ## Pointers
 
