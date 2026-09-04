@@ -908,6 +908,24 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   resolves gradation band→darkening alpha + tint color, applies `renderHint` (e.g. `"darkvision"`
   → gray-wash desaturation overlay), and interpolates day/night fades. Called by `PixiBackend`
   `setLighting` which renders per-cell darkening/tint sprites + a `BlurFilter` for soft band edges.
+  **`Lighting.apply`'s repaint dedup and `onApply` are two INDEPENDENT decisions, not one.**
+  `apply()` fingerprints the frame it just resolved via `lightingFrameKey` (a superset of what
+  `PixiBackend.setLighting` reads — `frame.cell` and each cell's `i`/`j` ride along even though
+  `setLighting` never reads them, which is the safe direction: it can only cause an unneeded
+  repaint, never an incorrectly-skipped one) against the last frame ACTUALLY painted, and skips
+  the real `backend.setLighting` call when unchanged — a carried-light or vision sweep holds the
+  same resolved content across many ticks (only the blend factor moves), and every caller
+  (`setTarget`/`tick`/`setSweep`/`setDarkness`) rebuilds its argument as a fresh array/object each
+  call, so a reference-equality check alone never catches the repeat. **`onApply` fires
+  UNCONDITIONALLY on every `apply()` call regardless of that dedup.** Its sole production
+  consumer, `RenderEngine`'s `onLightingApplied` wiring, closes over `this.lightSweeps.size > 0`
+  at call time — state entirely outside `lightingFrameKey`, which cannot see it. Gating `onApply`
+  on the same key (a real, shipped regression, since fixed) silently drops the sweep-end
+  notification whenever the committed lighting at a walk's stop happens to light the same cells
+  the sweep's last sample already did — the ordinary case, not an edge case — so `Stage`'s
+  `data-light-sweep` attribute never flips back to `"0"` and an e2e polling for it hangs. Any
+  future edit that "tidies" the guard to cover both calls with one condition reintroduces this
+  exact defect; keep them separate.
 - `Stage` (`src/modules/stage`) — mounts the render engine over a `ReadableDocuments` view.
 - `src/modules/scene-tools/` — the `controller` + `hit-test` modules, tools (place/select/move/
   draw/template/measure/ping/wall/region) dispatching intents. Wall tool writes a **three-flag**
