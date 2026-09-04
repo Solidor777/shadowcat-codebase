@@ -179,8 +179,9 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     `Extract<ChatSegment, {kind:"table_draw"}>` — that narrowing is undocumentable by TypeDoc, an
     invariant `shadowcat-codebase-core` states generally). `chatSegmentSchemaImpl` is
     `z.union([nonRecursiveChatSegmentSchemaImpl, tableDrawSegmentSchemaImpl])` rather than one
-    Zod's discriminated-union validator — it cannot host a recursive lazy member, so the 8
-    non-recursive segment kinds stay one discriminated union and the recursive `table_draw`
+    Zod's discriminated-union validator — it cannot host a recursive lazy member, so the
+    non-recursive segment kinds (`nonRecursiveChatSegmentSchemaImpl`'s members) stay one
+    discriminated union and the recursive `table_draw`
     member (`tableDrawSegmentSchemaImpl`) is unioned in separately as a lazy schema.
   - `ws-client.ts` — `DrawTableOptions{tableId, channel, count?, actorOwner?, audience?}`,
     `WsClient.drawTable(opts) -> Promise<void>` — same `trackChatOp`/`chatPending` correlation as
