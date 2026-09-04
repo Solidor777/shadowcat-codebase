@@ -675,11 +675,11 @@ with zero message-specific plumbing in any of those subsystems.
   mirror NOW EXISTS: the `chat-docs` module — Zod schemas +
   `parseMessageEngine(doc) -> ChatMessageEngine | null` (parses `doc.engine` not `doc.system`;
   fail-closed: wrong doc_type or ANY
-  malformed body → null, never partial) + `isKnownSegment` (unknown segment kinds parse as
-  opaque forward-compat and render as nothing, but the fallback REFUSES kinds "text"/"html"/
-  "image" so
+  malformed body → null, never partial) + `isKnownSegment` (the source of truth for which
+  segment kinds are known — unknown kinds parse as
+  opaque forward-compat and render as nothing, but the fallback REFUSES every kind it lists so
   a malformed known-kind segment fails the whole message instead of being misclassified —
-  load-bearing, pinned by tests; eight known segment kinds total as of `image`). A Rust-side body-shape change MUST update that file by hand
+  load-bearing, pinned by tests). A Rust-side body-shape change MUST update that file by hand
   (drift notes at both ends), not a regenerated binding. `MAX_MESSAGE_CHARS` is mirrored there
   for composer pre-validation (JS `.length` counts UTF-16 units vs the server's
   `chars().count()` — divergence is fail-safe: client can only over-block). `PermissionSet`
