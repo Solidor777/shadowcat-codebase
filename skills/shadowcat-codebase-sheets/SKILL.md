@@ -73,10 +73,28 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
   field-path Update dispatch every sheet uses. `old ?? null` collapses ONLY a genuinely-absent
   (`undefined`) pre-image — `0`/`false`/`""` pass through verbatim (see Hard Invariants).
 - **`SystemTreeEditor`** — recursive type-aware editor over the opaque
-  `system` body (string/number/boolean/null/object/array; add/remove fields; array-item add seeds
-  a value MATCHING the array's existing element kind, not a hardcoded `""`). Self-recurses via
-  `import Self from "./SystemTreeEditor.svelte"`; every level computes its OWN `old` at its own
-  `basePath` via a fresh `getPointer(doc, path)` read.
+  `system` body (string/number/boolean/null/object/array; add/remove/rename fields; array-item
+  add seeds a value MATCHING the array's existing element kind, not a hardcoded `""`).
+  Self-recurses via `import Self from "./SystemTreeEditor.svelte"`; every level computes its OWN
+  `old` at its own `basePath` via a fresh `getPointer(doc, path)` read. `addField` takes BOTH the
+  key and an initial value from the author (`draftKey`/`draftValue`) — never a random opaque
+  id — refusing (surfacing an inline error, dispatching nothing) an empty/`/`-bearing key or one
+  already present at `basePath`. The initial value is coerced through `seedValue`: a finite
+  numeric literal becomes a JSON number rather than a string, so a freshly authored leaf is
+  immediately usable as a `crate::formula` `SystemLeafResolver` reference target
+  (`SystemLeafResolver::resolve` reads a leaf as a number, never satisfied by a JSON string).
+  Every object key ALSO renders as a rename `<input>` (an array's numeric indices stay plain
+  spans — renaming an index is meaningless) whose change handler calls `renameKey`, dispatching
+  ONE atomic Update carrying both the removing and the inserting `FieldChange` for the SAME
+  `basePath` — the value (including any nested subtree) moves to the new key intact and the old
+  key is genuinely absent, never both
+  present or both absent. The insert's own OCC pre-image is the wire `null` a genuinely-absent key
+  reads as, so a same-BATCH collision (the new key created concurrently) fails that pre-image
+  check and the whole rename rejects and rolls back; a same-RENDER collision against the currently
+  known `root` is refused up front instead. Neither `addField` nor `renameKey` attempts to
+  preserve JSON object KEY ORDER — `Object.entries` iteration order places a rename's new key at
+  the end, same as any other remove-then-insert — only the field's PARENT (`basePath`) is
+  preserved.
 - `@shadowcat/module-sheet-fallback`/`-actor`/`-item` — the three generic sheets, each `sheetContract`
   registered (fallback at `-Infinity`, actor/item at `0`). `sheet-item` introduces the client-only
   `ITEM_DOC_TYPE` doc_type ([[shadowcat-codebase-documents-permissions]]) and the roll-to-chat affordance
