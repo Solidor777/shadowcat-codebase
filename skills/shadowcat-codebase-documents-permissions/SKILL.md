@@ -584,11 +584,14 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   one is either unredacted-but-writable or redacted-but-unwritable, and which of those is
   intended must be stated. A second symbol is shared the same way:
   `band_has_interior`, the leaf rule stating that `name` is a display string with no interior.
-  What is deliberately NOT shared is the residual-segment rule, because the two classify different
-  input domains — `required_cap_for_path` classifies a `FieldChange` path, `redaction_target`
-  classifies a `property_overrides` map key, different fields on different structures behind
-  different validators — so `/system/` is a writable path there and unclassifiable here, and they
-  are not required to agree string-for-string.
+  The residual-segment rule is NOT shared by symbol — `required_cap_for_path` classifies a
+  `FieldChange` path, `redaction_target` classifies a `property_overrides` map key, different
+  fields on different structures behind different validators, so they are not required to agree
+  string-for-string in general — but on one input they now agree in effect: `writes_a_content_band`
+  requires a non-empty segment past the band separator, so `/system/` is unclassifiable at both,
+  the same way `redaction_target`'s own `!tail.is_empty()` guard already refused it. `/base/system/`
+  agrees with the sibling top-level `/system/` for the same reason (`is_base_content_residual` is
+  derived from `writes_a_content_band`).
   `redaction_target(pointer) -> Option<RedactionTarget>` returns `Band` (the pointer names a whole
   band — null the field in place, never strip the key), `Within` (the pointer descends into a band,
   landing inside untyped `serde_json::Value` or an `Option`, never a required struct field — which
