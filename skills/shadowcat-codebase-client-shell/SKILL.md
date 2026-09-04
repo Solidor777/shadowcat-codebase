@@ -409,7 +409,7 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   the button's author. Details →
   [[shadowcat-codebase-chat]].
 - `src/modules/{entry,core-ui,panels,stage,topbar,statusbar,settings,game-settings,scene-browser,
-  chat,chat-composer,chat-card}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind
+  chat,chat-composer,chat-card,combat-tracker}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind
   `<Entry onEnterWorld>`); core-ui owns the layout grid + region surfaces into the singleton
   `root` (its main region hosts `shadowcat.surface:panel-host`; BOTH cells of the `1fr` row —
   `.main` AND `.toolrail` — carry the growth cap (`min-height: 0` + a non-visible `overflow-y`),
@@ -447,7 +447,11 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   EFFECTIVE value while writes carry the RAW stored overlay leaf as the OCC pre-image, and the
   reset control CLEARS the leaf (writes null) so resolution falls through — never a
   client-resolved literal. The chat/dice server resolvers + segments are covered by
-  `shadowcat-codebase-chat`/`-dice`.
+  `shadowcat-codebase-chat`/`-dice`. `game-settings` also carries three combat editors
+  (`CombatSettings`/`CombatSceneOverrides`/`ResourceRegistryEditor`) and `combat-tracker` =
+  `@shadowcat/module-combat-tracker` (the default combat tracker panel, order 2, launcher-closed)
+  — both own end-to-end here (`CombatController`/`AppContext.combat` above is their dispatch
+  layer); the document/resolver shapes they read and write are `shadowcat-codebase-combat`'s.
 
 ## Hard invariants
 

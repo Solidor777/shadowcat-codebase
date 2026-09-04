@@ -10,8 +10,12 @@ pipeline that mutates it, turn history, effect-lifecycle expiry, and the per-tur
 gate the move executor enforces against it. The document builders, the settings-chain
 provenance resolver (`resolveSettingProvenance`), and the client dispatch layer
 (`CombatController`/`CombatApi`, `@shadowcat/core`) all exist client-side, wired into
-`WorldSession`/`AppContext` — what does NOT exist yet is a tracker/settings-editor UI to host any
-of it — a later sub-project. Everything server-side about the clock itself (transitions, gates, history, and
+`WorldSession`/`AppContext`. A tracker/settings-editor UI hosts all of it:
+`@shadowcat/module-combat-tracker` (the default combat tracker panel) and three
+`@shadowcat/module-game-settings` editors (`CombatSettings`, `CombatSceneOverrides`,
+`ResourceRegistryEditor`) — see the Key files bullet below; both are owned end-to-end by
+`shadowcat-codebase-client-shell`, this skill covers only the document/resolver shapes they read
+and write. Everything server-side about the clock itself (transitions, gates, history, and
 formula evaluation through `combat::eval`) is built, including the per-recipient `"combat"`
 derived scene channel that resolves resource numbers for the client.
 
@@ -277,6 +281,23 @@ separately enforces a per-turn movement budget against the same documents this s
   parsing). This skill owns only the resolved-resource SHAPE the channel carries
   (`ResourceRegistryEngine`/`Resource`/`ResourceBinding` above) and the intent semantics
   `CombatController`'s eight dispatch methods target — not the client wiring itself.
+- `@shadowcat/module-combat-tracker` (`src/modules/combat-tracker`) — the default combat tracker
+  panel (order 2, launcher-closed): `CombatTrackerPanel` composed from `CombatHeader` (clock
+  controls gated by `ctx.combat.canAct`, the two-click End confirm, "Roll all" — `model.ts`'s
+  `rollTargets` excludes `Event` combatants and, for a non-GM, everything but the caller's own
+  rows), `CombatantRow` (name/conditions/initiative/per-resource cells, GM-only hide/remove/drag),
+  and `AddCombatants` (adds the current token selection, authors one-off `Event` combatants).
+  `TurnBadge` lights the launcher item on the viewer's own turn only. `@shadowcat/module-
+  game-settings` gained three editors reading/writing the shapes this skill owns:
+  `CombatSettings` (world-tier `CombatDefaults` chain editor, one control per leaf plus an
+  effective-rules summary table over `EFFECTIVE_PATHS` — all ten `SettingPath` leaves including
+  the three `effectLifecycle` ones), `CombatSceneOverrides` (the same controls scoped to the
+  selected scene, Inherit falling through to world), and `ResourceRegistryEditor` (add/remove
+  `Resource` entries, per-kind formula fields via `parseFormula`). Every combat-leaf write
+  replaces the whole `/engine/combat` object (`set_pointer` cannot create a missing parent from a
+  leaf sub-path). Pure UI over already-built seams — owned end-to-end by
+  `shadowcat-codebase-client-shell` alongside `CombatController`/`CombatApi` above; this skill
+  covers only the document/resolver shapes these components read and write.
 
 ## Hard invariants
 

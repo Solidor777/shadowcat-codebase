@@ -82,6 +82,11 @@ check c2 "/srv/checkouts/shadowcat/src/server/src/data/engine/combat/tests.rs" "
 check c3 "C:/Dev/Shadowcat/src/server/src/combat/transition.rs"       "shadowcat-codebase-combat"
 check c4 "/srv/checkouts/shadowcat/src/server/src/combat/mod.rs"      "shadowcat-codebase-combat"
 
+# `src/modules/combat-tracker/` (the default combat tracker panel UI) also routes to `combat`,
+# ahead of `client-shell`'s own module list.
+check c5 "C:/Dev/Shadowcat/src/modules/combat-tracker/src/CombatTrackerPanel.svelte" "shadowcat-codebase-combat"
+check c6 "/srv/checkouts/shadowcat/src/modules/combat-tracker/src/model.ts" "shadowcat-codebase-combat"
+
 # `tables-notes` precedes `documents-permissions` (shared src/server/src/data/) — absolute
 # paths per the real Edit/Write payload shape.
 check t1 "C:/Dev/Shadowcat/src/server/src/data/engine/table.rs"       "shadowcat-codebase-tables-notes"
