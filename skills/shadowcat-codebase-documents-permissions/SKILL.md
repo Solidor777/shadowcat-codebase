@@ -506,8 +506,13 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   the merge oracle (`RequesterView`) — reads `own_overrides` through
   `hidden_own_pointers`/`collect_overrides`; there is no second `/base` decision site. The
   `OwnerOrGm` floor is not driven by the document's `property_overrides` (a doc author cannot
-  loosen it — there is no override to set; `validate_property_overrides` admits a `/base…` key,
-  and `recorded_overrides` ignores it as a band policy). The SECOND floor is new: the stored value
+  loosen it — there is no override to set; `validate_property_overrides` admits a `/base…` key
+  only when it names CONTENT inside the snapshot — `is_base_content_residual` restricts a
+  `/base` residual to `name`/`engine`/`system`, at the root or through valid
+  `/embedded/<coll>/<idx>` hops, refusing a pointer naming the snapshot's own structural keys
+  (`embedded`, the recorded policy map, `sourceId`, `owner_standing`) so an override can never
+  corrupt the shape egress relies on — and `recorded_overrides` ignores an admitted `/base…` key
+  as a band policy). The SECOND floor is new: the stored value
   is `StoredBase { snapshot, owner_standing }`, where `owner_standing: OwnerStanding`
   (`Stranger`/`Reader`/`Owner`, `permission::owner_standing`) is the instance owner's standing on
   the TEMPLATE at the write that stored the snapshot; a `Stranger` (the owner holds no
@@ -529,7 +534,15 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   whose instance child was deleted locally stays covered by its own recorded policy). Fail-closed:
   a recorded tier that does not parse, a recorded pointer naming no mergeable band, or a root
   lacking a parseable `owner_standing` is a `RedactionError`, and the ingest walk admits none of
-  these. The client's `syncState` depends on the SNAPSHOT half of this cut agreeing with the
+  these. `own_overrides` reads the stored `/base` value through `merge::bands::StoredBase`'s
+  typed deserializer (never raw JSON) before walking it via `base_policy`/`base_policy_child` —
+  because `StoredBase`/`MergeBase`/`EmbeddedBaseChild` carry no field defaults, a missing
+  structural key (an absent policy map, an absent `embedded` map, a non-object node) fails the
+  deserialize and reads as a corrupt `/base` rather than "nothing hidden": the same
+  fail-typed-deserializer rule this skill's `base` seam states for `compute_pull`/
+  `plan_to_update` applies here too, closing the same class of gap for the read path that
+  computes egress redaction rather than the read paths that compute a merge. The client's
+  `syncState` depends on the SNAPSHOT half of this cut agreeing with the
   template's own (the recorded `owner_standing` is an access fact the client never compares — see
   `shadowcat-codebase-templates`): it reads the stored base through `normalizeBase`, which reads a
   redaction-stripped content band (`name`/`engine`/`system`) as `null` — matching a nulled hidden
@@ -586,6 +599,20 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `updated_at`) — AND any pointer descending into a LEAF band, since `band_has_interior` gives
   `name` no interior. So `/name` classifies `Band` while `/name/first` classifies `None` and is
   REJECTED at ingress: an override naming a sub-path of `name` is not authorable at all.
+  - **`/base`'s interior does NOT get the ordinary "any residual is `Within`" treatment.**
+    `base`'s content is not an arbitrary untyped tree — it is a `merge::bands::MergeBase`/
+    `EmbeddedBaseChild`, a shape with its own required structural keys
+    (`validation::check_base_node_shape` enforces them at every depth) — so `redaction_target`
+    additionally runs `is_base_content_residual` on any `/base` residual: it strips zero or more
+    `/embedded/<coll>/<idx>` hops (each hop needs BOTH segments to keep descending) and requires
+    what remains to match `writes_a_content_band`. A pointer landing on `embedded` itself, the
+    recorded policy map, a record's `sourceId`, or the root's `owner_standing` fails this test
+    and classifies `None` (refused at ingest by `validate_property_overrides`), because stripping
+    any of those via `Within`'s ordinary object-key-removal terminal step would corrupt the shape
+    a compliant `/base` reader relies on — closing a write-side hole where a GM holding
+    `cap::EDIT_PERMISSIONS` could otherwise author an ordinary document override naming a
+    structural `/base` key, which would strip that key from a recipient's stored snapshot at
+    egress and make a valid copy read as malformed on the client's `normalizeBase`.
   - **`Within` is NOT uniformly a pointer strip: an ARRAY ELEMENT is nulled in place.**
     `strip_pointer` handles an array container by index at BOTH the descent step and the terminal
     step, because a pointer segment carries no evidence of which container it names
