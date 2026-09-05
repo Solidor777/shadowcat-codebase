@@ -419,8 +419,9 @@ separately enforces a per-turn movement budget against the same documents this s
   `reconcile_membership` shares rather than re-derives — so a stale entry can never reach
   `settle_turn`'s combatant lookup and permanently brick the clock behind `CombatError::NotFound`.
   **`heal_order` is deliberately DROP-ONLY: it never appends a `combatants` entry `order` doesn't
-  name.** A combatant present in `combatants` but absent from `order` — whether moved in, or
-  `Create`d without an `order` entry from the start — is `order` alone indistinguishable from a
+  name.** A combatant present in `combatants` but absent from `order` — whether it entered
+  `combatants` after `order` was last rebuilt, or was `Create`d without an `order` entry from the
+  start — is `order` alone indistinguishable from a
   combatant the GM deliberately staged without rolling it into initiative (a real, permanent,
   end-to-end-tested state: a scenario asserts a `hidden: true` combatant "never enters
   `order`/`turn`" across a whole round). Auto-appending on every `advance` would silently roll a
