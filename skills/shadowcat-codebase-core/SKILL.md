@@ -105,6 +105,31 @@ source of truth. The ones agents break most:
   and `scene/tests/{mod,ecs_and_footprints,resolution_and_lighting,pathfind_and_vision}.rs`, with
   shared fixtures `pub(super)` in each `tests/mod.rs`. Never add an allowlist entry on your own
   authority — split the file.
+- **Test resource budgets are invariants, and the timeouts depend on them.** Playwright's default
+  worker count is half the logical CPUs, which oversubscribes a developer machine because each
+  worker drives a Chromium rendering a WebGL stage — far more than one core. Measured on one
+  machine against a freshly booted server, `panels-floating.spec.ts`'s popped-out-arrangement test
+  takes 3.1s at four workers and 59.4s at twelve, roughly 19x. Oversubscription costs on every
+  axis at once: the full suite measures 146s at four workers with all 34 passing, against 235s at
+  twelve with one failure — the extra workers buy no throughput, make the machine unusable, and
+  push ordinary assertions past `expect`'s budget until they fail on the clock.
+  `workers` is therefore pinned in `playwright.config.ts`, and `timeout`/`expect.timeout` are sized
+  against the capped figure. Raising the cap re-inflates per-test latency and those budgets stop
+  bounding product behaviour — they start absorbing contention instead, which is how a suite stops
+  detecting the regressions it exists to catch. A single browser action costs ~70ms; a spec that
+  runs long runs long because it performs hundreds of actions across several contexts, so look at
+  action COUNT before suspecting a slow operation.
+- **A unit test that never touches the DOM declares the node environment.** Packages select
+  `environment: "jsdom"` globally, and vitest constructs that environment per test FILE, so a file
+  exercising plain state and pure functions pays the full construction cost and never uses it —
+  cumulatively the dominant cost of the unit run, far exceeding the assertions themselves. Such a
+  file opens with `// @vitest-environment node`. INVARIANT: a package's `vitest.setup.ts` runs in
+  EVERY environment that package selects, so any DOM global it patches must be guarded on that
+  global existing (`typeof HTMLCanvasElement !== "undefined"`) — an unguarded patch throws before
+  the first test in any node-environment file. Every `vitest.setup.ts` in the tree carries that
+  guard, so the pragma is safe to add in any package; adding a new setup file without it re-arms
+  the trap for whoever next follows this bullet. Keep jsdom the package default and opt out per
+  file: the reverse fails toward a broken test rather than a slow one.
 
 ## Gotchas
 
