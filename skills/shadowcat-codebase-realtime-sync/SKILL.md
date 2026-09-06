@@ -338,12 +338,11 @@ optimistically and roll back on divergence.
   `WsClient`'s own `combatPending` map by `request_id` on BOTH paths — a dedicated
   `ServerMsg::CombatResult { request_id, seq }` answers an accepted intent (originator-only, never
   broadcast) and `ServerMsg::CombatError { request_id, reason }` answers a rejection; there is no
-  echo-matching on success. Pre-M14c-6, `combat()`'s success path resolved the OLDEST
-  `combatPending` entry on a self-authored broadcast `Event` (an author-echo FIFO matching neither
-  `request_id` nor the specific intent that entry was waiting on, and silently never resolving at
-  all with `selfUserId` unset) — a longstanding defect closed by `CombatResult`'s
-  addition: an entry now resolves only once its `combat_result` has arrived AND `nextExpected` has
-  advanced past its seq, both keyed by `request_id`. See `shadowcat-codebase-combat`.
+  echo-matching on success. An entry resolves ONLY once its `combat_result` has arrived
+  AND `nextExpected` has advanced past its seq, both keyed by `request_id` — never by matching a
+  self-authored broadcast `Event`, which identifies neither the `request_id` nor the specific
+  intent an entry is waiting on, and which a client that cannot identify its own authorship never
+  sees at all. See `shadowcat-codebase-combat`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
   selection.** Unlike `MoveRequest`/`handle_pathfind` (which SELECT server state and so must
   derive-from-token, per the never-fork table in `shadowcat-codebase-core`), `ScenePing` relays
