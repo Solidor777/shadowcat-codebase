@@ -110,9 +110,12 @@ source of truth. The ones agents break most:
   worker drives a Chromium rendering a WebGL stage — far more than one core. Measured on one
   machine against a freshly booted server, `panels-floating.spec.ts`'s popped-out-arrangement test
   takes 3.1s at four workers and 59.4s at twelve, roughly 19x. Oversubscription costs on every
-  axis at once: the full suite measures 146s at four workers with all 34 passing, against 235s at
-  twelve with one failure — the extra workers buy no throughput, make the machine unusable, and
-  push ordinary assertions past `expect`'s budget until they fail on the clock.
+  axis at once: one full-suite run measures 146s at four workers with all 34 passing, against 235s
+  at twelve with one failure — the extra workers buy no throughput, make the machine unusable, and
+  push ordinary assertions past `expect`'s budget until they fail on the clock. Treat any single
+  suite run as one SAMPLE: the spread at a fixed worker count is wide, and runs at the capped count
+  have also produced multi-minute hangs in the dual-session specs, so a green run is not evidence
+  the suite is stable and the budgets are sized on the worst observed passing test, never the best.
   `workers` is therefore pinned in `playwright.config.ts`, and `timeout`/`expect.timeout` are sized
   against the capped figure. Raising the cap re-inflates per-test latency and those budgets stop
   bounding product behaviour — they start absorbing contention instead, which is how a suite stops
