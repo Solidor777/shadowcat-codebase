@@ -122,6 +122,32 @@ source of truth. The ones agents break most:
   detecting the regressions it exists to catch. A single browser action costs ~70ms; a spec that
   runs long runs long because it performs hundreds of actions across several contexts, so look at
   action COUNT before suspecting a slow operation.
+- **The browser suite's real budget is CANVASES, not workers.** `createPixiBackend` registers a
+  ticker callback, and nothing in the render package stops that ticker or caps its frame rate, so
+  the renderer redraws the FULL canvas every tick whether or not the scene changed
+  (`RenderEngine`'s `pingsActive`/`emotesActive` gate only those overlays' redraw). A host without
+  a GPU rasterizes that in software, greedily across every core. Per-process CPU deltas sampled
+  during one stalled run put two renderer processes at 883% and 869% of a core against a 2400%
+  machine; that roughly two active canvases can therefore saturate a 24-core host is an INFERENCE
+  from that sample, not a controlled sweep that varied canvas count — and a dual-session spec
+  opens TWO. It is the best available explanation for why adding workers subdivides a fixed
+  rasterization budget instead of adding throughput, which IS measured: wall-clock barely moves
+  across four, six and twelve workers while per-test latency inflates about nineteenfold. Past saturation a page
+  stops servicing the automation protocol at all: a polling assertion carrying its own 20s budget
+  can outlive a 360s test budget without ever firing, and the hang surfaces in context teardown rather than in any
+  assertion, which reads as a harness fault and is not one. `PixiBackendOptions.antialias` (off
+  only for the e2e build mode) trims the per-pixel term and measurably clears the threshold; it
+  does not remove the standing cost. **Per-process CPU is the WRONG instrument for judging a fix
+  here** — a software rasterizer parallelizes across whatever cores exist, so it reports demand,
+  not the per-frame work that changed. Judge by pass rate and per-test duration across REPEATED
+  runs; the spread spans 105s to 20 minutes, so one run of either arm decides nothing.
+  **The wiring is load-bearing and easy to delete by accident.** The stage reads its antialias
+  setting from a build-time environment value, the shell supplies it from an `e2e` mode env file,
+  and the shell's `e2e:build` script must therefore select that mode — a build command that drops
+  the mode silently restores multisampling for the whole suite, with nothing failing to say so.
+  Typing that read requires the Vite client types in the `types` array of BOTH the stage module's
+  and the shell's `tsconfig.json`, since the shell type-checks the module's own sources under its
+  own config; a package that reads a new build-time value without that entry fails to typecheck.
 - **A unit test that never touches the DOM declares the node environment.** Packages select
   `environment: "jsdom"` globally, and vitest constructs that environment per test FILE, so a file
   exercising plain state and pure functions pays the full construction cost and never uses it —
