@@ -122,32 +122,43 @@ source of truth. The ones agents break most:
   detecting the regressions it exists to catch. A single browser action costs ~70ms; a spec that
   runs long runs long because it performs hundreds of actions across several contexts, so look at
   action COUNT before suspecting a slow operation.
-- **The browser suite's real budget is CANVASES, not workers.** `createPixiBackend` registers a
-  ticker callback, and nothing in the render package stops that ticker or caps its frame rate, so
-  the renderer redraws the FULL canvas every tick whether or not the scene changed
-  (`RenderEngine`'s `pingsActive`/`emotesActive` gate only those overlays' redraw). A host without
-  a GPU rasterizes that in software, greedily across every core. Per-process CPU deltas sampled
-  during one stalled run put two renderer processes at 883% and 869% of a core against a 2400%
-  machine; that roughly two active canvases can therefore saturate a 24-core host is an INFERENCE
-  from that sample, not a controlled sweep that varied canvas count — and a dual-session spec
-  opens TWO. It is the best available explanation for why adding workers subdivides a fixed
-  rasterization budget instead of adding throughput, which IS measured: wall-clock barely moves
-  across four, six and twelve workers while per-test latency inflates about nineteenfold. Past saturation a page
-  stops servicing the automation protocol at all: a polling assertion carrying its own 20s budget
-  can outlive a 360s test budget without ever firing, and the hang surfaces in context teardown rather than in any
-  assertion, which reads as a harness fault and is not one. `PixiBackendOptions.antialias` (off
-  only for the e2e build mode) trims the per-pixel term and measurably clears the threshold; it
-  does not remove the standing cost. **Per-process CPU is the WRONG instrument for judging a fix
-  here** — a software rasterizer parallelizes across whatever cores exist, so it reports demand,
-  not the per-frame work that changed. Judge by pass rate and per-test duration across REPEATED
-  runs; the spread spans 105s to 20 minutes, so one run of either arm decides nothing.
-  **The wiring is load-bearing and easy to delete by accident.** The stage reads its antialias
-  setting from a build-time environment value, the shell supplies it from an `e2e` mode env file,
-  and the shell's `e2e:build` script must therefore select that mode — a build command that drops
-  the mode silently restores multisampling for the whole suite, with nothing failing to say so.
-  Typing that read requires the Vite client types in the `types` array of BOTH the stage module's
-  and the shell's `tsconfig.json`, since the shell type-checks the module's own sources under its
-  own config; a package that reads a new build-time value without that entry fails to typecheck.
+- **Check WHICH RENDERER the browser picked before optimizing anything about the canvas.**
+  Headless Chromium selects a software rasterizer by default, so the stage's WebGL is drawn on the
+  CPU at whole cores per canvas; the same browser uses the host's real device when the launch
+  selects the platform GL backend, and the graphics layer falls back to software by itself where
+  no device exists, so that selection needs no per-environment gating. Reading the renderer string
+  from a throwaway context is a two-line check and it reframes the whole problem: the full suite
+  measures 235s with failures under software and 21s with 33/33 on the device. Every accommodation
+  that looks reasonable while software rendering is assumed — cutting per-pixel work, capping
+  workers — is optimizing a cost that need not exist. **When a rendering measurement looks
+  extreme, ask what is doing the rasterizing before asking how to make it cheaper.**
+  Two things remain true underneath. The renderer redraws the FULL canvas every tick whether or
+  not the scene changed (`RenderEngine`'s `pingsActive`/`emotesActive` gate only those overlays'
+  redraw), so a host genuinely without a GPU still pays continuously and needs the worker and
+  per-pixel budgets. And a starved page stops servicing the automation protocol entirely rather
+  than merely rendering late — a polling assertion carrying its own budget can outlive the test's
+  budget without firing, and the hang surfaces in context teardown rather than in any assertion,
+  which reads as a harness fault and is not one.
+  **Per-process CPU is the WRONG instrument for judging a fix here** — a software rasterizer
+  parallelizes across whatever cores exist, so it reports demand, not the per-frame work that
+  changed. Judge by pass rate and per-test duration across REPEATED runs.
+- **Drive the stage canvas as an ELEMENT, never at computed page coordinates.** Converting a
+  canvas-local point through a separately-read bounding box and clicking absolute coordinates
+  performs no actionability check, so nothing waits for the canvas to be visible, to hold a stable
+  box, or to be the element that receives the event. Opening or closing a docked panel resizes the
+  canvas, and a gesture aimed through a box read before that settles lands on the panel and is
+  swallowed with nothing failing to say so. This defect is invisible on any host slow enough to
+  finish the relayout first, which is exactly where a software-rendered suite runs — so it appears
+  the moment rendering gets FASTER, and reads as the speedup having broken something.
+  Playwright's pointer primitives take page coordinates and carry no actionability wait, so a
+  drag or a press-and-poll cannot be expressed element-relatively end to end and MUST convert.
+  Make the conversion sound rather than avoiding it: hover the canvas element at the gesture's
+  start point first, which both settles the layout and leaves the pointer where the press wants
+  it, and read the origin only after. `sceneOrigin` is the only way to obtain that origin, so no
+  caller can convert from an unsettled box. Every spec reaches the gestures through that one
+  shared module — `clickScene`, `dblclickScene`, `dragScene`, `dragScenePath`, `sceneOrigin`,
+  `sceneCenter` — because a private copy per spec file is the forked-decision defect, and is how
+  a fix lands at three of six sites while reporting the class closed.
 - **A unit test that never touches the DOM declares the node environment.** Packages select
   `environment: "jsdom"` globally, and vitest constructs that environment per test FILE, so a file
   exercising plain state and pure functions pays the full construction cost and never uses it —
