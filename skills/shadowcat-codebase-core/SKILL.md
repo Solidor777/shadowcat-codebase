@@ -407,7 +407,19 @@ source of truth. The ones agents break most:
   is indistinguishable from a rule that does not apply.
 - **No ratchets, only gates** (user directive) — nothing is grandfathered. Every doc/comment check
   is `error` and fails CI: `pnpm lint:docs`, `lint:props`, `lint:comments`, `docs:check-examples`,
-  and Rust `-D missing-docs`. A warn tier is an exemption spread across a whole codebase, and a
+  Rust `-D missing-docs`, and `pnpm docs:check-rust-examples` (nightly rustdoc's
+  missing-doc-code-examples lint, denied on every public item of the server crate — a `///` block with
+  no fenced Rust example fails the docs job; a ` ```text ` fence does not count). **This gate can be
+  green while enforcing nothing**: the lint is unstable, and denied without its feature gate rustdoc
+  reports `unknown lint` and exits 0 — `scripts/cargo-doc-strict.mjs`'s examples mode injects
+  `-Zcrate-attr=feature(rustdoc_missing_doc_code_examples)` in the same flag string, so a green run
+  means the lint ran; a `-D` on an unstable lint with no feature gate is a check that cannot fail. Every example is a real doctest: `cargo test --all` compiles and
+  runs each one (roughly 790 in the crate, each its own rustc invocation, several minutes on every
+  matrix leg), so an example must use the item visibly and assert an outcome the item's contract
+  produces — a ` ```no_run ` fence only where running needs a live socket, server or on-disk tree,
+  and never ` ```ignore `. In-memory `SqliteRepository::connect("sqlite::memory:")` under a hidden
+  `#[tokio::main]` scaffold is the established shape for persistence and handler examples.
+  A warn tier is an exemption spread across a whole codebase, and a
   reported-but-passing violation is indistinguishable to a later reader from code that was checked.
 - **`.claude/CLAUDE.md` is TRACKED and shared** — edits there reach other contributors and the
   open-source repo. `.gitignore`'s `/CLAUDE.md` rule is root-anchored and matches no file (no
@@ -507,7 +519,8 @@ source of truth. The ones agents break most:
 - Docs: `pnpm docs:serve` (view; the assembled `dist-docs/index.html` also opens directly over
   `file://` for static content, styling, and link navigation — anything driven by the site's
   runtime JavaScript, including search, the appearance toggle, and the mobile nav panel, needs the
-  server instead), `pnpm docs:check-examples` (`@example` `` ```ts `` blocks must typecheck —
+  server instead), `pnpm docs:check-rust-examples` (every public server item needs a fenced Rust
+  example; nightly, own target dir `target/nightly-doc`), `pnpm docs:check-examples` (`@example` `` ```ts `` blocks must typecheck —
   CI-blocking), `pnpm lint:docs` (function doc coverage),
   `pnpm lint:props` (property/type/named-arrow doc coverage), `pnpm lint:comments` (no ephemeral
   references). **All are errors repo-wide with no per-package staging** — see the no-ratchets rule
