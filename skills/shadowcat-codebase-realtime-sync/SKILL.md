@@ -45,7 +45,8 @@ optimistically and roll back on divergence.
     OCC pre-image ops). Returns `MoveExecution { frame, .. }` — production code reads only `frame`
     (the full unclipped `Arc<ServerMsg::MoveStream>`, already registered in `moving`); the other
     fields (`scene`, `stop`, `duration_ms`) restate a subset of `frame`'s content and are compiled
-    only for test builds — `mover_vision` is NOT one of them: it lives solely on
+    only for test builds — `mover_vision` (and its carried-light twin `mover_light`) is NOT one of
+    them: it lives solely on
     `frame`'s `ServerMsg::MoveStream` variant, and a test reads it by pattern-matching `frame`
     rather than through a dedicated `MoveExecution` field. `MoveStream.scene` — the field `frame` wraps — is the
     DERIVED scene the per-recipient egress clip and the client's viewed-scene filter key on,
@@ -58,12 +59,12 @@ optimistically and roll back on divergence.
     (`handle_move_request`) separately broadcasts `exec.frame` to the room via
     `Room::broadcast_aux_shared` — the registry write and the broadcast are two distinct actions on
     the same frame, not one call. In-memory only — cleared on server restart (move state is
-    derived, not durable). Also backs `Room::mover_streams(mover, scene, now)` /
+    derived, not durable). Also backs `Room::scene_streams(scene, now)` /
     `Room::concurrent_streams(scene, exclude_mover, now)`, which read `ActiveStream.frame` as the
-    mover's vision TIMELINE so the egress clip (`ws::move_clip`) can clip a concurrent move against
-    the recipient's own in-flight sightline, not just their committed vision — see
-    `shadowcat-codebase-scene-rendering`'s streamed-vision bullet for the full clip + re-emit
-    mechanism.
+    in-flight movers' position + carried-light TIMELINES so the egress clip (`ws::move_clip`) can
+    clip a concurrent move against the recipient's own in-flight sightline and the torches in
+    flight, not just their committed sight — see `shadowcat-codebase-scene-rendering`'s
+    streamed-vision bullet for the full clip + re-emit mechanism.
   - `Room::establish_resync_floor(user_id)` / `Room::resync_floor(user_id)` — the per-user resync
     floor: `session_floors: Mutex<HashMap<Uuid, i64>>`, same in-memory/room-lifetime pattern as
     `moving`. `establish_resync_floor` is called from `ws::conn`'s `ClientMsg::Hello { last_seq:
@@ -91,6 +92,9 @@ optimistically and roll back on divergence.
   nothing failing to report it. `WsState::ping_rate` is a genuinely SEPARATE limiter instance with
   its own per-user hit list, spent by `ScenePing` alone against a budget written inline at that one
   call site — it is not a second name for `MESSAGE_RATE_PER_MIN` and the two never interact.
+  `WsState::emote_rate` is a THIRD instance, again with its own per-user hit list — a bucket
+  separate from `ping_rate` deliberately, so emote spam cannot starve pings nor vice versa —
+  spent by `ClientMsg::Emote` alone against its own inline 30/min/user budget.
 - `ws::protocol` — client/server message frames; `ServerMsg`, `event_seq()`.
 - `ws::conn` — per-connection loop + egress; `ws::time` — server time source +
   client offset calibration (exists before its consumer).
@@ -325,7 +329,9 @@ optimistically and roll back on divergence.
 - **Live search rides the broadcast** as top-N subscriptions over the same egress
   [[m6c-2-live-search]].
 - **One-shot correlated request pairs** (`Search`→`SearchResult`/`SearchError`;
-  `Pathfind`→`PathResult`/`PathError`) route replies to the requesting connection only (never
+  `Pathfind`→`PathResult`/`PathError`; `MergePull`/`MergePush`/`MergeRevert`→`MergeResult`/
+  `MergeError`, the last via `WsClient.mergePending` with a caller-sized `timeoutMs` — see
+  `shadowcat-codebase-templates`) route replies to the requesting connection only (never
   broadcast); correlated by `request_id` via the `pending` map in `WsClient`. See
   `WsClient` and `ws::protocol`. **Chat ops
   (`SendMessage`/`EditMessage`/`DeleteMessage`/`RecalcRoll`) also carry `request_id` but are
@@ -356,20 +362,44 @@ optimistically and roll back on divergence.
   call site — no error frame, no behavior split — because any distinguishable response would leak
   scene existence to a non-reader. Rate-limited independently (30/min/user via `ping_rate`,
   checked BEFORE the authz lookup so an over-budget sender never pays a doc read).
+- **`ClientMsg::Emote`/`ServerMsg::Emote` is the ping-shaped aux frame with TOKEN-level authz.**
+  Same relay shape as `ScenePing` — `broadcast_aux`, no seq, cosmetic only, SILENT drop on any
+  denial (no error frame to oracle against) — but `token_emote_permitted` gates on the TOKEN,
+  not the scene: the token must be known to the room's in-memory ECS (zero pool reads, unlike
+  ping's doc lookup), parented to the named scene, and effectively owned by the sender, resolved
+  through `SceneEcs::token_scene_and_effective_owner` — the SAME effective-owner rule
+  write-authz and `handle_pathfind`'s token gate use, never a forked looser test; a GM is exempt
+  from the ownership half, not the scene-membership half. A token-less member has NO standing
+  here (ping deliberately admits one; emote does not). Guard order mirrors ping: the cheap rate
+  check first (its own `emote_rate` bucket — see the limiter bullet above), then the authz
+  lookup, then the payload bound — 1..=16 bytes (`EMOTE_MAX_BYTES`; 1–4 emoji graphemes, capping
+  the relayed frame size). The client chain mirrors ping's: the Zod schema → `WsClient`'s
+  `onEmote` handler (`EmoteNotice`, no seq) → `WorldSession.sendEmote`/`onEmote`, carrying the
+  same `viewedSceneId` cross-scene guard the `scene_ping` handler has (drop a frame whose
+  `scene` isn't the viewed one — `shadowcat-codebase-scene-rendering`'s cross-scene gotcha).
 - **MoveRequest → MoveStream (broadcast):** `MoveStream` is an **aux broadcast frame** — sent
   via `Room::broadcast_aux_shared` like `ScenePing`, carrying NO seq number (it is cosmetic
   playback data, not an authoritative document event; it never touches the `RingBuffer`/gap-resync
   path). `MoveRequest` is still a one-shot correlated pair for the mover's promise (resolves on the
   matching `move_stream` frame via `pending` map), but `MoveStream` is broadcast to ALL scene
   viewers, not just the mover — the **per-recipient egress transform** (mover full incl.
-  `moverVision`; observer clipped to their own visible samples with `moverVision: null`; suppressed
-  entirely — zero frames — when the recipient's vision admits none of the move) is where the
-  leak-free secrecy boundary lives (`egress_loop`'s dedicated `MoveStream` branch, detailed in
-  `shadowcat-codebase-scene-rendering`). `MoveError` remains mover-only, always generic (no path
+  `moverVision` + `moverLight`; observer clipped to the samples they can SEE — line of sight AND
+  illumination, the lit mask's own predicate — with `moverVision: null` and `moverLight` reduced
+  to the carried-light samples whose glow lights a cell in their sight (`null` when none does); a
+  GLOW-ONLY frame — `samples` empty, `moverLight` present, `stop`/`durationMs` at the last
+  admitted light sample — when only the glow reaches them; suppressed entirely — zero frames —
+  when neither does, so the wire invariant is "at least one of `samples`/`moverLight` is
+  non-empty") is where the leak-free secrecy boundary lives (`egress_loop`'s dedicated
+  `MoveStream` branch, detailed in `shadowcat-codebase-scene-rendering`, whose `mover_light`
+  egress-admission bullet owns the `glow_reaches` rule). `MoveError` remains mover-only, always generic (no path
   geometry / vision state disclosed — no-geometry-leak invariant). The egress loop may
-  additionally re-send a `MoveStream` to a single connection (never a broadcast) when that
-  connection's own move starts, re-clipping every other in-flight stream in the scene against the
-  newly-started timeline (`shadowcat-codebase-scene-rendering` covers this re-emit path in full).
+  additionally re-send a `MoveStream` to a single connection (never a broadcast) on TWO
+  triggers, both read off the frame it just delivered — the connection's own move starting
+  (`mover_vision: Some(_)` with the mover equal to the clip target) OR any `mover_light`-
+  carrying move starting (a glow changes what every bystander sees) — for a CLIPPED recipient
+  only (a non-GM, or a GM with a see-as: `egress_loop`'s `own_move || mover_light.is_some()`),
+  re-clipping every other in-flight stream in the scene against the changed sight
+  (`shadowcat-codebase-scene-rendering` covers this re-emit path in full).
   `handle_move_request` dispatches `Room::execute_move`, then broadcasts `MoveStream` to the scene.
   Client animation is driven by `TokenAnimator.animateSamples` (time-tagged playback, catch-up on
   late arrival, gap/occlusion detection: gap threshold = `minConsecutiveDelta × 1.5` where
@@ -377,7 +407,8 @@ optimistically and roll back on divergence.
   Infinity for < 3 samples — no interior gap detectable). `animateSamples` cancels any competing
   ease-to-stop `anim` entry (handles Event-before-MoveStream ordering); `setTarget` is a no-op
   while `samplesAnim` is live (handles MoveStream-before-Event ordering). Wired end-to-end:
-  `WsClient.onMoveStream` → `worldSession` → `SceneInteractionBridge.animateSamples` →
+  `WsClient.onMoveStream` → `worldSession` → `SceneInteractionBridge.animateSamples` (carrying
+  `moverVision` AND `moverLight`; the latter starts the render engine's lighting sweep) →
   `RenderEngine` → `TokenView` / `TokenAnimator`. `onMoveStream` listeners survive reconnects
   (NOT cleared in `failPending`).
 - **Gated moves are request-only + server-executed:** the client sends

@@ -346,10 +346,13 @@ separately enforces a per-turn movement budget against the same documents this s
   NOT gated by this origin at all — a GM can already write combat docs freely under `Client`
   because `resolve_access_world`/`access.has` grant it, the same batch shape a non-GM must never be
   able to reach against a token they don't own; `CombatTransition` is not what makes a GM's writes
-  work, and no combat-document write is refused merely for lacking it. The only two call sites that
+  work, and no combat-document write is refused merely for lacking it. The only three call sites that
   ever construct it are
-  `Room::commit_combat` and the movement-budget gate's decrement commit inside
-  `Room::execute_move` — both server-internal, neither reachable from a `ClientMsg` variant.
+  `Room::commit_combat`, the movement-budget gate's decrement commit inside
+  `Room::execute_move`, and `Room::fire_region_triggers`'s region-trigger effect batch (condition
+  writes, combat-scoped `resource_delta`s, chat notices — see
+  `shadowcat-codebase-scene-rendering`'s region-triggers bullet) — all server-internal, none
+  reachable from a `ClientMsg` variant.
   `CombatTransition` may `Create` a `message` doc (roll results, event messages) but is still
   blanket-rejected from `Update`-ing one — the same restriction `Client` gets (`apply_intent`'s
   message-doc `Update` arm only re-opens for `WriteOrigin::ServerMessageRevision`).
@@ -368,7 +371,12 @@ separately enforces a per-turn movement budget against the same documents this s
 - **Preview cost equals execution cost, structurally, not by convention.** Both
   `pathfinding::astar_leg` and `scene::move_exec::execute_move` price a diagonal step through the
   SAME `GridShape::neighbors_with_cost` trait method — see the gotcha below for why `step_cost`
-  itself is never called directly by either.
+  itself is never called directly by either — and both read terrain through the SAME
+  `pathfinding::terrain_cost` chokepoint, so a mover carrying a terrain-exempt movement tag
+  (`MoveTraits::ignore_terrain`, resolved once per request — `shadowcat-codebase-scene-rendering`'s
+  movement-tags bullet) is priced unweighted at preview AND execution. This gate consumes
+  `MoveOutcome.cost` unchanged: an exempt mover's decrement is simply the smaller number
+  (`exempt_mover_decrements_the_exempt_cost_where_the_ground_mover_pays_the_multiplier`).
 - **A combatant's `hidden` state is `permissions.default: none`, not an engine field.** Hiding a
   combatant is genuine document unreadability (the existing whole-document READ gate drops it at
   every egress point), never a display flag on `CombatantEngine` a client could choose to ignore.

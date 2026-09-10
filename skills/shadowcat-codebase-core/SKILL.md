@@ -157,7 +157,7 @@ source of truth. The ones agents break most:
   it, and read the origin only after. `sceneOrigin` is the only way to obtain that origin, so no
   caller can convert from an unsettled box. Every spec reaches the gestures through that one
   shared module — `clickScene`, `dblclickScene`, `dragScene`, `dragScenePath`, `sceneOrigin`,
-  `sceneCenter` — because a private copy per spec file is the forked-decision defect, and is how
+  `sceneCenter` — because one private copy inside each spec file is the forked-decision defect, and is how
   a fix lands at three of six sites while reporting the class closed.
 - **A unit test that never touches the DOM declares the node environment.** Packages select
   `environment: "jsdom"` globally, and vitest constructs that environment per test FILE, so a file

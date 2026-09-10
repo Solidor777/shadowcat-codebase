@@ -15,7 +15,8 @@ An `Actor` is a world-scoped document. A token on a scene either **links** to a 
 with provenance). A single read-through resolves either to an `EffectiveActor` that the render
 layer decorates. Factions and conditions are world-scoped config-documents; name privacy hides a
 token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions are markers-only
-(no mechanical effects): icon badges overlaid on the token, toggled by the GM or the token owner.
+(no mechanical effects): icon badges overlaid on the token, plus optional registry-authored art
+fx (`Condition.fx`), toggled by the GM or the token owner.
 
 ## Key files & seams
 
@@ -39,14 +40,33 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
     `topTokenAt` skips outright — the token is unpickable until the frame lands. In practice
     `WorldSession.enter` opens the subscription before any tool use.
   - `TokenOverrides` whitelist includes `shape` (alongside `name`, `visual`, `size`) — a per-token
-    `"square" | "circle"` override applied on top of the actor's own shape field.
+    `"square" | "circle"` override applied on top of the actor's own shape field — plus the
+    `aura`/`sound`/`vfx` emission overrides (`AuraEmission { color, opacity, radius, enabled }`
+    (color css `#rrggbb`, radius in grid cells), `SoundEmission { asset, radius, volume, loop,
+    enabled }`, `VfxEmission { asset, anchor: VfxAnchor, loop, enabled }` with
+    `VfxAnchor = "token"|"above"|"below"`), each replacing the actor's same-named
+    `ActorEngine.aura`/`sound`/`vfx` field wholesale when present. All three structs are
+    ingress-validated (`ActorEngine::validate`, and `TokenEngine::validate` →
+    `TokenOverrides::validate` for the override copies): css-`#rrggbb` color shape, finite
+    opacity/volume (their `0..=1` range is a READ-side clamp where consumed, not an ingress
+    rejection), finite non-negative radius bounded by the shared cell cap
+    `scene::pathfinding::MAX_FOOTPRINT_CELLS`, non-empty sound/vfx asset. Only the aura renders
+    (a filled disc UNDER the token art via `TokenNodeSpec.aura`); sound/vfx are stored,
+    playback-ready data with no consumer yet.
   - **Token visual union:** `RenderVisual = {kind:
-    "image", asset} | {kind:"animated", source: AnimatedSource, fps, loop}` — the only two kinds the
-    render layer ever draws. `AnimatedSource = {type:"frames", frames: string[]} | {type:"sheet",
+    "image", asset} | {kind:"animated", source: AnimatedSource, fps, loop} | {kind:"generated",
+    art, crop, border?, background?}` — the only kinds the render layer ever draws. The
+    `"generated"` arm frames an existing piece of art: `art: Box<RenderVisual>` restricted to
+    image/animated (a nested `generated` — or a smuggled `faces` — inside `art` fails closed at
+    `resolveTokenVisual`), `crop: "circle"|"square"`, an optional decorative `border {color,
+    width}` ring (authored data, distinct from the faction ring the render layer draws from the
+    registry; `width` is a fraction of the token's smaller extent), and an optional `background
+    {color}` fill (`GeneratedCrop`/`GeneratedBorder`/`GeneratedBackground` in
+    `data::engine::token`). `AnimatedSource = {type:"frames", frames: string[]} | {type:"sheet",
     asset, rows, cols, count?}` (asset ids pre-resolution; resolved to URLs at the render boundary,
     see `resolveTokenVisual` below and `TokenNodeSpec.visual` in `shadowcat-codebase-scene-rendering`).
-    `FaceVisual = RenderVisual` — **a face is itself a `RenderVisual`, never nested** (deliberately
-    no `{kind:"faces"}` inside a face; an animated face falls out of the same boundary with no
+    `FaceVisual = RenderVisual` — **a face is itself a `RenderVisual`, never nested `faces`** (deliberately
+    no `{kind:"faces"}` inside a face; an animated or generated face falls out of the same boundary with no
     separate mechanism). `TokenVisual = RenderVisual | {kind:"faces", faces: Record<string,
     FaceVisual>, default: string, faceMap?: Record<string,string>}` — `default` is REQUIRED (no
     `?`), per the Rust source `TokenVisual::Faces`'s `default` field (`data::engine::token`, ts-rs
@@ -70,19 +90,63 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
     meaning: `ActorsPanel` clears darkvision by writing `null`/`[]` — dropping the whole assignment —
     rather than by writing an assignment with no range, which would now grant the mode's default
     instead of removing vision.
+  - **Carried light:** `ActorEngine.light?: LightEmission` and `TokenOverrides.light?:
+    LightEmission` — the SAME `LightEmission` payload a standalone `light` document's
+    `LightEngine.emission` carries (`{color, intensity, brightRadius, dimRadius, falloff?,
+    enabled}`, radii in cells, `FalloffCurve` `linear | quadratic | none`). The override replaces
+    the actor's emission wholesale; an override with `enabled: false` is the documented SUPPRESS
+    path (the token carries no light although its actor does). `EffectiveActor.light` joins
+    `resolveTokenActor`'s projection (`overrides?.light ?? base.light ?? null`), and
+    `DEFAULT_LIGHT_EMISSION` (`@shadowcat/core`) is the ONE authoring default every surface
+    stamps. **Authoring is GM-only, server-enforced**: an emission edits the shared illumination
+    field every viewer's mask reads, so `permission::carried_light_touched` refuses a non-GM's
+    create/change/remove of any emission — unlike the owner-writable presentation overrides
+    (`shadowcat-codebase-scene-rendering`'s `scene::emitters` bullet owns the server side).
+    Surfaces: the actor row's "Carried light" checkbox + `LightEmissionEditor` (whole-payload
+    `/engine/light` writes with the raw stored emission as the OCC `old`), the create form's
+    `pendingLight`, the actor sheet, and `TokenLightControl` (prop `{ tokenId }`, mounted by
+    `ActorsPanel`; inherit / suppress / custom, written as a whole-object `/engine/overrides`
+    update with the raw stored overrides as `old`; linked tokens only, GM only).
+  - **Elevation + the v2 vision-mode descriptor:** `TokenEngine.elevation?: number` is
+    owner-writable TOKEN state (absent = ground; `TokenElevationControl` normalizes 0 to an
+    absent value), rendered as an upright `↑n`/`↓n` badge chip beside the condition glyphs
+    (`TokenView.toSpec` → `TokenNodeSpec.badges`; `RenderEngine.badgesForTest` is the read-only
+    seam the e2e reads). `VisionMode` gains `perceives` (`"terrain" | "creatures"`),
+    `requiresLos` and `renderHint`; a creature sense (the seeded `tremorsense`) perceives grounded
+    TOKENS through walls and darkness, and the ids reach the client in the masked payload's
+    `perceived` set, which `TokenView.toSpec`/`PixiBackend.setToken` raise above the fog — the
+    perceived token is re-parented into `PixiBackend`'s `perceivedTokens` container, never
+    duplicated. `VisionAssignmentsEditor` (ui-kit; mode + range rows, add/remove) is the ONE vision
+    input on actor rows, the create form and the actor sheet (there is no darkvision-only field:
+    darkvision is just a mode assignment), and
+    `TokenVisionControl` (inherit / custom wholesale `/engine/overrides` write, raw stored
+    overrides as `old`) is the per-token override; the game-settings vision-mode editor edits
+    every descriptor field with the floor dropdown derived from `resolveGradation`. Server side
+    (`scene::senses`, `scene::elevation`) is owned by `shadowcat-codebase-scene-rendering`.
+  - **Movement-type tags:** `ActorEngine.movement: string[]` (required, `#[serde(default)]`
+    server-side), `TokenOverrides.movement?: string[] | null` (wholesale replacement, same shape
+    as `vision`) and `Faction.movement: string[]` — the first faction-RECORD property that flows
+    into an `EffectiveActor`. Only `"flying"`/`"incorporeal"` carry engine meaning (the mover
+    ignores difficult-terrain COST and nothing else — `shadowcat-codebase-scene-rendering`'s
+    movement-tags bullet owns the server resolver `SceneEcs::token_movement_tags` and the pricing
+    seam); every other tag is inert system vocabulary, the same posture as conditions.
   - `setNameHidden(doc, hidden)` — sets/clears the `OwnerOrGm` override on `/name` (the envelope
     field).
   - `FactionStance = "friendly"|"neutral"|"hostile"`, `Faction { name, color, stance }`,
     `FactionRegistryEngine`, `buildFactionRegistryDoc(worldId, factions, id?)` (param
     `factions: Record<string, Faction>`) — a
     world-scoped, **parentless config-document** with an id-keyed faction map.
-  - `Condition { name, icon }`, `ConditionRegistryEngine`, `buildConditionRegistryDoc(worldId,
+  - `Condition { name, icon, fx? }`, `ConditionRegistryEngine`, `buildConditionRegistryDoc(worldId,
     conditions, id?)` (param `conditions: Record<string, Condition>`) — same parentless
     config-document shape as factions; `icon` is an emoji glyph rendered as a token badge.
+    `fx?: ConditionFx { tint?, desaturate?, highlight? }` (css-`#rrggbb` colors, ingress-validated
+    by `Condition::validate`; `deny_unknown_fields`) authors built-in token-art effects for tokens
+    carrying the condition — presentational only, the server never reads it; the render layer
+    folds it into the token's art fx (`shadowcat-codebase-scene-rendering`'s `TokenFx`).
 - The `actor` module — `resolveTokenActor(token, store) -> EffectiveActor | null`
   (the one read-through), `EffectiveActor`, `actorDisplayName(a, fallback)` (safe name with a
   redaction-aware fallback), `TokenOverrides` projection. Conditions: `resolveConditions(token,
-  store)` (effective condition ids → `{id,name,icon}` via the registry, fail-closed) +
+  store)` (effective condition ids → `{id,name,icon,fx}` via the registry, fail-closed) +
   `conditionTarget(token, store) -> {doc, path, conditions}` (the write site: linked →
   `actor` doc `/engine/conditions`; instanced → token `/embedded/actor/0/engine/conditions`).
   Shapes + footprint: `resolveTokenBox(token, store, footprints, eff?) -> TokenBox
@@ -100,6 +164,15 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   are additionally gated per recipient, so a client cannot assume one exists for every token it can
   see. `EffectiveActor.visionModes: VisionAssignment[]` — projected by `project()` as
   `overrides?.vision ?? base.vision ?? []` (per-token override **replaces** actor base, not merged).
+  `EffectiveActor.aura`/`sound`/`vfx` are projected identically (`overrides?.X ?? base.X ?? null`
+  — a `null` override field INHERITS the base, exactly as a `null` `vision` does).
+  `EffectiveActor.movement: string[]` is `overrides?.movement ?? dedup(base.movement ∪
+  factionMovement)` — the override REPLACES the whole set (an explicit `[]` strips every inherited
+  tag), otherwise the actor's own tags union with the linked faction record's `Faction.movement`,
+  read from the `faction-registry` singleton inside `resolveTokenActor` (a dangling faction id or
+  an absent registry contributes nothing). This mirrors the server's `SceneEcs::token_movement_tags`
+  precedence exactly, and the client value is advisory display only — authoritative pricing runs
+  server-side.
   **`resolveTokenVisual(token, store, eff?) -> RenderVisual | null`** — the render-boundary
   visual resolver, sibling to `resolveTokenActor`/`resolveTokenBox`/`resolveConditions`. Reads
   `actor?.visual ?? token.engine.visual` (the projected `EffectiveActor.visual` — an
@@ -110,25 +183,40 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   order (NOT `resolveConditions`'s enriched `{id,name,icon}` — the raw id list) > `default` (if it
   names an existing face) > first object key > `null` if `faces` is empty**. Fails closed
   (`null`) on: no visual at all; a `"faces"` visual with zero entries; a resolved face/visual whose
-  `kind` isn't `"image"`/`"animated"` (defense against a malformed nested `faces`-within-`faces`
-  value, which the type system forbids but a hand-edited/legacy doc could still contain); and a
+  `kind` isn't `"image"`/`"animated"`/`"generated"` (defense against a malformed nested `faces`-within-`faces`
+  value, which the type system forbids but a hand-edited/legacy doc could still contain); a
   malformed `AnimatedSource` (`isValidAnimated`: non-finite/`<=0` `fps`, an empty `frames` array, or
-  a non-positive/non-integer `rows`/`cols` for a `sheet` source). Optional pre-resolved `resolveTokenVisual.eff` avoids
+  a non-positive/non-integer `rows`/`cols` for a `sheet` source); and a malformed `"generated"`
+  visual — an unknown `crop`, a non-positive/non-finite `border.width`, a non-string
+  `border`/`background` color, or an `art` that isn't itself a valid image/animated visual
+  (`isValidGeneratedArt`: nested `generated` refused outright, so the check stays one level deep
+  with no recursion guard). A valid `"generated"` face resolves through the same path — the face
+  boundary and the top-level boundary share these checks. Optional pre-resolved `resolveTokenVisual.eff` avoids
   a second `resolveTokenActor` call, mirroring `resolveTokenBox`'s convention.
   `selectedFaceNamesFor(token, store) -> string[]` — the effective face-name list for a
   `"faces"`-union visual (`[]` if the effective visual isn't `"faces"`); shares `resolveTokenActor`'s
   projection with `resolveTokenVisual`, so the face-swap palette (`FaceSwapPalette`, below)
   can't diverge from what actually renders.
-- The `actors` module (`ActorsPanel`, `VisualKindEditor`, `FaceSwapPalette`)
+- The `actors` module (`ActorsPanel`, `VisualKindEditor`, `FaceSwapPalette`, `EmissionEditor`,
+  `TokenEmissionControl`, `TokenVisualControl`, `TokenMovementControl`)
   — `ActorsPanel`: create/list/pick actors; hide-name control; faction assignment; shape editing —
   the authored field is `ActorEngine.shape`, a bare string on the server, so its two values are
   enumerated only by the read-through projection's literal union
   (`EffectiveActor.square`/`EffectiveActor.circle`), which is what the citation names — plus size
   (fractional grid-cells) editing, both in the create form and in the per-row
-  GM inline editor; darkvision range authoring (create + per-row), writing `engine.vision: [{
-  mode: "darkvision", range }]` (omitted when range 0).
-  **Visual authoring (`VisualKindEditor`):** a visual-kind editor (image / faces / animated) in the
-  actor-creation form, mounted by `ActorsPanel` and driven by an `onBuild` callback prop.
+  GM inline editor; vision-mode assignment authoring (create + per-row) — the same
+  `VisionAssignment` editor the vision bullet above describes: there is no darkvision-only
+  field, darkvision is one mode assignment among the registry's, and clearing it writes
+  `null`/`[]`, never an assignment with no range.
+  **Visual authoring (`VisualKindEditor`):** a visual-kind editor (image / faces / animated /
+  generated — the `generated` kind authors a `TokenVisual::Generated` frame: one image/animated
+  art pick plus crop/border/background state) in the
+  actor-creation form, mounted by `ActorsPanel` and driven by an `onBuild` callback prop. Its
+  optional `initial?: TokenVisual` prop seeds every editor state from an existing visual ONCE at
+  mount (fail-closed on a shape the editor can't represent, e.g. a nested-`generated` `art`),
+  which backs post-create editing: an actor row's edit-visual button mounts the same editor with
+  `initial` set to that actor's current visual, and apply dispatches a `/engine/visual` Update
+  whose OCC `old` reads the RAW stored visual (the raw-`old` convention below).
   Every asset pick goes through `AppContext.pickAsset` (the asset-browser pick modal): the
   editor's shared asset-pick snippet renders a pick BUTTON (face / sheet / top-level image,
   single pick) and the
@@ -159,6 +247,45 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   config-doc field-toggle editors in this codebase (e.g. the `snapToGrid` toggle) — a
   resolved/defaulted `old` would mismatch the server's field-level optimistic-concurrency check
   after the first successful write.
+  **Emission authoring (`EmissionEditor` + `TokenEmissionControl`):** `EmissionEditor` is one
+  controlled component for all three emission kinds (aura / sound / VFX) — props carry the current
+  `AuraEmission | null` / `SoundEmission | null` / `VfxEmission | null`, `onAura`/`onSound`/`onVfx`
+  callbacks report replacements (`null` = section toggled off); asset fields are `<select>`s over
+  `listAssets(ctx.world)` filtered to `audio/*` (sound) and `image/*`+`video/*` (VFX), refetched on
+  `ctx.onAssetChanged`. `ActorsPanel`'s create form mounts it with panel-owned `pendingAura`/
+  `pendingSound`/`pendingVfx` `$state` (read through `$state.snapshot` at create, same convention as
+  `pendingVisual`). `TokenEmissionControl` (prop `{ tokenId: string | null }`, mounted by
+  `ActorsPanel` beside `FaceSwapPalette`) is the per-token override editor: it renders only for a
+  LINKED selected token (an instanced token's `overrides` never project) and only when
+  `ctx.canEdit(tok, "/engine/overrides")` passes, writing `/engine/overrides/aura` (…`/sound`,
+  …`/vfx`) Updates with the raw stored override value as the OCC `old` (the same raw-`old`
+  convention as `FaceSwapPalette`).
+  **Per-TOKEN visual override (`TokenVisualControl`, prop `{ tokenId: string | null }`, mounted
+  by `ActorsPanel` beside `TokenEmissionControl`):** hosts `VisualKindEditor` with `initial` set
+  to the selected token's EFFECTIVE visual (`resolveTokenActor`'s projection — the same read
+  `resolveTokenVisual` resolves from — so the editor opens on what the token actually renders),
+  under the same linked-token-only + `ctx.canEdit(tok, "/engine/overrides")` gating as
+  `TokenEmissionControl`. Apply writes the built visual to `/engine/overrides/visual`; a clear
+  button (rendered only while a stored override exists) writes `null`, restoring actor
+  inheritance — both with the raw stored override value as the OCC `old`, and the editor
+  remounted per selected token (`{#key linkedToken.id}`) because `initial` is read once at
+  mount.
+  **Movement-tag authoring (`MovementTagsEditor`, in `@shadowcat/ui-kit`):** one value-only chip
+  editor — a toggle chip per engine-reserved tag plus a removable chip per free-form tag and an
+  add row (Enter adds without submitting a hosting form; empty/duplicate drafts are no-ops; the
+  stored list is deduplicated for display and a toggle-off removes every occurrence). The OWNING
+  surface normalizes its stored value and dispatches: `ActorsPanel`'s per-row editor writes
+  `/engine/movement` whole-payload with the RAW stored list (`null` when the key is absent) as
+  the OCC `old`, and its create form carries a `pendingMovement` `$state` read through
+  `$state.snapshot`; `ActorSheet` routes through `setEngine("movement", next)` (an emptied list
+  commits as `[]`, never `null` — the field is a required array, unlike `vision`);
+  `FactionsPanel` edits `Faction.movement` per row through its `update(id, patch)` (and `add()`'s
+  literal carries `movement: []`). `TokenMovementControl` (prop `{ tokenId: string | null }`,
+  mounted by `ActorsPanel` beside `TokenVisionControl`) is the per-token inherit/custom override:
+  linked tokens only, gated by `ctx.canEdit(tok, "/engine/overrides")`, writing the WHOLE
+  `/engine/overrides` object with the raw stored overrides as `old` (the same shape as
+  `TokenVisionControl`/`TokenLightControl`); "custom" seeds from the stored override, else the
+  resolved inherited set, and a stored empty list reads as custom ("no tags"), never as inherit.
   **Actor browser:** a search input drives live FTS via `ctx.searchDocuments` (the
   subscription seam, wired through `AppContext`/`WorldSession`) — an EMPTY
   query renders the existing reactive full `ctx.documents.query("actor")` list; a NON-EMPTY query
@@ -185,7 +312,9 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
 - The `conditions` module (`ConditionsPanel`) — GM editor over the condition registry
   (SERVER-seeded with the engine's `ConditionRegistryEngine::seed` emoji default, same seed
   path as the faction registry) + a token-selection-driven toggle palette; render via
-  `TokenNodeSpec.badges` (upright glyph chips). Toggle gated by `AppContext.canEdit(doc, path)`
+  `TokenNodeSpec.badges` (upright glyph chips). A per-condition fx editor writes
+  `/engine/conditions/<id>/fx` (writing `null` once the last fx key is cleared) with the raw
+  stored value as the OCC `old`. Toggle gated by `AppContext.canEdit(doc, path)`
   (GM or token owner).
 
 ## Hard invariants
@@ -222,12 +351,12 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
     `is_owner` comes from an explicit effective-owner parameter, so redaction and write authz
     cannot disagree about who owns a token. The per-call-site join sources are egress territory:
     `shadowcat-codebase-documents-permissions`.
-- **Rendered token size, hit-test, and the selection ring all resolve through `resolveTokenBox`** —
+- **Rendered token size and hit-test resolve through `resolveTokenBox`** —
   never read `token.engine.w/h` directly for an actor-backed token. Those authored fields are only
   the FALLBACK the read-through applies when the server has stated no extent; reading them
   directly ignores the server's resolved extent whenever one exists (they differ for a multi-cell
-  token, and on hex for every token) and ignores the shape override, causing the render size, click
-  target and selection ring to diverge. Deriving a size instead — from `EffectiveActor.size` times
+  token, and on hex for every token) and ignores the shape override, causing the render size and
+  click target to diverge. Deriving a size instead — from `EffectiveActor.size` times
   the grid cell — is worse still: that is a second footprint formula, and the drawn geometry would
   then disagree with the geometry the server's movement gate collides with.
 - **Instanced token's embedded actor copy needs `structuredClone`, not `{...}`** — a shallow copy
@@ -289,9 +418,15 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
 - **Linked vs instanced provenance diverges**: a linked token reflects later actor edits; an
   instanced copy is frozen at placement. Instanced re-sync against the source is deferred
   [[document-inheritance-merge-model]].
-- **Tokens are Container sprites behind a `TokenVisual` source abstraction — image, animated, and
-  multi-face (`"faces"`) visuals all ship today.** `generated` (procedural) and fx/emote
-  remain forward-looking [[token-architecture-forward-looking]]. Don't bind rendering
+- **Tokens are Container sprites behind a `TokenVisual` source abstraction — image, animated,
+  multi-face (`"faces"`), and generated (parametric frame: crop + decorative ring + background
+  around an image/animated art) visuals all ship today,** as do aura emission discs (a
+  `TokenNodeSpec.aura` filled ellipse under the art, resolved by `TokenView.toSpec` from
+  `EffectiveActor.aura` with radius × the view's own `setWorldUnitsPerCell` cell-size source — never
+  a second grid formula), and built-in per-token art fx + emote overlays
+  (`shadowcat-codebase-scene-rendering` covers both). Sound/VFX PLAYBACK
+  remains forward-looking [[token-architecture-forward-looking]] — the emission structs are
+  stored, playback-ready data with no consumer yet. Don't bind rendering
   to raw image URLs or assume a token has exactly one static image — always resolve through
   `resolveTokenVisual`, never read `actor.visual`/`token.system.visual` directly.
 - **Token on-scene placement is excluded from template merge:** `/engine/x`, `/engine/y`,
@@ -310,4 +445,4 @@ token/actor name from non-owners via the `OwnerOrGm` visibility tier. Conditions
   data-model context in `docs/design/M2-data-foundation.md`.
 - Relationships:
   `graphify query "actor token linked instanced resolveTokenActor EffectiveActor faction visual face"`.
-- Forward-looking visual pipeline (generated/fx/emotes still open): [[token-architecture-forward-looking]].
+- Forward-looking visual pipeline (sound/VFX playback still open): [[token-architecture-forward-looking]].

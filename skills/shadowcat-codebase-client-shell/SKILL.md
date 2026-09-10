@@ -108,7 +108,20 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   `commandTouchesCombat` pre-scan
   before paying for a pre-image `Map` lookup, so an ordinary token drag never enters the combat
   derivation path. `deriveCombatHookEvents` reads the authoritative `DocumentStore` pre/post
-  image, never the optimistic view, and `CombatHookEmitter` emits in strict seq order.
+  image, never the optimistic view; its turn boundaries are the `combat-history` records the
+  command appended (`collectHistoryTouch` → `crossedRecords` → `turnWalk`), and because that
+  document is GM-only egress a player's derivation falls back to the combat document's own
+  `turn`/`round` endpoints (a different `turn`, or the same `turn` in a later `round` — a lap), so
+  a player's list is a subsequence of the GM's; nothing infers a turn from a `lifespan`
+  decrement or a combatant delete (`shadowcat-codebase-combat`'s `combat::history` bullet).
+  `CombatHookEmitter` emits in strict seq order. `WorldSession.dispatchIntent` returns
+  `boolean`: `false` is the guarded drop before `enter()`/after `leave()` (warn + discard, no
+  prediction), and `CombatController.dispatch` turns it into a thrown `CombatClientError`
+  `"not-connected"`, so no `CombatApi` document helper returns an id for a dropped op
+  (`AppContext.dispatchIntent` keeps its void return shape for every other caller). The `"combat"`
+  subscription parses through `parseCombats(payload, logger)`, which reports a malformed frame
+  through the session's logger — unlike `parseFootprints`, which stays silent — never a bare
+  `console.warn`.
   `AppContext.combat` is exposed to every module/Svelte surface exactly like `AppContext.pathfind`;
   all `setAppContext` fixture sites default it to a real `CombatController` over the fixture's
   `documents`, never a stub.

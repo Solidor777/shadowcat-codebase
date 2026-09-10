@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-scene-rendering
-description: "Use when touching Shadowcat scenes, the scene ECS, rendering, the PixiJS canvas/stage, vision raycasting, fog of war, lighting, the server visibility/lit mask, movement restriction (the Room::publish move gate, supercover, visible_cells), token footprints (the single `scene::footprint` definition, `resolve_token_footprint`, the `\"footprints\"` derived channel and its client readers `FootprintLookup`/`resolveTokenBox`/`reapplyFootprints`), the grid A* pathfinder (`SceneEcs::pathfind`, Pathfind/PathResult frames, diagonal rules), the continuous/navmesh router (movementModel axis, polyanya, the navmesh cache, `clip_to_visible_mask`), streamed continuous vision (MoveStream, `player_vision_polygons_at`, the per-recipient egress clip, client fog-sweep/cross-fade playback), regions (weighted/impassable/arrest zones, region docs, the `region-view` render layer), multi-scene viewing (viewedSceneId, resolveViewedScene, world-settings.activeScene, GM local roam, the `scene-scope` module), or scene-tools (place/select/move/draw/template/measure/ping/wall/region). Covers src/server/src/scene, src/client/render, src/modules/{stage,scene-tools}. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat scenes, the scene ECS, rendering, the PixiJS canvas/stage, vision raycasting, fog of war, lighting, the server visibility/lit mask, movement restriction (the Room::publish move gate, supercover, visible_cells), token footprints (the single `scene::footprint` definition, `resolve_token_footprint`, the `\"footprints\"` derived channel and its client readers `FootprintLookup`/`resolveTokenBox`/`reapplyFootprints`), the grid A* pathfinder (`SceneEcs::pathfind`, Pathfind/PathResult frames, diagonal rules), the continuous/navmesh router (movementModel axis, polyanya, the navmesh cache, `clip_to_visible_mask`), streamed continuous vision (MoveStream, `sight_sources`/`recipient_sight`, the carried-light `mover_light` timeline, the per-recipient egress clip, client fog-sweep/cross-fade playback), regions (weighted/impassable/arrest zones, enter/arrest trigger regions, region docs, the `region-view` render layer), per-token art fx (`TokenFx`, condition-fx and the selection highlight) and emote overlays (`EmoteView`), multi-scene viewing (viewedSceneId, resolveViewedScene, world-settings.activeScene, GM local roam, the `scene-scope` module), or scene-tools (place/select/move/draw/template/measure/ping/wall/region). Covers src/server/src/scene, src/client/render, src/modules/{stage,scene-tools}. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Scene & Rendering
@@ -19,7 +19,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   config-doc/actor side-tables `world_settings`/`gradation`/`vision_modes`/`actors`, set via
   `set_world_config`/`set_actors` and maintained by `apply_op`),
   `compute_derived(channel, ecs, ctx, world_defaults)` (builds derived frames; the `vision` masked
-  payload is `{mode, polygons, bands, lit}`, and `\"footprints\"` is the second per-recipient channel
+  payload is `{mode, polygons, bands, renderHints, lit, perceived}` — `perceived` being the
+  creature-sense token ids, see the `scene::senses` bullet below —, and `\"footprints\"` is the second per-recipient channel
   — see the derived-channel egress bullet below. `world_defaults:
   &data::document::WorldCapDefaults` is what lets a channel resolve READ against the same
   world-level grants the document stream does; both `egress_loop` call sites already hold it),
@@ -131,7 +132,18 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   setter). `sources` is sorted by id before hashing so hecs' non-stable iteration order can't cause
   a spurious mismatch. The snapshot already covers everything `env_light_polys` occlusion depends
   on (`settings.bounds`, `cell`, `light_walls`), so the `env_polys` addition to
-  `lighting_inputs_from` needed no cache-key change to stay correct.
+  `lighting_inputs_from` needed no cache-key change to stay correct. **The illumination field
+  itself is a SECOND memo, one level down:** `SceneEcs::lighting_inputs_excluding` (and
+  `lighting_inputs`, its nothing-excluded spelling) returns `Arc<LightingInputs>` from
+  `lighting_inputs_cache`, keyed per `(scene, sorted excluded emitters)` behind a
+  `LightingInputsSnapshot` (`settings`, `cell`, `lights`, `light_walls`, `sight_walls` — the same
+  value-comparison shape), bounded by `MAX_LIGHTING_INPUTS_CACHE_ENTRIES` (cleared wholesale past
+  it). `visible_cells_cached`'s miss path, `player_lit_mask` and every recipient's `recipient_sight`
+  read it, so a frame's light + environment raycasts run once per scene per in-flight set rather
+  than once per recipient; `lighting_inputs_from` is the raycast step run only on a snapshot miss,
+  and it skips `env_light_polys` outright at zero environment intensity (the engine default):
+  `cell_illumination_from` admits no environment then, so the empty set is the identical field
+  at zero raycasts.
 - `scene::footprint` — **THE single footprint definition, in Rust, with no client counterpart.**
   `resolve_footprint_cells(kind: GridKind, shape: &str, w: f64, h: f64) -> FootprintCells {box_w,
   box_h, radius}`, all in GRID UNITS. Square: the box is the authored `w × h` block, the radius its
@@ -251,8 +263,81 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   wall placement, which is a different mechanism, not a tidier spelling of the same one.
 - `scene::lighting` — pure illumination (no I/O — callers pass parsed
   structs): gradation `Band`s (`sorted_bands`/`band_index`/`floor_min`), `Light` radial falloff
-  (`light_illumination`), `cell_illumination` (max-compose env + lights, `blocksLight` occlusion via
-  `point_in_poly`). Clean-room. Non-finite/empty inputs fail closed (under-reveal).
+  (`light_illumination`, refusing a non-finite distance for EVERY `Falloff` curve — the flat
+  arm would otherwise light every cell of a NaN-positioned light), `source_level` (ONE source's
+  contribution at a cell center: `0.0` when its own occluder polygon excludes the center, else
+  `light_illumination` at the distance in cells — THE per-source reach rule, summed by the
+  composition and read alone by the egress clip's `InstantSight::light_reaches`), and
+  `cell_illumination_from` — `cell_illumination` is its index-aligned-slices spelling, and
+  `LightingInputs::cell_light` is THE one illumination read every gate takes (`player_lit_mask`'s
+  band/tint bookkeeping, `point_qualifies`, the clip) — which
+  is **additive superposition with saturation**: `clamp01(Σ contributions)` over every placed or
+  carried light (each `source_level`) plus the boundary-projected environment ambient as one more contributor, with
+  an illuminance-weighted tint mix `Σ(levelᵢ × colorᵢ) / Σ(levelᵢ)` — never max-of-sources or a
+  dominant tint. Two dim lights brighten their overlap; composition only ever brightens for the
+  same content, and it stays inside the LOS gate, so no cell outside a source's reach becomes
+  visible. Clean-room. Non-finite/empty inputs fail closed (under-reveal).
+- `scene::emitters` — the carried-light seam. `eng::LightEmission` `{color, intensity,
+  brightRadius, dimRadius, falloff?, enabled}` (radii in cells; `Falloff.curve` is the closed
+  `FalloffCurve` enum `linear | quadratic | none`) is the ONE emission payload: a standalone
+  `LightEngine` is `{x, y, elevation?, emission}` and `ActorEngine.light` / `TokenOverrides.light`
+  carry the same struct (wholesale override; `enabled: false` is the suppress path).
+  `SceneEcs::token_light_emission(token)` resolves a token's effective emission with
+  `token_vision_floors`' linked/instanced/override precedence (dangling link ⇒ none; the
+  instanced branch reads the embedded actor through the uncached `engine_as`, same rule as the
+  floors), and `SceneEcs::scene_lights(scene)` is THE one read into the illumination field's
+  light set — standalone `light` docs ∪ every token's carried emission at its LIVE position,
+  sorted by a fully deterministic chain — so the lit mask, the movement gate
+  (`visible_cells_cached`'s snapshot fingerprints the union) and environment composition all
+  inherit a carried light with no second path. **The emitter's visibility is not consulted**: a
+  fogged or permission-hidden token still illuminates (the glow precedes the bearer; the GM
+  authored the emission — mirrors a `gm_only` wall still blocking sight). `emitters::light_reach`
+  (max finite positive radius × `world_units_per_cell`, the authored-distance scale) and
+  `emitters::light_polygon(pos, walls, reach)` (`bound_for_reach` + `visibility_polygon`) are
+  THE light occlusion raycast — `lighting_inputs_from` and the carried-light move timeline
+  (`MoverLightInputs::sample_at`, below) both call it, never a second raycast rule.
+  **Carried-light authoring is GM-only, server-enforced:** `permission::carried_light_touched` /
+  `carried_light_in_body` classify any write that creates, changes or removes an emission (direct
+  pointer writes, value-compared ancestor writes, removals, create bodies), and `apply_intent`
+  refuses them for a non-GM on both arms — an emission edits the SHARED field every viewer's
+  mask reads, unlike the owner-writable presentation fields.
+- `scene::elevation` — the 2.5D single-level elevation model. `TokenEngine.elevation` /
+  `LightEngine.elevation` (absent = `GROUND`; `elevation_or_ground` clamps a non-finite stored
+  value to ground) and `WallEngine.elevation` (`eng::WallElevation {bottom?, top?}` — the band a
+  wall's sight/light occlusion applies to: absent band ⇒ every elevation, absent end ⇒ unbounded).
+  `wall_occludes(band, e)` is `bottom ≤ e ≤ top`, and it FAILS CLOSED to "occludes everything" on
+  a malformed interval, a non-finite endpoint, or a non-finite source elevation. Elevation only
+  ever FILTERS the occluder set per source — the star-shaped raycast pipeline is untouched and
+  sight/light ranges stay 2D: `sight_wall_entries`/`light_wall_entries` collect the scene's walls
+  as `BandedWall`s once, and every consumer filters them through `walls_at_elevation` at ITS
+  source's elevation (`sight_walls_for`, each light in `lighting_inputs_from` at the light's own
+  elevation, a carried emission at its token's) — except environment ambient, which keeps the
+  FULL light-wall set at every elevation (walls always shadow sky-light, or daylight would flood
+  interiors). The visibility-cache snapshot fingerprints each source's elevation, so the same
+  walls at two elevations never share a cached mask. Accepted residual (owner-writable token
+  elevation lifts a GM-authored carried light over a deliberately banded wall) is bounded by the
+  emission's own reach — the light discloses nothing farther than its `dim` radius would at
+  ground level, and no token, wall or region geometry the READ gate withholds.
+- `scene::senses` — creature senses (tremorsense & kin). `VisionMode` is the v2 descriptor:
+  `perceives: Perception` (terrain | creatures), `requires_los`, `render_hint`, beside
+  `illumination_floor`/`default_range`; `VisionModesEngine::seed` adds `tremorsense` (creatures,
+  no LOS, 12 cells). A terrain sense behaves exactly as before (`LOS? ∩ illumination ≥ floor`); a
+  creature sense perceives TOKENS: `SceneEcs::token_creature_senses` resolves a source's creature
+  senses through the SAME `token_vision_assignments` precedence walk the terrain floors use, and
+  `SceneEcs::player_perceived_tokens(ctx, world_defaults, &mask)` lists, per scene, the tokens a
+  recipient perceives ONLY through one — source and target both grounded (elevation 0; a flying
+  token is immune the moment it leaves the ground), within range, READ-gated through the same
+  `ctx_access` authority as the document stream (creature senses pierce fog, never the READ gate),
+  and disjoint from the `lit` set by construction (the one computed mask is passed in as the
+  exclusion set). Emitted as the masked payload's `perceived: [{scene, tokens}]`, absent on the
+  GM arm, never accumulated into explored fog. **`senses::sense_perceives` is THE reach
+  decision, at rest and in motion:** `player_perceived_tokens` calls it per (source, target), and
+  the move-stream clip calls it for the frame's mover through `InstantSight::sees_token`
+  (`RecipientSight::sensed` — the mover token, admitted under the same `ctx_access` READ gate;
+  each `SightSource` carries its `senses` from `VisSrc.senses`), so a tremorsense observer keeps
+  a grounded token WALKING through walls and darkness exactly as it names it standing still,
+  and a flying mover is not felt either way. Creature senses perceive tokens, never light: the
+  glow gate reads `InstantSight::sees` alone.
 - `scene::move_exec` — pure, lock-free `execute_move(ecs, gate: MoveGateInputs, token, path,
   is_gm, footprint_radius_cells) -> Result<MoveOutcome, MoveReject>`. `MoveGateInputs` bundles the
   resolved scene state (`scene`, `restriction`, `visible`, `cell`) and is destructured on entry.
@@ -320,12 +405,16 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   transitions, so the per-transition price above already reflects the router's own exact quantity.
   A reader trying to reproduce an exact `Continuous` cost figure needs to add this tail span, not
   just sum the per-transition prices. Either way the transition's
-  price is then multiplied by `regions.terrain_multiplier(next_cell)` (1.0 outside any terrain
-  region — a per-step-distance BASELINE, not merely additive weighting; a plain grid move with no
-  regions at all still accrues its diagonal-rule step price). Pinned by
+  price is then multiplied by `pathfinding::terrain_cost(Some(&regions), next_cell, traits)` —
+  the field's `terrain_multiplier` (1.0 outside any terrain region — a per-step-distance
+  BASELINE, not merely additive weighting; a plain grid move with no regions at all still accrues
+  its diagonal-rule step price), or a constant 1.0 when `MoveGateInputs.traits.ignore_terrain`
+  is set (see the movement-tags bullet below). Pinned by
   `router_preview_cost_equals_executor_cost_per_diagonal_rule` (`GridStepped` parity, every
   diagonal rule) and `continuous_smoothed_preview_cost_equals_executor_cost` (`Continuous` parity),
-  both in `scene::tests::cost_parity`. This is what makes `MoveOutcome.cost`
+  both in `scene::tests::cost_parity`, plus that module's four `exempt_mover_*` cases (grid,
+  pure-polyanya continuous, impassable-forced weighted continuous, and the `los_smooth` chord
+  path) for an `ignore_terrain` mover. This is what makes `MoveOutcome.cost`
   the number `shadowcat-codebase-combat`'s per-turn movement-budget gate can safely multiply by a
   resource's per-cell conversion (`Room::execute_move`'s `resolved_budget.cost_to_resource`) — a
   route preview and its execution now report the identical price for identical geometry on every
@@ -389,9 +478,12 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   registry binding for the combat's movement resource, the combatant's stored entry, its
   formula-host document via `SceneEcs::combatant_formula_host`, the per-cell scale, `enforced`)
   and decided by `resolve_budget` — ONE shared resolution `handle_pathfind`'s route-preview
-  clamp consumes too. It derives `current`/`max` through `combat::eval::resolved_resource`
-  (lazy-full: an ABSENT entry reads as full and the decrement materializes it with a Null OCC
-  pre-image; a `Mirror` binding or an evaluation failure is unresolvable), and its
+  clamp consumes too. The budget itself is `combat::budget::resolve_movement_budget`
+  (`shadowcat-codebase-combat`), which `SceneEcs::resolved_combats` reads for the `"combat"`
+  channel's `movement_cells` as well: it derives `current`/`max` through
+  `combat::eval::resolved_resource` (lazy-full: an ABSENT entry reads as full and the decrement
+  materializes it with a Null OCC pre-image; a `Mirror` binding or an evaluation failure is
+  unresolvable — on the channel as `None`, at the gate as a refusal), and the gate's
   `BudgetResolution::Resolved` carries the truncation ceiling (non-exempt + Hard only) bounding
   `move_exec::MoveGateInputs.budget`. **Lock ordering carries a step for this
   gate:** `Repository::world_cap_defaults` is awaited AFTER `publish_guard` is taken but BEFORE the
@@ -409,68 +501,151 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
 - `scene` — adds `SceneEcs::token_position(token) -> Option<(f64,f64)>` and
   `SceneEcs::resolved_animation_speed() -> f64` (`pub(crate)` seams; the latter sits alongside
   `resolved_diagonal_rule`, sources `world_settings.animation`, defaults to 6 cells/sec).
-  **Streamed-vision seam:** `SceneEcs::player_vision_inputs(user, scene, moving_token) ->
-  VisionMoveInputs` hoists the per-move-invariant inputs (full `sight_walls` set + the user's
-  OTHER owned tokens' static polygons) **once per move**; `VisionMoveInputs::polygons_at(viewpoint)`
-  (also exposed as the convenience wrapper `SceneEcs::player_vision_polygons_at(user, scene,
-  moving_token, viewpoint)`) is the cheap per-sample call — raycasts the moving token from
-  `player_vision_polygons_at::viewpoint` against the SAME full wall set (including `gm_only` sight walls) and unions it with
-  the pre-hoisted static polygons. Empty when the user owns no token in the scene (fail-closed).
-  Reused primitives, not a new vision model: identical `sight_walls` + `vision::visibility_polygon`
-  as `player_vision_polygons`.
+  **Streamed-vision seam — ONE LOS read:** `SceneEcs::sight_sources(user, world_role,
+  world_defaults, scene) -> SightSources` resolves the recipient's vision sources ONCE per move
+  through `gather_vision_sources_in_scene` (owned ∪ observer-tier tokens — the mask's own
+  admission, never a second rule), each raycast by `source_los_poly` at its elevation's
+  `blocksSight` walls (the full set incl. `gm_only`); `SightSources::los_at` is the cheap
+  per-sample call — re-raycasts only the sources its caller relocates (the mover's own token at a
+  sample viewpoint) and borrows the committed polygon for every other source (the test wrapper
+  `SceneEcs::player_vision_polygons_at(user, scene, moving_token, viewpoint)` is one `los_at`).
+  `player_vision_polygons` (the fog's `polygons`) is `sight_sources(..).polygons()` over every
+  token scene, so the fog a client draws, the sweep it plays and the samples the egress clip
+  admits cannot disagree about where a recipient can see. Empty when the recipient has no source
+  in the scene (fail-closed).
 - `scene::move_stream` — pure, no-I/O position/vision path sampler for the
   `MoveStream` broadcast: `sample_path(path, cell, duration_ms) -> Vec<PosSamplePt>` (arc-length
   parameterization; ~`SAMPLES_PER_CELL`=3 samples/cell; always includes the exact first/last
   vertex; strictly increasing `t_ms`, exact-equal consecutive dedup). `MAX_VISION_SAMPLES` (96) is
-  the SHARED cap for both position samples and vision samples on one `MoveStream` frame — bounds
-  the mover's per-move raycast count. `MAX_VISION_POLYGON_VERTS` (512) caps each `VisionSamplePt`
+  the SHARED cap for all THREE sample kinds on one `MoveStream` frame — position, vision and
+  carried-light samples are taken over the same list — bounding the mover's per-move raycast
+  count. `MAX_VISION_POLYGON_VERTS` (512) caps each `VisionSamplePt`
   polygon's vertex count (fail-closed truncation — under-reveal, never over-reveal).
-  `Room::execute_move` calls `sample_path` then, for each sample, `player_vision_inputs` (once) +
-  `VisionMoveInputs::polygons_at` (per sample) to fill the wire frame's
+  `Room::execute_move` calls `sample_path` then, for each sample, `sight_sources` (once) +
+  `SightSources::los_at` (per sample) to fill the wire frame's
   `ServerMsg::MoveStream.mover_vision` (`None` for a GM mover — `Unrestricted` sees all, nothing to
-  sweep).
+  sweep). **Carried light ("cost only on request"):** over the SAME sample list it also fills
+  `ServerMsg::MoveStream.mover_light` (`LightSample {t_ms, pos, bright, dim, color, intensity,
+  falloff, polygons}` — `intensity`/`falloff` make the sample SELF-DESCRIBING, so the egress clip
+  composes an in-flight light into the illumination field from the frame alone via
+  `RecipientSight::sample_light`, with `emitters::field_falloff`/`wire_falloff` the one
+  wire↔field curve mapping, round-trip pinned; internal `LightSamplePt`) via
+  `SceneEcs::mover_light_inputs(scene, token, cell)` — `None`, and
+  therefore zero light raycasts, when the scene is all-bright (`ResolvedScene::all_bright`, THE
+  one lighting-off/`GlobalIllumination` predicate `lighting_inputs`, the visibility-cache
+  snapshot and this seam all read) or the token's `token_light_emission` is absent/disabled;
+  otherwise a `MoverLightInputs` hoisted once per move (the emission as a `Light` template, the
+  `blocksLight` walls filtered at the token's elevation, `world_units_per_cell`) and
+  `MoverLightInputs::sample_at(t_ms, pos)` per sample — one `emitters::light_polygon` raycast,
+  the committed field's own. `bright`/`dim` reach the wire in SCENE units (`dim` doubles as the
+  egress admission disc) and `MAX_VISION_POLYGON_VERTS` caps the polygon like a vision sample.
+  **Not gated on the mover's role**: a GM walking a torch-bearing NPC lights the corridor for the
+  players watching it — the observers, not the mover, are who the timeline is for.
 - `ws::conn` — **the per-recipient egress clip is the secrecy boundary** for
   `MoveStream`. `Room::execute_move` builds the full (unclipped) `MoveStream` frame itself (via the
   module-private `wire_move_stream`) and registers it in the room's in-flight registry
-  (`Room::mover_streams`/`Room::concurrent_streams` read this registry, pruning expired entries on
+  (`Room::scene_streams`/`Room::concurrent_streams` read this registry, pruning expired entries on
   every read); `handle_move_request` broadcasts that frame with `Room::broadcast_aux_shared` — the
   full trajectory lives only in-process. `egress_loop`'s dedicated `MoveStream` branch
-  (`clip_move_stream`, which delegates the per-sample decision to `ws::move_clip::clip_samples`)
+  (`clip_move_stream`, which delegates the per-sample decisions to `ws::move_clip::clip_frame` —
+  both gates from ONE resolution of each distinct sample instant)
   runs BEFORE the sink write, per connection, in four branches: the mover gets `samples` +
   `mover_vision` unchanged (keyed on the REAL connection `user_id`, never a see-as target — a GM
   previewing as someone else is not "the mover" unless the GM's own token is what moves); a plain
   GM (no active see-as) gets the FULL `samples` unclipped (GMs bypass position secrecy) but
   `mover_vision` forced to `None` (a GM has no fog to sweep); a GM with an active see-as
   (`SceneSubscribe`-set `egress_loop::scene_subs` target) gets `samples` clipped to the see-as
-  TARGET's own authoritative vision (`observer_vision_polys_for_scene(target.user_id, scene,
-  room)` plus the target's in-flight timelines via `Room::mover_streams`) instead of the plain-GM
-  full stream — the see-as does not apply, falling back to the full GM stream, only when BOTH the
-  target's committed vision polygons AND their `mover_vision`-filtered in-flight timeline set are
-  empty (never the raw `Room::mover_streams` result, which can be non-empty while carrying nothing
-  usable — e.g. a registered GM mover's own move, whose frame always carries `mover_vision: None`);
-  every other (non-GM, non-mover) recipient gets `samples` clipped by `ws::move_clip::clip_samples`
-  against those whose `pos` falls inside the recipient's OWN authoritative vision at that sample's
-  instant — their committed vision polygons (recomputed off the current ECS read — never a stale
-  cache; the ECS guard drops before any await), superseded per-sample (never combined with the
-  committed polygons for that same sample) by the union of their own in-flight `mover_vision`
-  timelines once at least one has started — with `mover_vision` also forced to `None`; a
-  wholly-invisible move (empty clip) is **not sent at all** (suppressed, not an empty-`samples`
-  frame — asserted by a dedicated test). The see-as branch can only NARROW what a GM receives
+  TARGET's own authoritative sight (`SceneEcs::recipient_sight(&target, .., token_id)` — the
+  target's `PermissionContext` and the frame's mover token) instead of
+  the plain-GM full stream — the see-as does not apply, falling back to the full GM stream, only
+  when the target has no vision source in the move's scene (`RecipientSight::has_sources`; an
+  in-flight move of theirs changes nothing, since `ClipInputs::at` substitutes a viewpoint only
+  for a token that IS one of their sources); every other (non-GM, non-mover) recipient gets
+  `samples` clipped by `clip_frame` to those the recipient PERCEIVES at that sample's instant —
+  `InstantSight::sees_token`: `sees` (inside some source's LOS polygon AND `point_qualifies` at
+  the point's cell center — illumination ≥ an in-range mode's floor: normal vision needs light,
+  darkvision within range does not — the SAME per-source conjunction `player_lit_mask` answers
+  for a cell, pinned cell-for-cell by `recipient_sight_agrees_with_player_lit_mask_cell_for_cell`)
+  OR a source's creature sense reaching the mover (`senses::sense_perceives`, the decision
+  `player_perceived_tokens` makes at rest). The sight is resolved off the
+  current ECS read (never a stale cache; the guard drops before any await) with every in-flight
+  mover's carried emission EXCLUDED from the committed field (`recipient_sight::exclude_emitters`
+  → `lighting_inputs_excluding` → `scene_lights_excluding`, since their committed position is
+  the move's END) and composed back in per instant from the registered frames' `mover_light`
+  timelines (`InstantLight`), so a torch lights the cell its bearer is IN, not the cell it will
+  stop in; the recipient's own in-flight token is re-raycast at its chosen position sample per
+  instant (`SightSources::los_at`). **Every registered move contributes at EVERY instant,
+  started or not:** for an instant before a move starts, `chosen_vision_sample` yields its FIRST
+  sample — the position the token (and its torch) still occupies, since `Room::execute_move`
+  commits the END before broadcasting — so the target's pre-start instants are never judged
+  from its END viewpoint and a not-yet-started torch still shines from its start. `mover_vision`
+  is forced to `None`. **Frame delivery is decided by BOTH clips:** a recipient neither clip
+  reaches gets no frame at all (suppressed — asserted by a dedicated test); a recipient the glow
+  alone reaches gets a GLOW-ONLY frame (`samples` empty, `mover_light` the admitted timeline,
+  `stop`/`duration_ms` at the last admitted light sample — pinned by
+  `glow_only_recipient_gets_a_frame_with_no_position_samples`). The wire invariant is therefore
+  "at least one of `samples`/`mover_light` is non-empty", never "`samples` non-empty". Secrecy of
+  an unlit token: a dark walk in plain line of sight streams to a darkvision observer within
+  range and a plain GM but NOT to a normal-vision observer
+  (`an_unlit_token_in_line_of_sight_streams_only_to_darkvision_and_the_gm`). The see-as branch can only NARROW what a GM receives
   relative to the plain-GM fallthrough, never widen a non-GM recipient's own view (see-as is
   GM-only, gated by `SceneSubscribe`'s `as_user` handler). `send_plain` intentionally panics if a
   `MoveStream` reaches it — the clip MUST happen in the dedicated `egress_loop` branch, never the
   generic per-recipient filter path. **A second, per-connection (never broadcast) delivery path:**
-  when the triggering frame's own `mover_vision` is `Some(_)` and its mover equals this
-  connection's own clip target (the real `user_id`, or the see-as target for a GM), `egress_loop`
+  for a clipped recipient (a non-GM, or a GM with a see-as), when the triggering frame is the
+  clip target's OWN move (`mover_vision: Some(_)` and its mover equals the target) OR carries a
+  `mover_light` timeline (a torch arriving changes what every bystander sees), `egress_loop`
   also re-clips every OTHER unexpired stream in the same scene (`Room::concurrent_streams`,
-  excluding streams by that same mover) against the just-changed timeline and re-sends each one —
+  excluding streams by that same mover) against the just-changed sight and re-sends each one —
   under its original `token_id` (the client overwrites playback keyed by `token_id`, not
   `request_id`; `request_id` is preserved unchanged and only proves the re-emit is A's own
-  original frame) — to this connection only; a zero-progress move (never registered in
-  `Room::mover_streams`) or a GM mover's own move (`mover_vision: None`) cannot populate a usable
+  original frame) — to this connection only, a re-emit being a glow-only frame when only the
+  glow now reaches (`egress_reemit_yields_a_glow_only_frame_when_only_the_glow_reaches`); a
+  zero-progress move (never registered in `Room::scene_streams`) cannot populate a usable
   timeline and is excluded from triggering this path. `MoveError` stays
   mover-only via `handle_socket::etx`, generic (no path/vision geometry disclosed).
-- `scene::explored` — `ExploredSet` fog memory: `mark_polygons(polys, cell_size)`,
+- **`mover_light` egress admission (`ws::move_clip::clip_frame`'s light half; `admit_light_samples`
+  is its test-only single-gate spelling) — the SAME per-instant sight AND the SAME visibility
+  predicate the position clip reads, never a second rule.** `clip_move_stream`'s four branches
+  treat the carried-light timeline as: the mover gets it unchanged; a plain GM gets it in full
+  (like `cost` — nothing to hide the glow from); a GM see-as and every observer keep only the
+  samples whose glow LIGHTS A CELL THE TARGET SEES at that sample's instant — `glow_reaches`
+  against `ClipInputs::at`'s `InstantSight` and composed field: some cell center within `dim`
+  of `pos` that the sample's own light reaches (`InstantSight::light_reaches` →
+  `lighting::source_level` over the sample composed as an `InstantLight`, so its occluder
+  polygon and taper apply) AND that the target `sees` with the instant's lights composed (line
+  of sight, the composed illumination against the source's floor, darkvision range — the field
+  carries this very sample as its own timeline's chosen light). So an ember below a
+  normal-vision recipient's dim floor lights nothing they see and is NOT admitted (no glow-only
+  frame discloses its bearer), a darkvision recipient within range is shown it, and a
+  `blocksLight`-occluded glow whose disc merely crosses into sight is dropped — exactly what
+  `player_lit_mask` decides for the same cells at rest. The disc test (`disc_intersects_polys`:
+  center inside via `point_in_poly`, or an edge within `dim` via `point_segment_distance`, read
+  in place through `InstantSight::disc_touches_los`) is the cheap pre-filter ONLY. The fine
+  test always runs and never falls open: it scans the disc box ∩ the target's line-of-sight box
+  (`InstantSight::los_bbox`) ∩ the sample's own occluder box through `InstantSight::cell_centers_in`
+  → `GridShape::cells_in_bounds` under the lit mask's own bound (`explored::MAX_CELLS_PER_POLYGON`),
+  and a box past even that admits nothing; a `dimRadius` is ingress-bounded by
+  `MAX_FOOTPRINT_CELLS` (`LightEmission::validate`, run at every carrier — `LightEngine::validate`,
+  `ActorEngine::validate`, `TokenEngine::validate` for `overrides.light`), so no authored light
+  reaches it. A non-finite or non-positive reach admits nothing. PRECONDITION of the light half:
+  the frame's own move is among `ClipInputs::in_flight` (as `clip_move_stream` guarantees), so a
+  sample is composed into the field it is judged against exactly once. A timeline no sample of
+  which reaches the recipient is `None`, never an empty list. `chosen_vision_sample` is generic
+  over `Timed` (`VisionSample`, `LightSample`, `PosSample`) — one selection rule,
+  fixture-pinned. The own-move re-emit (`Room::concurrent_streams` → `clip_move_stream`)
+  re-admits the light timeline through the identical path, pinned by
+  `egress_reemit_re_admits_the_concurrent_streams_light_timeline`.
+  A recipient the glow alone reaches gets the GLOW-ONLY frame (see the `ws::conn` bullet).
+  Within an admitted timeline the polygons are NOT clipped to the recipient's sight — the client
+  intersects them with its own fog — and the glow geometry outside it (which also implies the
+  emitter's position, its polygon's kernel) is an accepted disclosure — UX outranks data secrecy
+  for scene geometry; only PII and remote-device security are absolute — bounded by the
+  emission's own reach: the admission is what bounds the radius of disclosure.
+- `scene::explored` — `ExploredSet` fog memory: `mark_cells(cells)` (THE explored writer,
+  fed by `ws::conn::enrich_vision_explored` with the recipient's currently-VISIBLE cells — the
+  `vision` payload's own `lit` groups, line of sight ∩ illumination — never a line-of-sight
+  polygon on its own, so a player remembers only terrain they could actually see),
   `to_bytes`/`from_bytes` (persistence), cell-based. Lifecycle: `explored_fog` rows are purged on
   scene delete (`delete_document_tx`, both authoritative delete paths), world delete
   (`delete_world`, by the denormalized `world_id`), and user delete (`delete_user`) — rows do not
@@ -506,6 +681,34 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   gates every other document's egress — no new secrecy machinery. **Callers MUST pass
   `None` for a GM requester** — mirrors `visible_cells`'s GM-skips-the-mask convention; passing
   `Some(gm_user)` would incorrectly filter a GM's own field.
+- **Region triggers (mechanical effects on enter/arrest).** `RegionEngine.triggers:
+  Vec<RegionTrigger>` (`TriggerEvent` = `enter`/`arrest`; `TriggerEffect` =
+  `condition_add`/`condition_remove`/`resource_delta`/`chat_notice`, the last with a
+  `NoticeAudience`) — ingress-validated in `normalize_engine`'s `"region"` arm
+  (`RegionEngine::validate`), because triggers are engine-EXECUTED payloads, unlike the
+  movement fields' read-side fail-closed semantics. The composed `RegionField` erases region
+  identity, so a second read model exists beside it: `SceneEcs::trigger_regions(scene)` builds
+  `regions::TriggerRegion` identity rows (region id, `visible_to_all` via
+  `engine_geometry_visible_to_world`, triggers, cell set) from the SAME `regions::rasterize` —
+  one geometry derivation feeds both, pinned by an anti-drift parity test. `move_exec` stays
+  pure: `MoveOutcome.entered_cells` (the deduped cell-transition sequence) +
+  `MoveOutcome.arrested` report, never write. `regions::fired_triggers(regions, entered,
+  arrest_cell)` is the pure firing plan (each trigger at most once per report). The TWO fire
+  sites both funnel into `Room::fire_region_triggers` (ONE effect-application path):
+  `Room::execute_move` after the position commit + combat decrement, and
+  `Room::fire_placement_triggers` for token Creates / genuine position Updates (placement and
+  GM teleport; footprint cells via the SAME `resolve_token_footprint` +
+  `GridShape::footprint_cells` the move gate uses — never a second footprint formula). A
+  region-doc edit never re-fires; a disabled region contributes nothing. Effects commit as ONE
+  server-authored batch via `commit_ops_locked` under `WriteOrigin::CombatTransition`, never
+  batched with the client-origin write that triggered them (the `execute_move` split
+  discipline). `resource_delta` is combat-scoped (`combat::transition::resource` against the
+  token's combatant in the scene's active combat; `amount` is a `Formula` evaluated via
+  `combat::eval::eval_formula` against the actor host) — no active combat / no combatant /
+  `Mirror` binding = no-op + ONE deduplicated GM-only notice. Secrecy: there is no
+  per-requester form of the identity table (the server springs secrets); instead every notice
+  a not-`visible_to_all` region fires is FORCED `Audience::GmOnly`, and condition/resource
+  writes are ordinary egress-filtered document updates.
 - `scene::pathfinding` — pure, headless grid A* (no I/O; clean-room):
   `DiagonalRule` (`chebyshev`|`manhattan`|`euclidean`|`alternating`) + `resolved_diagonal_rule`
   (world-only — no per-scene override; mirrors `resolveSceneSettings` precedence);
@@ -529,10 +732,13 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   weighting:** each iteration of `astar_leg`'s neighbor loop multiplies the diagonal-rule base cost
   (`astar_leg::sc`, the per-neighbour cost VALUE the `for (next, sc, next_parity) in
   grid.inputs.shape.neighbors_with_cost(...)` binding yields — not a function) by
-  `grid.inputs.regions.map_or(1.0, |r| r.terrain_multiplier(next))`, so a terrain region raises (never
+  `terrain_cost(grid.inputs.regions, next, grid.inputs.traits)` — the ONE terrain-cost read
+  (`regions.map_or(1.0, |r| r.terrain_multiplier(next))`, or a constant 1.0 for an
+  `MoveTraits::ignore_terrain` mover) — so a terrain region raises (never
   lowers — multipliers are validated `>= 1.0` at `region_field` construction) the A* edge weight
   into that cell, honored by the admissible/consistent heuristic (which already lower-bounds the
-  UNWEIGHTED cost, so remains admissible under any `>=1.0` weighting). `find` — validates
+  UNWEIGHTED cost, so remains admissible under any `>=1.0` weighting, and equals an exempt mover's
+  cost exactly). `find` — validates
   request, computes search window (AABB{start∪waypoints∪wall-endpoints}+8-cell margin), threads
   end-parity of each leg into the next, sums cost, returns ordered cell-center scene coords, THEN
   applies **arrest truncation**: cuts the assembled route at the first cell (after the
@@ -549,9 +755,11 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `PathOutcome { path, cost, arrested, truncated }`. This truncation exists so a
   player-facing route preview is honest about a hazard it already knows about — it never shows a
   route running past an arrest cell the requester can see.
-  `SceneEcs::pathfind(requester: RouteRequester, scene, start, waypoints, footprint_radius,
-  budget_cells)` — `RouteRequester` describes the REQUESTER ONLY (`user`, `is_gm`, `explored`);
-  the route itself stays in `pathfind`'s own trailing parameters. `budget_cells` is the
+  `SceneEcs::pathfind(requester: RouteRequester, scene, start, waypoints, mover: RouteMover)` —
+  `RouteRequester` describes the REQUESTER ONLY (`user`, `is_gm`, `explored`); the route itself
+  stays in `pathfind`'s own parameters, and `RouteMover { footprint_radius, budget_cells, traits }`
+  carries the MOVER's request-scoped quantities (resolved once by `handle_pathfind`, mirroring
+  `move_exec::MoveGateInputs`'s `budget`/`traits`). `RouteMover::budget_cells` is the
   movement-budget preview clamp: the grid engine cuts inside `pathfinding::find` by per-step
   replay, the walls-only continuous engine via `navmesh::truncate_at_budget`'s span cut, and
   EVERY budget-boundary comparison — both cuts and `execute_move`'s own stop — runs through the
@@ -596,11 +804,16 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   route THEY could already see is truncating, and `truncated` likewise reaches only the requester's
   own budget-clamped preview; `budget_cells` is the mover's REMAINING movement budget in cells
   under an enforced combat — `None` for a hidden combatant, a non-combatant token, or an
-  unresolvable resource binding — computed by the SAME `ws::room::resource_cells` helper the
-  movement-budget gate's truncation ceiling uses, so a route preview's disclosed number and the
-  executor's own clamp cannot drift apart; `shadowcat-codebase-combat`'s `CombatController`/
-  `CombatApi` consumes it to label a `Warn`-enforcement overage or a `Hard` truncation on the drawn
-  route in scene-tools)/`PathError` — one-shot to the requesting connection only
+  unresolvable resource binding — computed by the SAME `combat::budget::resolve_movement_budget`
+  resolution (`MovementBudget::cells`, through `combat::budget::resource_cells`) the
+  movement-budget gate's truncation ceiling and the `"combat"` channel's `movement_cells` use, so
+  a route preview's disclosed number, the executor's own clamp and the tracker's number cannot
+  drift apart; scene-tools' `requestRoute` labels a `Warn`-enforcement overage or a `Hard`
+  truncation on the drawn route through `ToolContext.t` — REQUIRED, no English fallback copy of
+  the catalog — and `ToolRail` builds its `ToolController` argument `satisfies HostToolContext`,
+  every `ToolContext` member that also exists on `AppContext` made mandatory, so a host seam
+  (`t`, `moveRequest`, `combat`, …) can no longer be left out of that literal without a type
+  error)/`PathError` — one-shot to the requesting connection only
   (never broadcast); `get_explored` fetched off the scene read lock (no lock across await).
   `Pathfind` also carries an optional `token: Option<Uuid>` (`ws::protocol`): when present
   the server AUTHORIZES it (effectively owned by the requester AND parented to `scene` — the same
@@ -687,13 +900,59 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   or the token's effective owner (`ownerFloorApplies`, `@shadowcat/core`) — advisory-only client
   gating, since the server independently re-authorizes via `effective_owner_of` at send time. On
   click it sets `AppContext.speakAsToken`, a one-shot pending selection the composer consumes;
-  see [[shadowcat-codebase-chat]] for the full seam.
+  see [[shadowcat-codebase-chat]] for the full seam. **Emote palette:** `ToolRail` also mounts an
+  emote picker (stock glyphs plus a free-input draft, byte-length-checked client-side against the
+  server's 16-byte bound so an over-long draft can't vanish into the server's silent drop) under
+  the SAME one-selected-token ownership predicate as speak-as, sending via
+  `AppContext.sendEmote`; the relayed echo (own sends included) renders through `onEmote` →
+  `Stage` → `SceneToolHost.addEmote` → `RenderEngine`'s `EmoteView` (the `emote-view` module —
+  a pure age-tracker: the glyph anchors above the token's position AT FIRE TIME and tracks
+  nothing, rising and fading over its lifetime on the engine ticker, drawn via
+  `DisplayBackend.drawEmotes`; a token id the viewer cannot resolve drops the overlay).
+- **Movement-type tags and the terrain exemption — ONE resolver, ONE flag, ONE cost read.**
+  `scene::movement_tags` owns the server side: `TERRAIN_EXEMPT_TAGS` (`"flying"`,
+  `"incorporeal"` — the only tags the engine interprets; every other tag is inert system
+  vocabulary), the single reserved-semantics predicate `ignores_terrain_cost(&tags)`, and
+  `SceneEcs::token_movement_tags(token) -> BTreeSet<String>` — the linked/instanced/override
+  precedence `token_vision_floors` uses (a present `TokenOverrides::movement` REPLACES the set
+  wholesale; otherwise `ActorEngine::movement` ∪ the faction record's `Faction::movement`, joined
+  through `SceneEcs::faction_registry_engine`, the faction registry now hydrated into the ECS
+  config side-tables beside `vision_modes`/`gradation`; a dangling actor link or a raw/unknown
+  token yields the EMPTY set — a mover whose tags cannot be resolved is never exempt; the
+  instanced branch reads the embedded actor through the uncached `engine_as` path, same rule as
+  `token_vision_floors`). The two request seams — `ws::conn::handle_pathfind` (for the named,
+  authorized token only; a hypothetical-footprint preview is non-exempt) and
+  `Room::execute_move` (in the same read-guard block as `footprint`) — resolve the flag ONCE
+  into `pathfinding::MoveTraits { ignore_terrain }` and carry it in `RouteMover.traits` /
+  `MoveGateInputs.traits`; neither the router nor the executor re-derives it. The GM
+  gameplay-gate exemption does not touch this: a GM moving a flying token is priced as flying.
+  Every multiplier site reads the flag through the ONE chokepoint `pathfinding::terrain_cost(
+  regions, cell, traits)` — `astar_leg`'s edge weight, `replay_step_costs` (arrest + budget
+  truncation), `navmesh::los_smooth`'s per-span cost, and `execute_move`'s per-transition and
+  Continuous tail pricing — plus the two non-price reads: the continuous dispatch predicate
+  (`has_impassable()` alone for an exempt mover) and `los_smooth`'s chord rule (terrain dropped
+  from the refusal set). **The exemption is terrain COST only**: walls, impassable, arrest and
+  the visibility mask gate an exempt mover exactly as anyone else (pinned by
+  `exemption_never_covers_impassable_or_arrest` in the `move_exec` unified-cost suite), and the
+  per-requester region-field secrecy rules are untouched — an exempt mover's route simply ignores
+  terrain it can see AND terrain it cannot, since terrain never stops a move. The combat
+  movement-budget gate consumes `MoveOutcome.cost` unchanged, so an exempt mover spends less
+  identically in preview and execution
+  (`exempt_mover_decrements_the_exempt_cost_where_the_ground_mover_pays_the_multiplier`).
+  `navmesh_find` prices its returned polyline as an f64 sum over its own spans, never polyanya's
+  own f32 per-leg length: `clip_to_visible_mask` passes a wall-less, mask-less (GM) outcome through
+  unrecomputed, so an f32-rounded preview would be a cost the executor's f64 span sum cannot
+  reproduce.
 - **Regions on the continuous engine.** `SceneEcs::pathfind`'s
   `Continuous` branch (`scene`) computes the per-requester `region_field` once (same call the
   `GridStepped` branch already made — the `GridStepped` branch itself is completely untouched by
   this) and dispatches on `RegionField::has_terrain_or_impassable()` (`scene::regions`: true iff any
-  cell is `impassable` or `terrain` with `multiplier > 1.0`; arrest-only fields do NOT trigger this
-  — arrest needs only a post-filter, not route-bending). **Terrain/impassable present:** the
+  cell is `impassable` or `terrain` with `multiplier > 1.0` — the disjunction of `has_impassable`
+  and `has_weighted_terrain`; arrest-only fields do NOT trigger this
+  — arrest needs only a post-filter, not route-bending). For an `MoveTraits::ignore_terrain`
+  mover the predicate is `has_impassable()` ALONE: terrain is plain ground for them, so a
+  terrain-only field takes the pure any-angle route, while impassable still forces the weighted
+  sub-path for every mover (a straight chord must never skip the refusal). **Terrain/impassable present:** the
   existing `pathfinding::find` runs forced to `DiagonalRule::Euclidean` (continuous base metric —
   only cell topology + the terrain multiplier come from the grid, never the world's configured
   diagonal rule), its cost stays in CELLS, then `navmesh::los_smooth` (new) restores any-angle
@@ -713,11 +972,18 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   should have cut it. `clip_to_visible_mask` is exclusive to the pure-polyanya sub-path — the two
   continuous sub-paths enforce the SAME mask invariant through different mechanisms, not through a
   shared call.
-  - `navmesh::los_smooth(outcome, walls, mask, field, cell, footprint_radius_cells)` — cost-guarded
-    LOS string-pull smoothing for the weighted continuous path. A span `path[i]..path[j]`
+  - `navmesh::los_smooth(outcome, inputs: &PathInputs)` — cost-guarded
+    LOS string-pull smoothing for the weighted continuous path. It takes the SAME `PathInputs`
+    bundle `find` searched under (the caller builds one and hands `find` a copy differing only in
+    `shape` — `PathInputs` derives the copy traits for exactly this), so the mask, walls, region field,
+    footprint and traits the chord rule checks are structurally the values the search admitted
+    cells under; `regions: None` means no region enforcement here exactly as inside `find`. A span
+    `path[i]..path[j]`
     straightens only when every cell its chord enters (`grid.footprint_cells ∪ grid.line_traversal`,
     the SAME union `cell_enterable`/`clip_to_visible_mask` use) is in `mask` (when `Some`), not
-    impassable, not arrest, and not weighted terrain (`terrain_multiplier > 1.0`), and the chord
+    impassable, not arrest, and — for a NON-exempt mover — not weighted terrain
+    (`terrain_multiplier > 1.0`; an `MoveTraits::ignore_terrain` mover's chord ignores terrain,
+    never impassable or arrest), and the chord
     crosses no `blocksMove` wall — so a straightened chord can never shortcut INTO terrain/
     impassable/arrest the weighted search deliberately routed around or truncated at. **The single
     grid step `path[i] -> path[i+1]` is ALWAYS kept unconditionally** (it already passed `find`'s
@@ -725,10 +991,11 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
     two levels: a whole-input short-circuit (`<3` vertices, degenerate `cell`/`footprint_radius_cells`)
     returns the input unchanged; a per-span fallback (an over-cap/degenerate `line_traversal` for
     one candidate chord) fails only that chord, leaving it at its single grid step while smoothing
-    continues over the rest of the path. `cost`/`arrested` are carried through UNCHANGED (not
-    recomputed) — the pre-smoothing weighted grid cost is a conservative (never-cheaper) budget for
-    the straighter geometry, the same preview-vs-execution divergence class as
-    `MoveOutcome.cost`/router-cost (an exact per-span smoothed cost is not currently computed).
+    continues over the rest of the path. `arrested`/`truncated` are carried through unchanged;
+    `cost` is RECOMPUTED exactly per smoothed span — `euclidean_span_cells` (the same formula
+    `execute_move` prices a Continuous span with) times `terrain_cost` at the span's destination
+    cell (1.0 for an exempt mover) — which is what `continuous_smoothed_preview_cost_equals_executor_cost`
+    pins.
   - `navmesh::truncate_at_arrest(outcome, field, cell)` — arrest post-filter for the pure-polyanya
     continuous path (which never runs through `find`, so needs its own arrest truncation, mirroring
     `find`'s arrest logic for the walls-only route). Arc-length-samples the route
@@ -842,36 +1109,71 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   read the array, not this list, before placing a module layer: a module's fractional `order` is
   relative to these indices, so an off-by-one lands it under the wrong neighbour),
   `camera`, `grid`, `token-view` + `token-animator` (tween),
-  `wall-view`, `drawing-view`, `template-view`, `ping-view`. Modules draw through the
+  `wall-view`, `drawing-view`, `template-view`, `ping-view`, `emote-view`. Modules draw through the
   render-layer API; the canvas host is not replaceable.
-- **Token visual rendering (faces + animated token visuals).**
+- **Token visual rendering (faces + animated + generated token visuals).**
   the `token-animation` module — `computeAnimatedFrame(elapsedMs, fps, frameCount,
   loop) -> number`, pure tick-driven frame-index math (extracted for the same reason as
   `fog-blend`: `pixi-backend` is Playwright-only, no jsdom GL context, so frame-selection logic
   needs to live somewhere unit-testable). `loop:true` wraps arbitrarily-large `elapsedMs`;
   `loop:false` clamps to the final frame (a one-shot animation holds, never re-wraps); degenerate
   input (`frameCount<=0`, non-finite `elapsedMs`/`fps`, `fps<=0`) fails closed to frame 0.
-  `TokenNodeSpec.visual` (the `types` module) is now a discriminated union: `{kind:"image", url} |
-  {kind:"animated", source: ResolvedAnimatedSource, fps, loop}` — a token's URL is reachable only
-  through the `image` arm, never as a bare field — `ResolvedAnimatedSource = {type:"frames", urls:string[]} | {type:"sheet", url, rows,
+  `TokenNodeSpec.visual` (the `types` module) is a discriminated union: the two drawable arms —
+  extracted as `ResolvedArtVisual`, `{kind:"image", url} |
+  {kind:"animated", source: ResolvedAnimatedSource, fps, loop}` — plus
+  `{kind:"generated", art: ResolvedArtVisual, crop: "circle"|"square", border?: {color,width},
+  background?: {color}}` — a token's URL is reachable only
+  through the `image` arm (top-level or under `art`), never as a bare field — `ResolvedAnimatedSource = {type:"frames", urls:string[]} | {type:"sheet", url, rows,
   cols, count?}`, already asset-id-resolved to serve URLs by `AssetResolver` (the backend never
   resolves asset ids itself). `DisplayBackend.tickTokenAnimations(dtMs): void` — the new per-frame
   animation-advance seam, called once per frame alongside `startTicker`; `MockBackend`'s
   implementation is an intentional no-op (frame-advance state lives only in `PixiBackend`'s real
   `AnimatedSprite`s). `TokenView.tick(dtMs)` calls both `this.animator.tick(dtMs)` (transform tween,
   unchanged) AND `this.backend.tickTokenAnimations(dtMs)` (new). `TokenView.toSpec` resolves a
-  token's visual via `resolveTokenVisual` (see `shadowcat-codebase-actors-tokens`) then a private
-  `resolveSource` maps `AnimatedSource` → `ResolvedAnimatedSource` through `AssetResolver`.
+  token's visual via `resolveTokenVisual` (see `shadowcat-codebase-actors-tokens`), then a private
+  `resolveArtVisual` URL-resolves the image/animated arms — shared by the top-level path and a
+  generated visual's `art` — via its private `resolveSource` mapping `AnimatedSource` →
+  `ResolvedAnimatedSource` through `AssetResolver`, `parseColor`-ing the generated frame's css
+  colors to packed `0xRRGGBB` like the faction `borderColor`.
   **`PixiBackend`'s Container-per-token structure** (migrated off a bare
   `Sprite`-per-token + three separately-tracked sibling Maps): one `TokenNode` per token —
   `container` (outer, does NOT rotate, positioned at the token center; `badges` are its DIRECT
   children so condition-marker glyphs stay upright regardless of token facing) →
   `visualContainer` (inner, rotates with the token via `.angle = spec.rotation`) → holds `visual`
-  (a `Sprite` or `AnimatedSprite`) + `border` (`Graphics`) as siblings. `AnimatedSprite` playback is
+  (a `Sprite` or `AnimatedSprite`) + `border` (`Graphics`) as siblings. A `kind:"generated"`
+  visual adds a `TokenNode.generated` frame INSIDE `visualContainer`, maintained by
+  `ensureGeneratedFrame`/`updateTokenGeneratedFrame` (drawn unconditionally per `setToken`, like
+  the faction border, so a size-only re-push re-derives the geometry): a `background` fill
+  Graphics under the art, a `mask` Graphics cropping it to `crop` (circle = the extent's inscribed
+  ellipse, square = the extent rect; assigned to `node.visual.mask` — a Pixi mask object must sit
+  in the display list but is never rendered), and a decorative `ring` Graphics above the art —
+  authored data, structurally distinct from the faction `border` Graphics, which is untouched.
+  The ring's authored `width` is a fraction of the token's smaller extent, scaled to px at draw
+  time. Swapping away from a generated visual drops the mask and destroys the frame. A
+  `TokenNodeSpec.aura` (pre-resolved `{color, opacity, radius}` — color packed, radius already in
+  scene units; the backend does no grid math) adds a `TokenNode.aura` filled-ellipse Graphics as a
+  `container` child ordered BELOW `visualContainer` (the art draws over it; badges stay on top),
+  maintained by `updateTokenAura` under an `auraKey` memo (same discipline as `badgeKey`/
+  `sourceKey`) and destroyed when a re-push carries no aura. `TokenNodeSpec.fx?: TokenFx[]`
+  (`tint`/`desaturate`/`highlight` — colors pre-packed `0xRRGGBB` and strengths pre-clamped by
+  `TokenView.toSpec`; the backend never parses colors) adds a `TokenNode.fx`
+  `ColorMatrixFilter` on `visualContainer.filters` — ONE filter that `composeTokenFxMatrix`
+  folds the whole list into, in array order — maintained by `updateTokenFx` under an `fxKey`
+  memo (the same memoization discipline) and disposed with the node. Sitting on
+  `visualContainer`, art fx rotate with the art while badges (outer-`container` children) stay
+  clean. `TokenView.toSpec` builds the list from two producers: each effective condition's
+  registry-authored `Condition.fx`, folded in effective-condition order (a condition's tint,
+  then desaturate, then highlight; strengths fixed at 0.5 — the registry authors colors, not
+  strengths; a non-`#rrggbb` color fails closed to NO effect via `parseFxColor`), and the
+  token's SELECTION signifier, appended as a `highlight` entry (the preserved accent `0xffd400`
+  at strength 0.4) whenever the view's `selectedTokens` accessor names it — the selection
+  signifier IS this fx entry, never a drawn ring (a targeted token would brighten the same way,
+  but no targeting producer exists). `AnimatedSprite` playback is
   entirely tick-driven: `autoUpdate = false` (never Pixi's own shared ticker), frame index advanced
   in `tickTokenAnimations` via `computeAnimatedFrame`. `node.sourceKey` short-circuits a re-push
   with an unchanged visual (a tweening token's transform-only updates never touch the visual/sprite
-  object). **Load-bearing invariant — guard async texture/frame-load completions on OBJECT
+  object); `visualSourceKey` covers every arm — a generated visual keys on its frame
+  (crop/border/background JSON) plus its art's own key. **Load-bearing invariant — guard async texture/frame-load completions on OBJECT
   IDENTITY, not just a string/key match:** `replaceVisualChild` can recreate a token's `visual`
   object (image↔animated kind-swap, or a rapid A→B→A visual-cycling sequence), so an in-flight
   texture/frame-load promise's completion callback MUST check `node.visual === sprite` (the exact
@@ -893,6 +1195,49 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   sweep is concurrently in flight — see `pixi-backend` below) to the compositor instead of the
   last `vision` subscription payload; reverts to that payload the instant the sweep map empties
   (sweep end or catch-up completion).
+- `lightSweeps` (`engine`, client/render) — the lighting twin of `visionSweeps`, keyed by token
+  id, started by `animateSamples`'s `moverLight` argument (`MoveLightSample[]`, forwarded
+  `WsClient.onMoveStream` → `WorldSession` → `SceneInteractionBridge.animateSamples` →
+  `RenderEngine`; any recipient may carry one, not just the mover). While a sweep plays,
+  `Lighting.setSweep` unions the sweep's cells over the fade-interpolated committed frame
+  (`mergeSweepCells`: a sweep cell REPLACES its same-key base cell, new cells append), and a
+  committed lighting frame arriving meanwhile APPLIES AT ONCE except for each sweep's end
+  cells: `holdLightingCells` keeps every cell in the sweep's `endKeys` — the cells its LAST
+  light sample lights, `lightSampleCellKeys` (`lightSampleCells` with no line-of-sight clip) — at
+  the value the lighting held when the first light sweep started (`lightingBeforeLightSweep`),
+  because the post-commit `vision` rebroadcast already carries the light at its FINAL position
+  and painting those cells mid-walk would light the corridor's far end before the torch gets
+  there, while an unrelated change the same frame carries (another light switched on) must not
+  wait for the walk — and `setDarkness`, which applies immediately, no longer pairs darkness
+  from one generation with lit cells from another. `tickLightSweep` clears the hold once the
+  last sweep ends, and `reapplyViewedScene` ends every light sweep (they belong to the scene
+  being left). `applyCommittedLighting` is THE one path that retargets `Lighting` from a
+  committed frame: while the viewer's OWN vision sweep plays, the `unionLightingInputs` of the
+  lighting held when the sweep began (`lightingBeforeSweep`, the cells lit from the START) and
+  the newest frame (lit from the STOP), since the sweeping line of sight runs between the two;
+  the newest frame alone otherwise — then, while a light sweep plays, with the held end cells
+  taken from `lightingBeforeLightSweep`. A GLOW-ONLY frame (`samples`
+  empty, `moverLight` present) starts the light sweep alone — `RenderEngine.animateSamples`
+  forwards no position samples to `TokenAnimator`, so no token tweens. The cells come from the
+  pure `light-sweep` module: `lightSampleCells`
+  rasterizes the chosen sample (`chooseVisionSample`, the ONE generic rule the fog sweep uses)
+  onto every grid cell whose center is within `dim` of `pos`, inside the sample's polygons AND
+  inside the viewer's own line of sight (`currentLosPolygons` — the vision sweep's chosen sample
+  while one plays, else the last derived `visible` set; the server never clips the glow to the
+  recipient's sight, so this intersection is the client's job) — brightest band within `bright`,
+  band 1 beyond, tinted with the light's color via `bandAlpha`/`TINT_ALPHA` (a cosmetic
+  approximation of the server's falloff, never a second illumination rule; the committed frame is
+  the truth at rest), candidates enumerated through the axial bounding box of the disc's pixel
+  box via `Grid.cellOf` (one enumeration for square and hex), fail-closed on a degenerate sample
+  or more than `MAX_LIGHT_SWEEP_CELLS` candidates. A single sweep cross-fades consecutive samples
+  with `blendLightCells` at the `computeFogBlendFactor` factor; concurrent sweeps union their
+  chosen samples. A sweep's duration extends to its last admitted sample's `tMs` (an observer's
+  clipped `durationMs` can end before a still-admitted glow does). With no darkness model
+  (`lastLightingInput === null`, e.g. a GM's `mode:"all"`) the sweep paints nothing.
+  `RenderEngineOpts.onLightingApplied(frame, sweeping)` is the host observability hook `Stage`
+  turns into read-only "data-light-sweep" / "data-lit-cells" / "data-lit-bbox" attributes, which
+  is what the moving-light e2e observes — each written only when its value changes, since the
+  hook fires on every fade tick and sweep step and a dataset write is a DOM attribute mutation.
 - `fog-blend` (client/render module) — `computeFogBlendFactor(clock, tCur, tNext)`:
   pure, unit-testable blend-factor helper (0 at `computeFogBlendFactor.tCur` → 1 at `computeFogBlendFactor.tNext`, clamped `[0,1]`; a
   degenerate/non-finite span snaps to 1 — fail-safe toward the newer sample, never frozen on a
@@ -908,30 +1253,19 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   resolves gradation band→darkening alpha + tint color, applies `renderHint` (e.g. `"darkvision"`
   → gray-wash desaturation overlay), and interpolates day/night fades. Called by `PixiBackend`
   `setLighting` which renders per-cell darkening/tint sprites + a `BlurFilter` for soft band edges.
-  **`Lighting.apply`'s repaint dedup and `onApply` are two INDEPENDENT decisions, not one.**
-  `apply()` fingerprints the frame it just resolved via `lightingFrameKey` (a superset of what
-  `PixiBackend.setLighting` reads — `frame.cell` and each cell's `i`/`j` ride along even though
-  `setLighting` never reads them, which is the safe direction: it can only cause an unneeded
-  repaint, never an incorrectly-skipped one) against the last frame ACTUALLY painted, and skips
-  the real `backend.setLighting` call when unchanged — a carried-light or vision sweep holds the
-  same resolved content across many ticks (only the blend factor moves), and every caller
-  (`setTarget`/`tick`/`setSweep`/`setDarkness`) rebuilds its argument as a fresh array/object each
-  call, so a reference-equality check alone never catches the repeat. **`onApply` fires
-  UNCONDITIONALLY on every `apply()` call regardless of that dedup.** Its sole production
-  consumer, `RenderEngine`'s `onLightingApplied` wiring, closes over `this.lightSweeps.size > 0`
-  at call time — state entirely outside `lightingFrameKey`, which cannot see it. Gating `onApply`
-  on the same key (a real, shipped regression, since fixed) silently drops the sweep-end
-  notification whenever the committed lighting at a walk's stop happens to light the same cells
-  the sweep's last sample already did — the ordinary case, not an edge case — so `Stage`'s
-  `data-light-sweep` attribute never flips back to `"0"` and an e2e polling for it hangs. Any
-  future edit that "tidies" the guard to cover both calls with one condition reintroduces this
-  exact defect; keep them separate.
 - `Stage` (`src/modules/stage`) — mounts the render engine over a `ReadableDocuments` view.
 - `src/modules/scene-tools/` — the `controller` + `hit-test` modules, tools (place/select/move/
-  draw/template/measure/ping/wall/region) dispatching intents. Wall tool writes a **three-flag**
-  segment: `blocksSight` + `blocksMove` + `blocksLight`. Region tool (`makeRegionTool`) drags out
+  draw/template/measure/ping/wall/region/light) dispatching intents. Wall tool writes a **three-flag**
+  segment: `blocksSight` + `blocksMove` + `blocksLight`. **Light + wall authoring:** `makeLightTool`
+  places a `light` doc with `DEFAULT_LIGHT_EMISSION`, click-selects and drag-repositions with
+  raw-stored OCC pre-images; the select tool picks a light marker (`LightView`, drawn on the walls
+  layer for any doc recipient) or a wall segment into `ToolController.editingEntity`, and
+  `ToolRail` renders the light editor (enabled/color/intensity/radii/falloff/elevation/delete,
+  via the shared `LightEmissionEditor`) and the wall editor (`blocksSight`/`blocksMove`/
+  `blocksLight`, the occlusion-band interval, delete). Editing is GM-gated at the tool layer and
+  re-checked by the server. Region tool (`makeRegionTool`) drags out
   a rect/circle/polygon `region` doc (`ToolController.regionShapeMode`/`regionBehavior`/
-  `regionCost`/`regionSecret` reactive fields) via `buildRegionDoc` +, when `regionSecret`,
+  `regionCost`/`regionSecret`/`regionTriggers` reactive fields) via `buildRegionDoc` +, when `regionSecret`,
   `setRegionVisibility(doc, true)` (declares `/engine` `gm_only` at construction — not
   `/system`; the create op never carries the geometry in the clear). Create-only, mirroring
   `makeWallTool`: no edit UI for an already-placed region's behavior/cost/visibility/`enabled` — a
@@ -971,7 +1305,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `TokenSelection`'s ids into `WorldSession`'s private `#tokenSelectionByScene` map (keyed by the
   scene being left, read via `viewedSceneId` before the switch) and restores whatever was stashed
   for the scene being entered (empty if never visited) — a GM roaming away and back keeps their
-  selection instead of leaking it across scenes or losing it. `sendPing`, `onMoveStream`, and the `scene_ping` handler all
+  selection instead of leaking it across scenes or losing it. `sendPing`/`sendEmote`,
+  `onMoveStream`, and the `scene_ping`/`emote` handlers all
   resolve through `viewedSceneId` (not a fixed `query("scene")[0]`) and drop a frame whose `scene`
   doesn't match — closing a cross-scene leak (see Gotchas). The `scene-scope` module (client/render)
   — `sceneScopedDocs(store, docType, viewedSceneId)` filters a doc-type query to `d.parent_id ===
@@ -998,8 +1333,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `EMPTY_FOOTPRINTS` rather than a partial read — mixing authoritative extents with silently
   dropped ones is indistinguishable to a caller.
   - **`WorldSession` owns the subscription, not the render engine** — the extents feed the canvas,
-    the hit-test, the selection ring and the place tool, so they belong beside the document view
-    all four read. `AppContext.footprints` is the getter; `RenderEngineOpts.footprints?: () =>
+    the hit-test and the place tool, so they belong beside the document view
+    all three read. `AppContext.footprints` is the getter; `RenderEngineOpts.footprints?: () =>
     FootprintLookup` (→ `TokenView`) and `ToolContext.footprints?` (→ `footprintsOf(ctx)`, used by
     `topTokenAt`, the select/move drag and the place tool) both read it through Stage/ToolRail.
     `enter()`'s `subscribeScene("footprints", …)` runs before the socket is up and that first
@@ -1015,6 +1350,13 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
     keeps drawing the previous extents until an unrelated commit. Tokens only — no other view reads
     a footprint. `Stage`'s `$effect` watches `ctx.footprints` alongside `ctx.viewedSceneId` and
     calls it exactly once per genuine change.
+  - **`RenderEngine.reapplyTokenSelection()` is the same shape for token SELECTION.** Selection is
+    client-local UI state (`RenderEngineOpts.selectedTokens?: () => ReadonlySet<string>`, fed
+    `ctx.tokenSelection.ids` by `Stage` and read by `TokenView` at `toSpec` time), so a selection
+    change carries no store commit and the selection highlight fx would lag behind the click until
+    the next unrelated one — the re-projection call just re-runs the token view's `reconcile()`
+    (tokens only, exactly as `reapplyFootprints`). `Stage`'s `$effect` diffs a sorted key of the
+    ids and calls it exactly once per genuine membership change.
   - **Deliberately NOT behind the `appliedSeq` watermark that guards `vision`.** That watermark
     exists because fog is the client's secrecy gate; an extent is a rendering quantity with no
     confidentiality stake, and holding it back would delay a purely cosmetic correction. If a
@@ -1113,7 +1455,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   and the movement gate (`visible_cells`/`visible_cells_cached`) — so occluding the
   environment ambient behind a `blocksLight` wall genuinely narrows what a non-GM can see and move
   into, the same as a placed light's occlusion. `env_light_polys` samples the scene-bounds
-  perimeter (`MAX_ENV_LIGHT_SAMPLES=256`, clamped `[4, 256]`) and reuses the SAME
+  perimeter (`MAX_ENV_LIGHT_SAMPLES=256`, clamped `[4, 256]`; skipped outright at zero
+  environment intensity, where the composition admits no environment at all) and reuses the SAME
   `vision::visibility_polygon` primitive + `light_walls` set placed lights already use — no forked
   occlusion computation. **Fail-closed/strictly-narrowing by construction:** the occluded
   environment base is `≤` the pre-occlusion flat-floor level everywhere (an empty `env_polys` set
@@ -1121,11 +1464,27 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   illumination — and therefore the derived visibility mask — can only SHRINK relative to the prior
   flat-ambient behavior, never grow; this monotonicity is what makes the projection safe to ship as
   a secrecy input even independent of `env_light_polys`'s own occlusion-computation correctness.
-  **The CLIENT-side render (the `Lighting` class) is UNCHANGED and remains purely COSMETIC** — it resolves
-  band→darkening alpha + tint + `renderHint` desaturation for display only; fog stays the sole
-  *rendered* secrecy gate on the client, and the client performs no occlusion computation of its
-  own. Do not conflate the two: server-side environment occlusion is a load-bearing secrecy input,
-  client-side lighting is display-only.
+  **The lit set IS the visible set — for the mask, the token stream and the explored memory.**
+  A normal-vision observer's visibility on a lighting-enabled scene is `LOS ∩ lit`
+  (server-authoritative; darkvision bypasses the light half within its range): `player_lit_mask`
+  emits it, the egress clip admits a token's position samples by the same per-source conjunction
+  (`InstantSight::sees` — `ws::conn::clip_move_stream`), and `enrich_vision_explored` remembers
+  exactly those cells (`ExploredSet::mark_cells`). The `vision` payload's `polygons` remain the
+  LOS alone (the fog's holes), so the CLIENT must render "in sight but unlit" itself: the
+  `Lighting` class carries darkness regions (`Lighting.setDarkness`, the viewer's current line of
+  sight — `renderVisibility`'s `visible` set, or the vision sweep's chosen/blend polygons while
+  one plays) that `LightingFrame.darkness` hands the backend, and `PixiBackend.setLighting`
+  paints them as a sheet at `MAX_DARK_ALPHA` (the darkest gradation band) inverse-masked by the
+  union of the lit cells' polygons (`litHoles`, the same sheet-and-holes technique
+  `paintFogSheets` uses) beneath the per-cell fills — with NO lit cell the sheet paints whole
+  with its mask cleared, the explicit branch, never through an inverse mask over an empty
+  `Graphics` whose rendering the code would otherwise be assuming — so an in-sight unlit cell is
+  as dark as the darkest band, never brighter than a dim cell, and a token standing in it is
+  drawn under that darkness (send-then-hide, under the UX-outranks-secrecy invariant; the server never streams its
+  MOVE to that observer). Darkness is withheld when no lighting model applies
+  (`Lighting.setTarget(null)`: a GM's `mode:"all"`), and the client still performs no occlusion
+  or illumination computation of its own — band→alpha, tint and `renderHint` desaturation are
+  display resolution of server-decided cells.
 
 - **The pathfinder route is footprint-STRICTER than the center-based authoritative gate on WALLS,
   but its MASK predicate is now a superset of the gate's.**
@@ -1211,28 +1570,37 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   IN-FLIGHT path only; RESTING token positions still ride the position `Event` + client-side fog
   model (delivered to all scene readers, fogged client-side per `fog-is-the-secrecy-gate-fail-closed`)
   — this does not change that. **Concurrent-move clip, against the recipient's OWN in-flight
-  vision timeline, not just their committed vision.** `ws::conn::clip_move_stream` resolves the
-  clip target's in-flight streams via `Room::mover_streams` and clips each sample of the OTHER
-  token's `MoveStream` per-sample-instant against `ws::move_clip::timeline_polys_at` (falling back
-  to committed vision — `player_vision_polygons` — while the target has no active stream): a
-  sample is admitted only if it lies inside the union of the target's chosen vision sample
-  (`ws::move_clip::chosen_vision_sample`) at that sample's absolute server time. **Re-emit on
-  own-move:** when the clip target's own move starts (their vision timeline just came into
-  existence), `egress_loop`'s `MoveStream` branch re-clips and re-sends every OTHER in-flight
-  stream in the scene via `Room::concurrent_streams`, under its original `token_id` (the client
-  overwrites keyed playback in place, per `TokenAnimator.animateSamples`'s replace-in-place
-  contract) — this is what reveals a third-party mover the instant the recipient's OWN sightline
-  opens mid-walk, rather than only at the mover's stop. **Client parity, mechanically pinned:**
+  sight, not just their committed sight.** `ws::conn::clip_move_stream` resolves every in-flight
+  stream in the scene via `Room::scene_streams` and clips each sample of the OTHER token's
+  `MoveStream` per-sample-instant through `ws::move_clip::ClipInputs::at`, resolved ONCE per
+  distinct instant for both gates (`clip_frame`): the target's own in-flight token is re-raycast
+  at its chosen position sample (`SightSources::los_at` — for an instant before its move starts
+  that is the FIRST sample, the position it still occupies, never the committed END) and every
+  registered stream's chosen light sample is composed into the field
+  (`RecipientSight::sample_light`), so a sample is admitted only if the target PERCEIVES it
+  (`InstantSight::sees_token`: `sees`, or a creature sense reaching the mover) at that sample's
+  absolute server time. **Re-emit on own-move or torch arrival:** when the clip target's own move starts
+  (their viewpoint timeline just came into existence) or a `mover_light`-carrying move starts
+  (the glow changes what they see), `egress_loop`'s `MoveStream` branch re-clips and re-sends
+  every OTHER in-flight stream in the scene via `Room::concurrent_streams`, under its original
+  `token_id` (the client overwrites keyed playback in place, per
+  `TokenAnimator.animateSamples`'s replace-in-place contract) — this is what reveals a
+  third-party mover the instant the recipient's OWN sightline opens mid-walk, rather than only at
+  the mover's stop. **Client parity, mechanically pinned:**
   `chosen_vision_sample`'s rule (greatest `t_ms <= elapsed`, first sample when none precedes) must
   match the client's `chooseVisionSample` (`fog-blend.ts`) exactly, or a sample admitted
   server-side would not be the one the client's sweeping fog shows; both sides assert against the
-  shared fixture `src/client/render/src/__fixtures__/chosen-vision-sample.json`. **Known v1
-  limitation, now narrower (by design, not a bug):** a THIRD PARTY's moving LIGHT SOURCE opening a
-  sightline mid-walk still reveals its mover only at that mover's stop — the light-carrying move's
-  own vision would need to be recomputed per sample, which this clip does not do (it clips against
-  the RECIPIENT's own vision timelines, never a third party's); reconciles at the stop + the next
-  `vision` rebroadcast, same as before. Client computes NO vision in any of this — it renders only
-  the streamed, already-clipped polygons.
+  shared fixture `src/client/render/src/__fixtures__/chosen-vision-sample.json` — on BOTH sample
+  kinds, since the carried-light timeline selects through the same generic function. **A THIRD
+  PARTY's moving LIGHT SOURCE is served by the `mover_light` timeline** (the egress admission
+  bullet above): the light-carrying move's glow is sampled per position sample on the server and
+  admitted per recipient by reach, so the corridor lights up mid-walk on the observer's client
+  (the `lightSweeps` bullet below); the position clip composes that same glow into its
+  illumination test (a moving light DOES alter what a normal-vision observer sees), and the
+  mover's own fog sweep is unchanged. A recipient the glow alone reaches gets a glow-only frame
+  (no position sample, the admitted light timeline) and plays the light sweep without a token
+  tween. Client computes NO vision in any of this — it renders only the streamed,
+  already-admitted polygons, intersected with its own fog.
 - **Region secrecy is a two-value contract on `region_field`, never a third mode.**
   `region_field(scene, None)` = authoritative (GM + `move_exec`); `region_field(scene, Some(user))`
   = per-requester (the router only). Callers must never pass `Some(gm_user)`. By construction the
@@ -1298,7 +1666,9 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
     Zod schema, the `MoveStream` interface in `ws-client.ts`, and that file's snake_case→camelCase
     mapper in the `"move_stream"` case; miss any one and the field is unreachable from client
     code while every gate stays green. `truncated` is pinned end-to-end by assertions on the
-    parsed value and on the mapped object, mover and clipped-observer paths both.
+    parsed value and on the mapped object, mover and clipped-observer paths both; `mover_light`
+    (`WireMoveStreamLightSample` → `MoveLightSample` → the `moverLight` mapper arm) is pinned the
+    same way, field for field, on the timeline-present and the `null` paths.
   - **`truncated` is NOT interchangeable with the client's derived move outcome.**
     `WorldSession.moveRequest` derives `WorldSession.moveRequest.executed`/`truncated` from
     geometry (does `stop` equal the
@@ -1406,8 +1776,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   sample each interval's midpoint, plus a perpendicular epsilon probe either side of each crossing
   and both endpoints (edge-riding / vertex / endpoint-on-boundary). Over-inclusion is the only
   failure mode and is safe HERE because this set feeds gates only, never a reveal write (the sole
-  explored-set writer, `ws::conn::enrich_vision_explored`, is fed by vision polygons via
-  `mark_polygons`) — re-check that property before reusing it anywhere else.
+  explored-set writer, `ws::conn::enrich_vision_explored`, is fed by the lit mask's own visible
+  cells via `mark_cells`) — re-check that property before reusing it anywhere else.
 - **"The square failure mode can't happen here" is not a safety argument.** Hex genuinely has no
   analog of the square diagonal-corner-tie bug — 6 uniform neighbors, no orthogonal/diagonal
   split — and that true statement is what let the thin-line traversal ship unexamined: hex had its
@@ -1432,18 +1802,19 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   crossings (both flankers emitted) is covered by dedicated regression tests in
   `scene::movement`. `execute_move`'s frozen-fixture "diagonal 3-step king path, full visible" case
   (`scene::move_exec`) pins the non-truncated outcome.
-- **Cross-scene `MoveStream`/`ScenePing` leak class — exists only because per-client scene
+- **Cross-scene `MoveStream`/`ScenePing`/`Emote` leak class — exists only because per-client scene
   divergence is possible.** When every client renders the SAME scene (`activeScene`, in
   lockstep), there is no per-client "which scene am I looking at" state for a broadcast
   fan-out egress path to diverge against, so this leak class cannot exist.
   `gmViewedScene` (GM local roam) is what introduces per-client scene divergence: a
-  room-wide `MoveStream`/`ScenePing` broadcast now reaches connections that may be viewing
+  room-wide `MoveStream`/`ScenePing`/`Emote` broadcast now reaches connections that may be viewing
   DIFFERENT scenes than the event targets. `WorldSession` closes it client-side by dropping any
-  frame whose `scene` doesn't equal `this.viewedSceneId` (`onMoveStream`/the `scene_ping` handler,
+  frame whose `scene` doesn't equal `this.viewedSceneId` (`onMoveStream`/the `scene_ping`/`emote`
+  handlers,
   the `worldSession` module) — a GM roaming scene B must not animate/ping-render scene A's event, and
   vice versa. **Any future per-client "which scene am I looking at/subscribed to" feature must
   re-audit EVERY broadcast fan-out egress path for this same divergence class, not just the render
-  layer** — `MoveStream`/`ScenePing` are the two that carry the client-side scene filter; a new room-wide
+  layer** — `MoveStream`/`ScenePing`/`Emote` are the three that carry the client-side scene filter; a new room-wide
   broadcast type added later (chat, pings, future presence/cursor frames) inherits the same risk
   the instant any client can view something other than the room's single shared `activeScene`.
 
