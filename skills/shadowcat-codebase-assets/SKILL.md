@@ -52,7 +52,9 @@ pipeline-derived tags.
   `MAX_TAG_CHARS`/`MAX_TAGS`) is the one rule for GM-set tags, applied by the routes
   (`uploads::validate_tags`) and by bundle import alike.
 - `data::asset::query` — the repo's vocabulary: `AssetFilter { folder: Option<FolderFilter>,
-  tags, kind: Option<AssetKind>, name }`, `AssetSort { Name, Created, Size }`, `AssetCursor`, `sort_key_of`.
+  tags, kind: Option<AssetKind>, query: Option<String> }` (`query` is a
+  full-text query over the display name AND every explicit/derived tag, not a name substring; see
+  `assets_fts` below), `AssetSort { Name, Created, Size }`, `AssetCursor`, `sort_key_of`.
 - `data::sqlite::assets` (sibling `impl SqliteRepository`) — `insert_asset`, `get_asset`,
   `list_assets_by_world`, `query_assets` (QueryBuilder; recursive CTE for folder subtrees;
   keyset `(sort_key, id) >`), `replace_asset_bytes(…, meta)`, `set_asset_tags(id, explicit,
@@ -72,7 +74,9 @@ pipeline-derived tags.
     `spawn_sweeper`, routes `create_session`/`put_chunk`/`complete_session`/`abort_session`,
     shared validators `validate_tags`/`validate_folder`.
   - `http::assets::query` — `GET /api/worlds/{world}/assets`: bare `Asset[]` with NO params,
-    `AssetPage { items, next_cursor }` with any; `compile_regex` (≤256 bytes, 1 MiB size/DFA
+    `AssetPage { items, next_cursor }` with any; `AssetQuery.q: Option<String>`
+    maps to `AssetFilter.query`, matched via `assets_fts` (below), NOT a substring/LIKE; `is_bare`
+    checks whether `q` is absent. `compile_regex` (≤256 bytes, 1 MiB size/DFA
     caps), `encode_cursor`/`decode_cursor`.
   - `http::assets::mutate` — `patch` (`PATCH /api/assets/{uuid}`), `bulk`
     (`POST /api/worlds/{world}/assets/bulk`), `original` (`GET …/original`, GM), `reconvert`
@@ -82,6 +86,19 @@ pipeline-derived tags.
   `AssetOp::Replaced`, `AssetOp::Moved`, `AssetOp::Deleted` — and `version` is always a real
   ordering token: `1` for `Created`, bumped for `Replaced`, unchanged for `Moved`, the
   pre-removal value for `Deleted`.
+- **`assets_fts`** — an FTS5 virtual table (`content`, `asset_id UNINDEXED`, `world_id
+  UNINDEXED`, unicode61) declared in `0001_init.sql` alongside the documents FTS tables (see
+  `shadowcat-codebase-documents-permissions`'s `data::search` seam for the document-side index,
+  a SEPARATE table by design — assets have no permission tiers to partition by visibility). FIVE
+  triggers keep it live (named assets_fts_insert/assets_fts_update_name/assets_fts_delete/
+  assets_fts_tag_insert/assets_fts_tag_delete in `0001_init.sql`): one AFTER INSERT on `assets`,
+  one AFTER UPDATE OF `original_name` on `assets` (delete+reinsert), one AFTER DELETE on
+  `assets`, and one each AFTER INSERT/DELETE on `asset_tags` (delete+reinsert,
+  keyed off `old.asset_id` on the delete side, a safe no-op if the asset row is
+  already gone). `query_assets`'s full-text branch (`AssetFilter.query`) compiles the query via
+  `data::search::build_match` and joins `a.id IN (SELECT asset_id FROM assets_fts WHERE
+  assets_fts MATCH ...)`; an empty/punctuation-only query short-circuits to an empty page rather
+  than reaching FTS5 with a syntax error.
 - `Config.retain_originals` (default `true`; CLI `--retain-originals`, env
   SHADOWCAT_RETAIN_ORIGINALS) — host-level disk policy, forwarded into `NewAssetBytes`/`PostPublishDeps`/`FetchDeps`.
 - Client core (`src/client/core/src/`): `asset-rest.ts` (`listAssets`, `uploadAsset`,
@@ -96,7 +113,9 @@ pipeline-derived tags.
   `CreateUploadRequest`/`CreateUploadResponse`, `AssetFolderEngine`.
 - **`@shadowcat/module-asset-browser`** (`AssetBrowser` + focused sub-components) — the GM
   browser panel: reactive `FolderTree` (create/rename/delete-dialog/drag + accessible Move-to,
-  dispatching `Operation::Move` via `buildMoveOp`), `FilterBar` mapped 1:1 onto `queryAssets`,
+  dispatching `Operation::Move` via `buildMoveOp`), `FilterBar` mapped 1:1 onto `queryAssets`
+  (`FilterState.query`/`queryIsRegex` drive `AssetQuery.q` when
+  not in regex mode, `nameRegex` when in it; testid `filter-query`),
   the `computeGridWindow`-virtualized multi-select `AssetGrid`, `PreviewPane` (tags/rename/
   replace/download-original/reconvert/delete), `BulkBar`, and the sequential `UploadQueue`
   (model in `uploadQueueModel.svelte.ts` — a case-insensitive filesystem cannot hold
@@ -107,6 +126,14 @@ pipeline-derived tags.
 
 ## Hard invariants
 
+- **The asset index is trigger-maintained; no Rust write site touches it.** `assets_fts` is kept
+  in sync entirely by the five SQLite triggers named in the `assets_fts` seam above — inserting,
+  renaming, deleting an asset row, or adding/removing a tag row, all update the index structurally
+  via the schema, never via a Rust call from `commit_staged_asset`, `set_asset_tags`,
+  `refresh_derived_tags`, `update_asset_placement`, `delete_asset_files_and_row`, or any other of
+  the six-plus write sites that touch `assets`/`asset_tags`. This is a deliberate design choice
+  (over threading index-maintenance calls through every write site): a future write path added to
+  either table gets the index for free and cannot forget to maintain it.
 - **All mutation routes are GM-ONLY, with no owner exception** — `upload`, chunked sessions,
   `replace`, `delete`, `patch`, `bulk`, `reconvert`, `original`, `delete_folder` each go through
   `require_gm`. `serve` (and its `?variant=` form) is the only membership-gated read.
@@ -180,7 +207,10 @@ pipeline-derived tags.
   `original_retained` when no `.orig` travelled. `ExportedAssetRow`'s new fields are
   `#[serde(default)]` and `AssetMeta` is `#[serde(default)]` at the struct level (a
   field-level default on a flattened struct does not default its missing keys), so a
-  pre-pipeline bundle still imports; imported explicit tags pass `normalize_tags`.
+  pre-pipeline bundle still imports; imported explicit tags pass `normalize_tags`. Import never
+  writes `assets_fts` directly — its triggers rebuild it from the imported `assets`/`asset_tags`
+  rows, the same never-exported posture the document FTS tables hold (`world_bundle`'s module doc
+  and `insert_imported_document`'s doc state it).
 
 ## Gotchas
 

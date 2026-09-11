@@ -357,7 +357,11 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   roam; no-ops+warns for a non-GM), `AppContext.searchDocuments(query, opts, onUpdate) ->
   Promise<SubscriptionHandle>` (the live-FTS subscription seam, exposed through
   `AppContext`/`WorldSession` — wraps `WsClient.subscribeSearch`, ephemeral/NOT
-  reconnect-resilient), `AppContext.sceneSelection: SceneSelection`
+  reconnect-resilient; `opts.docTypes?: string[]` narrows server-side to the listed `doc_type`s
+  — an empty/omitted array searches every type — threaded straight to the wire `Search` frame's
+  `doc_types`, capped server-side at `MAX_SEARCH_DOC_TYPES`; a caller narrowing to one type (e.g.
+  `ActorsPanel`'s `docTypes: ["actor"]`) does NOT re-filter results client-side, since the server
+  already returns only matching-type hits), `AppContext.sceneSelection: SceneSelection`
   (a small stable-ref class, `configureSceneId`
   + `select(id)`, shell-constructed in `Table` like `panels`/`sheets`; distinct from BOTH
   `viewedSceneId`/`activeScene` — configuring a scene's per-scene settings never moves any

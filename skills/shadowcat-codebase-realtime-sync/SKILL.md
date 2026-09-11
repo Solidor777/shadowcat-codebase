@@ -327,7 +327,14 @@ optimistically and roll back on divergence.
 - **Permissions filter every broadcast per recipient** — hidden fields are stripped before
   transmission (see `shadowcat-codebase-documents-permissions`), never sent-then-hidden.
 - **Live search rides the broadcast** as top-N subscriptions over the same egress
-  [[m6c-2-live-search]].
+  [[m6c-2-live-search]]. `ClientMsg::Search` and the `Egress::Subscribe`/`Sub` subscription
+  record both carry `doc_types: Vec<String>` (`#[serde(default)]` on the frame, so an omitted
+  field defaults to empty — no filter, every type). `ws::conn`'s ingress arm cap-checks
+  `doc_types.len()` against `data::search::MAX_SEARCH_DOC_TYPES` (16) BEFORE calling the
+  repository, on BOTH the one-shot and subscribe arms — sending `ServerMsg::SearchError` on
+  violation — as defense-in-depth ahead of `Repository::search`'s own identical check
+  (`shadowcat-codebase-documents-permissions`), so a caller that bypassed ingress validation
+  entirely still cannot force an unbounded `doc_type IN (...)` clause.
 - **One-shot correlated request pairs** (`Search`→`SearchResult`/`SearchError`;
   `Pathfind`→`PathResult`/`PathError`; `MergePull`/`MergePush`/`MergeRevert`→`MergeResult`/
   `MergeError`, the last via `WsClient.mergePending` with a caller-sized `timeoutMs` — see

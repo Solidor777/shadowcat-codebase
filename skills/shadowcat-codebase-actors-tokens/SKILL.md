@@ -287,7 +287,11 @@ fx (`Condition.fx`), toggled by the GM or the token owner.
   `TokenVisionControl`/`TokenLightControl`); "custom" seeds from the stored override, else the
   resolved inherited set, and a stored empty list reads as custom ("no tags"), never as inherit.
   **Actor browser:** a search input drives live FTS via `ctx.searchDocuments` (the
-  subscription seam, wired through `AppContext`/`WorldSession`) — an EMPTY
+  subscription seam, wired through `AppContext`/`WorldSession`), called with
+  `{ docTypes: ["actor"] }` — the server filters to `doc_type == "actor"` itself
+  (`shadowcat-codebase-realtime-sync`'s `doc_types` cap; `shadowcat-codebase-documents-permissions`'s
+  `Repository::search` filter), so `ActorsPanel` does NOT client-side re-filter the returned hits
+  by doc_type — an EMPTY
   query renders the existing reactive full `ctx.documents.query("actor")` list; a NON-EMPTY query
   opens a `subscribeSearch` handle keyed on the query string, torn down/recreated on every query
   change and on unmount. Deliberately NOT reconnect-resilient (unlike `subscribeScene`) — a

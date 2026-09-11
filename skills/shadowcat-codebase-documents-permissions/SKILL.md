@@ -79,18 +79,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - `data::engine` — the typed `engine`-band structs + the ingress-validation
   registry, one submodule per doc-type family (`data::engine::token`, `data::engine::scene`,
   `data::engine::geometry`, `data::engine::registries`) plus the `data::engine` module itself:
-  `is_engine_doc_type(doc_type) -> bool` (the 26-entry registry:
-  `is_engine_doc_type::token`/`is_engine_doc_type::scene`/`is_engine_doc_type::wall`/
-  `is_engine_doc_type::region`/`is_engine_doc_type::light`/`is_engine_doc_type::drawing`/
-  `is_engine_doc_type::template`/`is_engine_doc_type::actor`/`is_engine_doc_type::message`/
-  `is_engine_doc_type::world-settings`/`is_engine_doc_type::vision-modes`/
-  `is_engine_doc_type::light-gradation`/`is_engine_doc_type::chat-settings`/
-  `is_engine_doc_type::dice-settings`/`is_engine_doc_type::channel-registry`/
-  `is_engine_doc_type::faction-registry`/`is_engine_doc_type::condition-registry`/
-  `is_engine_doc_type::asset_folder`/`is_engine_doc_type::table`/`is_engine_doc_type::note`/
-  `is_engine_doc_type::combat`/`is_engine_doc_type::combatant`/
-  `is_engine_doc_type::resource-registry`/`is_engine_doc_type::effect`/
-  `is_engine_doc_type::system-defaults`/`is_engine_doc_type::combat-history` — the combat family
+  `is_engine_doc_type(doc_type) -> bool` (membership in `ENGINE_DOC_TYPES`, the one 26-entry
+  registry slice — token, scene, wall, region, light, drawing, template, actor, message,
+  world-settings, vision-modes, light-gradation, chat-settings, dice-settings, channel-registry,
+  faction-registry, condition-registry, asset_folder, table, note, combat, combatant,
+  resource-registry, effect, system-defaults, combat-history; `search_text`'s match must stay
+  in sync with it — the combat family
   plus `system-defaults`, see `shadowcat-codebase-combat`; `table` (rollable tables) is
   standalone, never embedded/parented, while `note` forms its OWN `parent_id` tree of notes
   (never embedded, but — unlike `table` — MAY carry a parent), see
@@ -273,13 +267,27 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     delta is stripped of the recorded hidden pointers exactly as a `/system` delta is stripped
     of the document's own.
 - `data::search` — `index_content` (full) vs `index_content_public` (redacted):
-  the index is **partitioned by visibility**, not redacted after the fact. `index_content` sweeps
-  the `doc_type` unconditionally, the envelope `name` when present, and — through `collect_leaves`,
-  which recurses objects and arrays — every STRING **and NUMBER** leaf of both the `engine` band
-  and the `system` body; keys, booleans and nulls are excluded. `index_content_public` re-runs
-  `filter_properties` first (a nulled band contributes nothing) and matches on its `Result`: an
-  unclassifiable override makes it write EMPTY public content rather than fail the index write or
-  index unredacted text.
+  the index is **partitioned by visibility**, not redacted after the fact. `index_content` no
+  longer indexes `doc_type` at all — it composes the envelope `name` when present,
+  `data::engine::search_text(doc_type, engine)` (an exhaustive per-doc_type match over the
+  `engine` band's OWN display-text fields — e.g. `actor`'s `display_name`,
+  `chat::segments_search_text` over a `note`'s rendered `body`/a `message`'s `content`, the
+  registries' `name` fields, `light-gradation`'s band names, a `token`'s `overrides.name`, a
+  `combat-history`'s captured combatant names; `unreachable!()` on any doc_type missing an arm —
+  a runtime fallback the compiler cannot check, so a new `ENGINE_DOC_TYPES` entry with no
+  `search_text` arm panics `search_text_is_registered_for_every_engine_doc_type` rather than
+  silently indexing nothing), and — through `collect_leaves`, which recurses objects and arrays —
+  every STRING **and NUMBER** leaf of the `system` body ONLY (the `engine` band is no longer
+  leaf-swept generically; its indexed text is exactly what `search_text` names). `index_content_public`
+  re-runs `filter_properties` first (a nulled band contributes nothing) and matches on its `Result`:
+  an unclassifiable override makes it write EMPTY public content rather than fail the index write
+  or index unredacted text. `Repository::search` takes `doc_types: &[String]` — an `AND doc_type IN
+  (...)` filter over the `doc_type UNINDEXED` FTS column (both `documents_fts_public`/
+  `documents_fts_gm`), built via a `sqlx` query builder with a per-value bound parameter, capped at
+  `data::search::MAX_SEARCH_DOC_TYPES` (16) — checked ONCE at WS ingress (`ws::conn`'s
+  `ClientMsg::Search` arm, which gates both the one-shot query and the `Egress::Subscribe`
+  send) ahead of the repository's own check, as defense-in-depth. A caller narrows results to specific doc types; it does not change what is
+  indexed.
 - `data::repository`/`data::validation` — `Repository` trait (storage seam; SQLite today, Postgres-capable later) +
   structural validation (size caps, field-path validity, `deny_unknown_fields`); `data::validation`
   applies the same `MAX_SYSTEM_BYTES` (256 KiB) cap to `engine` as to `system`, checked
@@ -399,11 +407,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     and narrowing it would be wrong.
   - **`WireSearchHit.snippet`, and the `document` beside it, carry indexed text that a consumer
     must render as INERT TEXT, never as innerHTML.** The exposed set is everything
-    `index_content` sweeps (see the `data::search` seam above): the `doc_type`, the envelope
-    `name`, and every string and number leaf of `engine` and `system`. `doc_type` is
-    client-supplied on `Create` and no charset validation constrains it anywhere in
-    `data::validation`, so the hostile-input surface includes the envelope, not just the two
-    opaque bodies.
+    `index_content` composes (see the `data::search` seam above): the envelope `name`,
+    `data::engine::search_text`'s per-doc_type display text, and every string and number leaf of
+    `system`. `doc_type` itself is NOT indexed — narrowing by type is the `doc_types` filter's
+    job, not a text-match side effect — but a hit's `document.doc_type` is still client-supplied on
+    `Create` with no charset validation anywhere in `data::validation`, so the hostile-input
+    surface includes the envelope, not just the two opaque bodies.
 - The client `scene-docs` module — `ITEM_DOC_TYPE = "item"`, `ItemSystem`, `buildItemDoc`:
   a **client-only doc_type** — the server has NO Rust-side knowledge of `ITEM_DOC_TYPE` and
   requires none, since `doc_type` is an unconstrained wire string and `system` is opaque JSONB the

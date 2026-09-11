@@ -336,6 +336,18 @@ with zero message-specific plumbing in any of those subsystems.
   - `plain_text_content(raw) -> Vec<Segment>` — the fail-closed plain-text producer, wraps raw input verbatim as one
     `Segment::Text` (no sanitization yet; the client renders it as a text node, never
     `innerHTML`, so embedded markup is inert).
+  - `chat::search_text::segments_search_text(segments: &[Segment]) -> String` — the ONE
+    reader-facing text extraction over a `Segment` list, shared by every caller that needs plain
+    searchable text rather than a renderable body: `Text`/`Html` (tags stripped, entities
+    decoded) contribute their text, `RollEmbed` contributes its `formula` only (it carries no
+    label; never `outcome`/`spec`/`raw`/`recalc_history`), `RollButton` its `formula` + `label`,
+    `LinkPreview` its title, description AND url (never the image asset id), `OEmbed` its title,
+    author and provider names (never an id or the url), `DocLink`/`Image` only their label/alt,
+    and `TableDraw` recurses through its `table_name` and matched row's label/content, nested
+    draws included (never the draw's own `formula`/`outcome`/`spec`/`raw`/ids). `data::engine::search_text`
+    (`shadowcat-codebase-documents-permissions`) calls it for BOTH `note` (a rendered `body`) and
+    `message` (`content`) doc-type projections — the single function keeping those two engines'
+    indexed text in sync rather than two ad-hoc leaf sweeps.
   - `Audience` (`Public`/`Whisper{recipients: Vec<Uuid>}`/`GmOnly`, `#[default] Public`, tagged
     enum, ts-rs exported same as `ActorOwnerRef`) — the intended readership of a message, carried
     on the `SendMessage` frame and stored verbatim in `MessageEngine`. This is the ONLY
@@ -720,7 +732,7 @@ with zero message-specific plumbing in any of those subsystems.
 
 ## Gotchas
 
-- **Docs-ratchet is live on the whole `chat/` tree:** all ten files carry
+- **Docs-ratchet is live on the whole `chat/` tree:** every module file carries
   `#![deny(missing_docs)]` + `#![deny(clippy::missing_docs_in_private_items)]` — a new
   undocumented item fails the 3-OS CI clippy step, and doc comments on the ts-rs types
   (`ActorOwnerRef`, `Audience`) flow into the generated bindings (regenerate + commit with any
