@@ -117,7 +117,10 @@ the reducer (intercept-and-redispatch), so the engine never owns state.
   stable shell-owned handle; `#impl` is `$state` so pre-bind readers (chips) unfreeze when the
   host binds; pre-bind calls warn once. Implements `PanelsApi` + `PanelsChipsView`
   (`minimized`/`metaMap`/`restore`) — `DockChipsContribution` (statusbar `panel-dock` region)
-  reads the same bridge reactively, no second controller.
+  reads the same bridge reactively, no second controller. `PanelsApi.isOpen(id)` is the live
+  open-state read (`PanelsController.isOpen` via `locate`; the bridge answers `false` pre-bind)
+  that `LauncherMenu`'s `aria-checked` and the e2e `openPanel` helper depend on — `toggle` is
+  a genuine toggle, so any caller that means "ensure open" must read `isOpen` first.
 - `panels: Module` (module wiring) — provides multi `PANEL_CONTRACT`
   (`shadowcat.panel`), contributes `PanelHost` into core-ui's singleton
   `shadowcat.surface:panel-host` with a fresh `new DockviewEngine(...)` per world session

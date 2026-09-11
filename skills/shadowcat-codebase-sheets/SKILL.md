@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-sheets
-description: "Use when touching the Shadowcat sheet registry: the `shadowcat.sheet:<doc_type>` contract family, `pickSheet`/`resolveDocRef`/`SheetRef`/`SheetTarget` in @shadowcat/core, `ctx.openDocument`, `SheetsController` (dynamic sheet:<docId> panel registration, wraps every sheet in `SheetHost`), `setField`/`SystemTreeEditor` (the OCC edit path), or the generic actor/item/fallback sheet modules. Covers src/client/core/src/sheets.ts + src/client/ui-kit/src/{sheetsController.svelte.ts,sheetEdit.ts,SystemTreeEditor.svelte,SheetHost.svelte} + src/modules/sheet-{fallback,actor,item}/**. For the panel-manager internals sheets mount into (layout tree, floating placement) invoke shadowcat-codebase-panels; for the template chrome `SheetHost` renders and the merge engine behind it invoke shadowcat-codebase-templates. Invoke shadowcat-codebase-core first."
+description: "Use when touching the Shadowcat sheet registry: the `shadowcat.sheet:<doc_type>` contract family, `pickSheet`/`resolveDocRef`/`SheetRef`/`SheetTarget` in @shadowcat/core, `ctx.openDocument`, `SheetsController` (dynamic sheet:<docId> panel registration, wraps every sheet in `SheetHost`), `setField`/`SystemTreeEditor` (the OCC edit path), or the generic actor/item/fallback/note/table sheet modules. Covers src/client/core/src/sheets.ts + src/client/ui-kit/src/{sheetsController.svelte.ts,sheetEdit.ts,SystemTreeEditor.svelte,SheetHost.svelte} + src/modules/sheet-{fallback,actor,item,note,table}/**. For the panel-manager internals sheets mount into (layout tree, floating placement) invoke shadowcat-codebase-panels; for the template chrome `SheetHost` renders and the merge engine behind it invoke shadowcat-codebase-templates. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Sheet Registry (document panels)
@@ -95,11 +95,14 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
   preserve JSON object KEY ORDER — `Object.entries` iteration order places a rename's new key at
   the end, same as any other remove-then-insert — only the field's PARENT (`basePath`) is
   preserved.
-- `@shadowcat/module-sheet-fallback`/`-actor`/`-item` — the three generic sheets, each `sheetContract`
-  registered (fallback at `-Infinity`, actor/item at `0`). `sheet-item` introduces the client-only
-  `ITEM_DOC_TYPE` doc_type ([[shadowcat-codebase-documents-permissions]]) and the roll-to-chat affordance
-  (`ctx.chat.send({channel:"general", content:"/roll <formula>"})`, gated by `isDiceNotation`).
-  Seam-only: none of the three imports any other `@shadowcat/module-*`.
+- `@shadowcat/module-sheet-fallback`/`-actor`/`-item`/`-note`/`-table` — the five generic sheets,
+  each `sheetContract` registered (fallback at `-Infinity`, the other four at `0`). `sheet-item`
+  introduces the client-only `ITEM_DOC_TYPE` doc_type ([[shadowcat-codebase-documents-permissions]])
+  and the roll-to-chat affordance, posting to `firstChannel(ctx.documents)` (`@shadowcat/core`) —
+  never a hardcoded `"general"` literal — with the roll button disabled while it resolves `null`
+  (the pre-resync window before the server-seeded channel registry arrives); gated by
+  `isDiceNotation`. `sheet-note`/`sheet-table` are documented in full below (Notes/tables sheets).
+  Seam-only: none of the five imports any other `@shadowcat/module-*`.
   **`basePrefix` derivation pattern (`ActorSheet`/`ItemSheet`):** the three-band document
   restructure (envelope `name` / typed `engine` / opaque `system`) put `name`/`engine` at the SAME
   tree node as `system` — `systemPrefix` (the `SheetTarget.writePrefix` from `resolveDocRef`) is
@@ -184,24 +187,64 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
 
 ## Notes/tables sheets
 
-Not yet built — flagged here so a future sheet author starts from the right seams rather than
-re-deriving them. A note sheet renders `note-docs.ts`'s `parseNoteBody(doc)` output through
-`@shadowcat/ui-kit`'s `SegmentList` (the same renderer `module-chat-card` uses for a message's
-`content` — see `shadowcat-codebase-chat`), never a bespoke renderer; a table sheet reuses
-`SegmentList` for row-content previews and `ChatApi.drawTable` for its draw affordance. `/engine/
-source` (a note's own field) and `/engine/rows`/`/engine/draw` (a table's) are `enginePrefix`
-writes under THIS skill's own `basePrefix` derivation pattern (above) — a note/table sheet edits
-`source`/`rows` the same way `ActorSheet`/`ItemSheet` edit any other `engine` field, never by
-hand-deriving a different path shape. `NoteEngine.body`/a table's draw-time content are
-SERVER-DERIVED/resolved — a sheet must never construct or edit either directly. Full engine-body
-shapes and seams: `shadowcat-codebase-tables-notes`.
+`@shadowcat/module-sheet-note` (`NoteSheet.svelte`, `sheet-note:sheet`, priority 0) and
+`@shadowcat/module-sheet-table` (`TableSheet.svelte`/`RowEditor.svelte`/`EntryEditor.svelte`,
+`sheet-table:sheet`, priority 0) are the shipped sheets for `NOTE_DOC_TYPE`/`TABLE_DOC_TYPE`. Both
+follow this skill's `basePrefix` derivation pattern (above) exactly — `/engine/source` (note) and
+`/engine/rows`/`/engine/draw`/`/engine/description` (table) are ordinary `enginePrefix` writes
+through `setField`/`setFields`, never a hand-derived path shape.
+
+- **Note body:** `NoteSheet` renders `note-docs.ts`'s `parseNoteBody(doc)` output through
+  `@shadowcat/ui-kit`'s `SegmentList` (the same renderer `module-chat-card` uses for a message's
+  `content` — see `shadowcat-codebase-chat`), never a bespoke renderer, with `channel =
+  firstChannel(ctx.documents) ?? ""` and the body wrapped in `<fieldset disabled={channel === ""}>`
+  — roll buttons inside it are inert until the channel registry resolves. `NoteEngine.body` is
+  SERVER-DERIVED (`data::engine::note`'s ingress arm unconditionally overwrites it) — the sheet
+  never constructs or edits it directly.
+- **Draft-base OCC (the note-save rule):** opening the editor seeds BOTH a live `draft` and an
+  immutable `draftBase` snapshot of the stored `source`; Save dispatches exactly ONE
+  `setField(ctx, docId, sourcePath, draftBase, draft)` — the OCC `old` is the draft's BASE, never
+  the live stored value at save time. A concurrent remote edit therefore makes the server refuse
+  with `conflict` (surfaced by the shell-wide reject toast, see `shadowcat-codebase-client-shell`)
+  instead of silently overwriting it; the draft is retained (a "changed remotely" banner renders
+  when `storedSource !== draftBase`) so the author reconciles by hand or discards via Reload
+  (which re-seeds both from the CURRENT stored value, never the stale draft).
+- **Note visibility:** a `/permissions/default` (`"none"`/`"observer"`) select, rendered under
+  `ctx.canEdit(doc, "/permissions/default")` — true for the author via `grantAuthor`'s
+  `core:edit_permissions` grant (`shadowcat-codebase-documents-permissions`) and for a GM. Sharing
+  never demotes the author's own `Owner` entry.
+- **Note tree:** children come from `ctx.documents.query(NOTE_DOC_TYPE)` filtered
+  `parent_id === docId`, ordered by `(engine.sort, created_at)`; "New child note" (gated on
+  `ctx.canCreate(NOTE_DOC_TYPE)`) calls `buildNoteDoc(ctx.world, t("sheetNote.untitled"), "",
+  { parentId: docId, owner: ctx.selfId })` then opens it. The notes PANEL builds the same shape
+  for the whole tree via `buildNoteTree` (`shadowcat-codebase-client-shell` — the notes module).
+- **Table rows/entries — whole-array writes:** every row/entry mutation (`addRow`/`removeRow`/
+  `moveRow`/`setRow` in `sheet-table`'s `rowOps.ts`) replaces the WHOLE `engine/rows` array via
+  `setField`, committed on the DOM change event (blur/select), never the input event — `set_pointer` cannot resize
+  an array, and per-keystroke writes would churn OCC against a concurrent editor. Switching the
+  draw rule (`setDraw`) writes `engine/draw` AND a reshaped `engine/rows` (via
+  `normalizeRowsForDraw`) as ONE atomic `setFields` call, since `TableEngine::validate` requires
+  every row's `range` to agree with the new rule against the whole post-image.
+- **Table Draw:** `ctx.chat.drawTable({ tableId: docId, channel, count })` with `channel =
+  firstChannel(ctx.documents)`, disabled while `null`; the server's player-presentable refusal
+  (over-cap count, empty table, cycle, missing asset, rate limit) is surfaced VERBATIM via
+  `ctx.notify` — no client-side draw-count cap duplicates `MAX_TOP_LEVEL_DRAWS`. The entry
+  pickers (`doc`/`draw` kinds in `EntryEditor`) use `ctx.searchDocuments(q, { limit, docTypes })`
+  — `docTypes: [TABLE_DOC_TYPE]` for the table picker — no client-side re-filter.
+- **Neither sheet carries a delete control.** Deletion lives in the panels — `NoteTree` and
+  `TablesPanel` — gated on `ctx.canDelete(doc)` (`shadowcat-codebase-client-shell`'s
+  `canCreate`/`canDelete` mirrors), never raw `doc.owner === ctx.selfId`: ownership is not a
+  capability on either doc_type.
+
+Full engine-body shapes and server-side seams: `shadowcat-codebase-tables-notes`.
 
 ## Pointers
 
 - **Generated API** — `/api/ts/modules/_shadowcat_core.html` (TypeDoc — the `sheets` module),
   `_shadowcat_ui-kit.html` (`SheetsController`/`SheetHost`/`SystemTreeEditor`),
   `_shadowcat_module-sheet-actor.html`, `_shadowcat_module-sheet-fallback.html`,
-  `_shadowcat_module-sheet-item.html`. Produce with `pnpm build:all`.
+  `_shadowcat_module-sheet-item.html`, `_shadowcat_module-sheet-note.html`,
+  `_shadowcat_module-sheet-table.html`. Produce with `pnpm build:all`.
 - Relationships: `graphify query "sheets registry openDocument SheetsController resolveDocRef pickSheet setField"`.
 - Panel-manager internals sheets mount into: [[shadowcat-codebase-panels]].
 - Document/permission model + the client-only `ITEM_DOC_TYPE` doc_type: [[shadowcat-codebase-documents-permissions]].

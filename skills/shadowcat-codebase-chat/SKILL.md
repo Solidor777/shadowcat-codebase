@@ -904,7 +904,13 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   empty overrides map is a no-op). Roll-pending shell derives the
   formula from `sys.source` (command prefix stripped per `parse_command`'s exact tokens) —
   `textOf(content)` alone is EMPTY on markdown/html worlds where the body becomes one Html
-  segment. Edit prefill = `source ?? textOf`; deleted tombstone suppresses body+actions;
+  segment. **A `kind: "roll"` message is NOT always a lone `roll_embed`:** `tables::handle_draw_table`
+  publishes a table draw as `MessageKind::Roll` whose content is one-or-more `table_draw`
+  segments, so `MessageCard.svelte` branches on `isTableDrawContent` (every raw segment a KNOWN
+  `table_draw`, via `isKnownSegment`) and renders it through `SegmentList` — the pending shell is
+  only the fallback for a genuinely unrenderable roll-kind shape (plain text/html, an unknown
+  segment, a `roll_embed` plus an extra segment), never the table-draw case.
+  Edit prefill = `source ?? textOf`; deleted tombstone suppresses body+actions;
   actions are owner-or-GM, hover/focus-revealed only on hover-capable devices.
 
 ## Pointers

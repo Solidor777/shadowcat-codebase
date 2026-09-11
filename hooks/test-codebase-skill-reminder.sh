@@ -94,12 +94,21 @@ check t2 "/srv/checkouts/shadowcat/src/server/src/data/engine/table/tests.rs" "s
 check t3 "C:/Dev/Shadowcat/src/server/src/tables/draw.rs"             "shadowcat-codebase-tables-notes"
 check t4 "/srv/checkouts/shadowcat/src/client/core/src/table-docs.ts" "shadowcat-codebase-tables-notes"
 
-# The `note` half of `tables-notes` -- added in M19 fold-in review after the note engine/tree/
-# client module globs were skipped in the original plan (routed to documents-permissions or
-# matched nothing at all until this fix).
+# The `note` half of `tables-notes`: the note engine/tree/client-module globs must route here,
+# never to documents-permissions, and must never fall through unmatched.
 check t5 "C:/Dev/Shadowcat/src/server/src/data/engine/note.rs"        "shadowcat-codebase-tables-notes"
 check t6 "/srv/checkouts/shadowcat/src/server/src/data/engine/note/tests.rs" "shadowcat-codebase-tables-notes"
 check t7 "C:/Dev/Shadowcat/src/server/src/data/sqlite/notes.rs"       "shadowcat-codebase-tables-notes"
 check t8 "/srv/checkouts/shadowcat/src/client/core/src/note-docs.ts"  "shadowcat-codebase-tables-notes"
+
+# The shipped note/table sheets route to `sheets`, ahead of `client-shell`'s own module
+# list — absolute Windows-style paths per the real Edit/Write payload shape.
+check s1 "C:/Dev/Shadowcat/src/modules/sheet-note/src/NoteSheet.svelte"   "shadowcat-codebase-sheets"
+check s2 "C:/Dev/Shadowcat/src/modules/sheet-table/src/TableSheet.svelte" "shadowcat-codebase-sheets"
+
+# The notes/tables PANELS route to `tables-notes` (beside the note/table engine doc-type globs
+# above), ahead of `client-shell`'s own module list.
+check t9 "C:/Dev/Shadowcat/src/modules/notes/src/NotesPanel.svelte"   "shadowcat-codebase-tables-notes"
+check t10 "C:/Dev/Shadowcat/src/modules/tables/src/TablesPanel.svelte" "shadowcat-codebase-tables-notes"
 
 echo "ALL HOOK TESTS PASS"

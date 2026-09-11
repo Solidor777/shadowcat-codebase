@@ -104,6 +104,21 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   input. A per-doc_type struct can add real semantic validation beyond shape (not just
   `deny_unknown_fields`) — see `TokenEngine::validate` in `shadowcat-codebase-actors-tokens`
   (shares the movement gate's coordinate bound structurally, not by copied literal).
+  **A server-DERIVED engine path rides the Update as an extra `FieldChange`.** A normalize-time
+  derivation (today only `NoteEngine::derive_body` → `/engine/body`) rewrites a key none of the
+  op's own `changes` named; `data::engine::derived_engine_paths(doc_type)` is the registry of
+  those paths (any `derive_*` call added to `normalize_engine`'s match MUST register there), and
+  `data::validation::derive_engine_side_effects` emits one `FieldChange` per registered path that
+  no requested path overlaps (`permission::paths_overlap` — equal/ancestor/descendant), comparing
+  the TRUE stored pre-image (captured before the op's own `apply_field_change` loop) against the
+  normalized post-image with `command::values_semantically_eq`, so normalization noise (an int
+  round-tripping to `f64`) never emits. Both Update arms append the result to the normalized
+  `changes`, so the returned `Command`, `world_events`, and the broadcast carry it. In
+  `apply_intent`, for every origin that does not `skips_capability_gates`, the derived paths are
+  capability-gated BEFORE any write:
+  Phase 1 records one resolved `Access` per Update op, Phase 2 consumes them in op order and
+  checks `declared_caps_for_path` for each derived path (fail-closed `Forbidden`); the trusted
+  `apply_command` arm skips that check exactly as it skips every capability gate.
 - **Token ownership is EFFECTIVE, and it lives in THIS subsystem's files.** `data::permission::effective_owner`
   and `data::sqlite::load_effective_owner` resolve
   `token's own /owner, else the LINKED actor's owner` at authz time — never stamped. `/owner` is
@@ -183,7 +198,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   floor-resolves and is refused; `WriteOrigin::CombatTransition` is exempt like the other
   capability gates); a stored `message` doc refuses it like every ordinary mutation. Validity is
   **Create-validity**: the shared `check_parent_placement` helper (extracted from the Create arm —
-  never re-spell it) plus `validate_containment` run against the post-image, and
+  never re-spell it; its third caller is `SqliteRepository::import_world`'s post-loop pass, with
+  empty batch maps because every imported row is already in the tx) plus `validate_containment`
+  run against the post-image, and
   `check_move_acyclic`'s batch-aware ancestor walk refuses a move beneath itself. `old_parent_id`
   is the OCC pre-image; `invert` swaps the pair; a no-op move (target == current) is carried in
   the log for invertibility but writes nothing and runs no hooks. Both authoritative loops
@@ -430,6 +447,30 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `StoredCommand::from_stored_json` tolerates a legacy bare-`Command` `world_events` row (no
   `command`/`snapshot` keys), wrapping it with an all-`None` `per_op` so `filter_command` drops
   every op in it on replay rather than falling back to a live-lookup redaction.
+- **`data::permission::project_role_caps_for(caps: &RoleCaps, role: WorldRole) -> RoleCapabilities`**
+  — the per-connection Welcome projection of `WorldCapDefaults.role_caps` for the
+  CONNECTING user's OWN role: `RoleCapabilities { all, by_type }` carries only that role's entries
+  from `caps.all`/`caps.by_type[*]`; nothing about another role crosses, the same isolation rule
+  `project_grants_for` already states for its own actor-grants projection. `ws::conn` computes it
+  beside that projection on every Welcome and sends it as `ServerMsg::Welcome.role_capabilities`; the
+  client mirror (`@shadowcat/core`'s `canCreateDoc`, `WorldSession.canCreate`/`AppContext.canCreate`
+  — `shadowcat-codebase-client-shell`) is ADVISORY ONLY — `apply_intent`'s Create arm's own
+  `role_has` check over `WorldCapDefaults.role_caps` remains the sole authority; this projection
+  only lets the client hide a create affordance the server would refuse, never grants anything.
+- **`grantAuthor` (client-side, `@shadowcat/core`'s `scene-docs.ts`) is the one place "what an
+  author may do to their own document" is stated** — the `Owner` `DocRole` floor is
+  READ+`WRITE_FIELDS` ONLY by design (an owner must not silently gain the power to reassign
+  ownership or reshare a document), so a note/table author needs an EXPLICIT per-document grant of
+  `core:delete`/`core:edit_permissions` onto `permissions.capabilities.by_role.owner` — the exact
+  mechanism the `/owner` and `/permissions/*` path gates already name ("only a GM, or an explicit
+  `EDIT_PERMISSIONS` grant"). `buildNoteDoc`/`buildTableDoc` call it when `opts.owner` is given;
+  `doc.owner` (the ownership OVERRIDE field, `shadowcat-codebase-actors-tokens`'s effective-owner
+  mechanism) is deliberately left untouched — granting capabilities is not the same act as
+  assigning ownership. This is a CLIENT-side convention, not a server gate: nothing on the server
+  requires a Create's `permissions` to look this way, so a hand-built document that skips
+  `grantAuthor` is still valid, just unmanageable by its own creator (see the RAW-OWNERSHIP
+  gotcha below — `canDelete`/`canEdit(doc, "/permissions/default")` resolve through the SAME
+  `resolveCaps` this grant feeds, never through `doc.owner`).
 
 ## Hard invariants
 
@@ -732,6 +773,13 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 
 ## Gotchas
 
+- **OCC pre-images in one `apply_intent` batch are checked against the PRE-BATCH stored value,
+  never against a sibling op's `new`.** Phase 1 loads each op's current document with its own
+  `load_document` read of the not-yet-written tx and applies no intra-batch simulation of an
+  earlier op's changes (the only intra-batch state it tracks is the one-active-combat-per-scene
+  and singleton bookkeeping), so a second `Operation::Update` to the same document whose `old` names the
+  first op's `new` is a `Conflict`. Batches are atomic snapshots; the client coalesces
+  same-document edits into ONE Update via `buildUpdate`'s `FieldEdit[]`, never two chained ops.
 - **RAW OWNERSHIP IS AN UNSAFE PROXY FOR WRITE CAPABILITY ON EVERY DOC TYPE BUT `TOKEN_DOC_TYPE`,
   and a hand-rolled `permissions.default` test is an unsafe proxy for READ on ALL of them.**
   `doc.owner == Some(user)` (or `Access::is_owner`) answers "who owns this", never "may they write

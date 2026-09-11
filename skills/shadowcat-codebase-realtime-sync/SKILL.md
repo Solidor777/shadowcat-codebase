@@ -219,6 +219,15 @@ optimistically and roll back on divergence.
   (`scheduleReconnect`'s exponential-with-full-jitter delay) on every watchdog-close/reconnect
   cycle instead of retrying at the base delay forever, which would amplify load against exactly the
   degraded server the watchdog exists to escape.
+- **`ServerMsg::Welcome.role_capabilities: RoleCapabilities`** — the connecting user's own
+  world-level capabilities, computed by `ws::conn` beside its own actor-grants projection via
+  `data::permission::project_role_caps_for(&world_defaults.role_caps, ctx.world_role)` and sent on
+  every Welcome (fresh connect AND reconnect — this subsystem's own frame, not a one-shot). Full
+  projection semantics (isolation from other roles) live in
+  `shadowcat-codebase-documents-permissions`; the client's advisory `canCreate` mirror lives in
+  `shadowcat-codebase-client-shell`. This subsystem's own concern is only that the field rides the
+  existing Welcome frame — no new frame, no new connection-generation/watchdog interaction beyond
+  what every other Welcome field already gets.
 - `webSocketConnect(url, connectTimeoutMs = 10_000)`: bounds
   the handshake so an accepted-but-never-upgraded socket settles (rejects + closes) instead of
   leaving `WsClient`'s `scheduleReconnect` path unreachable behind an unsettled connect promise. A single

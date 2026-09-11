@@ -173,8 +173,12 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
   - `table-docs.ts` — re-exports the ts-rs-generated `TableEngine`/`DrawRule`/`TableRow`/
     `RowRange`/`TableEntry` verbatim (unlike `MessageEngine`/`Segment`, `TableEngine` DOES cross
     the wire as a stored, editable document, so it gets the real ts-rs binding, not a hand-mirror)
-    plus `buildTableDoc(worldId, name, engine, id?)` — standalone envelope,
-    `permissions.default: "observer"`, `system: {}`.
+    plus `buildTableDoc(worldId, name, engine, opts?: BuildTableDocOptions)` — standalone envelope,
+    `permissions.default: "observer"`, `system: {}`; `opts.id` (the builder's former positional
+    third arg) and `opts.owner`, which calls `grantAuthor` (`scene-docs.ts`,
+    `shadowcat-codebase-documents-permissions`) so the creator holds `core:delete`/
+    `core:edit_permissions` in addition to the `Owner` floor's read+`WRITE_FIELDS` — without it, a
+    granted player could create a table but never edit or delete the one they made.
   - `chat-docs.ts` — `TableDrawSegment`/`DrawnRow` declared as their OWN named types (never
     `Extract<ChatSegment, {kind:"table_draw"}>` — that narrowing is undocumentable by TypeDoc, an
     invariant `shadowcat-codebase-core` states generally). `chatSegmentSchemaImpl` is
@@ -243,7 +247,9 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
   exactly: a note's `parent_id`, when set, must name a `note` in the SAME scope, resolved against
   this batch's own in-flight Creates before the database (same-batch parent+child Creates resolve
   without a database round trip). Dispatched from the ONE shared `check_parent_placement` helper the
-  Create AND `Operation::Move` arms of both `apply_intent`/`apply_command` already call — the
+  Create AND `Operation::Move` arms of both `apply_intent`/`apply_command` already call (and
+  `import_world`'s post-loop pass, where the maps are empty because every bundle row is already
+  inserted) — the
   in-flight-batch map `apply_intent` threads through that helper (despite its historical
   folder-only name) is now populated with BOTH `asset_folder` AND `note` Creates in one batch, since
   ids are unique regardless of doc_type; `check_move_acyclic`'s cycle walk therefore covers a note's
@@ -266,9 +272,12 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     adding a per-caller `number`-construction workaround the way `buildNoteDoc` does for `sort`
     — the two fields differ in kind, not just history: `sort` genuinely needs the wider width on
     the Rust side (a client-chosen sibling-ordering value with no natural bound), while
-    `RowRange` never did). Private-by-default permissions: `default: "none"`, `users: {[owner]: "owner"}`
-    when `opts.owner` is given — the builder is pure and has no session, so the caller MUST pass the
-    authoring user's id explicitly, or the note is readable by nobody but a GM.
+    `RowRange` never did). Private-by-default permissions: `default: "none"`; when `opts.owner` is
+    given, `grantAuthor(doc, opts.owner)` (`scene-docs.ts`) stamps `users[owner] = "owner"` PLUS
+    `core:delete`/`core:edit_permissions` onto `by_role.owner` — the `Owner` floor alone
+    (read+`WRITE_FIELDS`) cannot delete or reshare the note. The builder is pure and has no
+    session, so the caller MUST pass the authoring user's id explicitly, or the note is readable
+    (and manageable) by nobody but a GM.
   - `parseNoteBody(doc) -> (ChatSegment | UnknownSegment)[] | null` — fail-closed: wrong doc_type or
     a malformed `engine.body` both yield `null`. Validates through chat-docs.ts's exported
     `SegmentListSchema` (the SAME schema `ChatMessageEngine.content` validates against — a note body
@@ -296,7 +305,13 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
   honored.** `normalize_engine`'s `"note"` arm always overwrites `body` via `derive_body`, on both
   Create and Update — there is no path where a client-supplied `body` (garbage, stale, or even a
   plausible-looking segment list) survives ingress. Treat any future reasoning about note body
-  content as "derive from `source`", never "validate the client's `body`".
+  content as "derive from `source`", never "validate the client's `body`". The derived `body`
+  reaches live views ONLY because `note` is registered in `data::engine::derived_engine_paths`
+  (`/engine/body`) — `derive_engine_side_effects` appends the `/engine/body` change to every
+  Update whose own `changes` did not already cover it (see `shadowcat-codebase-documents-permissions`),
+  and for any `apply_intent` origin that does not `skips_capability_gates`, a world
+  `CapabilityRequirement` protecting `/engine/body` gates a `/engine/source` write through that
+  same derived-path check.
 - **An inline `[[formula]]` span in a note NEVER executes.** `compose_static` always produces a
   `Segment::RollButton`, never a `Segment::RollEmbed` — a note save must not roll dice as a side
   effect of a document write, unlike chat's own `compose_message` (Execute mode).
@@ -345,6 +360,8 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
 - `shadowcat-codebase-documents-permissions` — the engine-doc-type registry/containment mechanics
   both `table` and `note` register into, and the generic parent-tree/cascade-delete machinery
   `check_note_parent` plugs into.
-- `shadowcat-codebase-sheets` — the not-yet-built table/notes sheets are the first UI consumers of
-  `buildTableDoc`/`buildNoteDoc` and `parseNoteBody`; nothing in this skill's own subsystem builds
-  a sheet.
+- `shadowcat-codebase-sheets` — `@shadowcat/module-sheet-note`/`-sheet-table` are the UI
+  consumers of `buildTableDoc`/`buildNoteDoc`/`parseNoteBody`; `@shadowcat/module-notes`/`-tables`
+  (see `shadowcat-codebase-client-shell`) are the panel-level consumers, and
+  `TableSheet`/`TablesPanel` are the UI consumers of `ChatApi.drawTable`. Nothing in this skill's
+  own subsystem builds a sheet or a panel.

@@ -76,7 +76,17 @@ and restore as a deployment-operator tool, not an in-app feature.
   `BUNDLE_SCHEMA_VERSION`. `data::sqlite::SqliteRepository::export_world_rows`/`import_world` are
   the DB-facing halves — `import_world` rejects a world-id collision before any row is written,
   inserts `worlds` then every table `delete_world` already walks (read instead of deleted) in
-  FK-safe order, and finalizes staged asset files only after every row is accepted. `import_world`
+  FK-safe order, and finalizes staged asset files only after every row is accepted. A bundle's
+  documents are untrusted: `import_world` runs `check_command_scope` on EVERY document's own
+  `scope` before its row is written (`document_row_columns` persists `world_id`/`scope_kind`
+  straight from `scope`, and nothing else in the pipeline checks a leaf's scope), inserts them in
+  parent-before-child order via Kahn's algorithm over the bundle's own `parent_id` edges (cycle
+  members never reach indegree 0 and stay at the tail in `ORDER BY id` order, so the immediate
+  `documents.parent_id` FK rejects them on first insert — there is deliberately no multi-hop
+  cycle walk), then runs ONE post-loop placement pass over every imported document —
+  `validate_containment` → `check_parent_placement` with EMPTY batch maps (every row is already
+  in the tx, the `apply_command` Move-arm precedent) → `Self::self_parent_error` — in the Create
+  arm's own order. `import_world`
   also rejects (whole-transaction rollback) a bundle whose `data.documents` carries two documents
   of the same `SINGLETON_DOC_TYPES` doc_type, mirroring `apply_intent`'s own intra-batch
   `apply_intent::claimed_singletons` tracking (`import_world` builds its own equivalent local) —

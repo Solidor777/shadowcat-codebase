@@ -197,9 +197,13 @@ fx (`Condition.fx`), toggled by the GM or the token owner.
   `"faces"`-union visual (`[]` if the effective visual isn't `"faces"`); shares `resolveTokenActor`'s
   projection with `resolveTokenVisual`, so the face-swap palette (`FaceSwapPalette`, below)
   can't diverge from what actually renders.
-- The `actors` module (`ActorsPanel`, `VisualKindEditor`, `FaceSwapPalette`, `EmissionEditor`,
+- The `actors` module (`ActorsPanel`, `VisualKindEditor`, `FaceSwapPalette`,
   `TokenEmissionControl`, `TokenVisualControl`, `TokenMovementControl`)
   — `ActorsPanel`: create/list/pick actors; hide-name control; faction assignment; shape editing —
+  the create `<form>` is gated by `ctx.canCreate(ACTOR_DOC_TYPE)` (hiding exactly what the
+  server's `core:create` gate would refuse; carried-light/hide-name/ownership stay `role === "gm"`-gated, since those are
+  Update-path GM affordances, not the Create gate — see `shadowcat-codebase-client-shell`'s
+  `canCreate`/`canDelete` bullet) —
   the authored field is `ActorEngine.shape`, a bare string on the server, so its two values are
   enumerated only by the read-through projection's literal union
   (`EffectiveActor.square`/`EffectiveActor.circle`), which is what the citation names — plus size
@@ -247,14 +251,24 @@ fx (`Condition.fx`), toggled by the GM or the token owner.
   config-doc field-toggle editors in this codebase (e.g. the `snapToGrid` toggle) — a
   resolved/defaulted `old` would mismatch the server's field-level optimistic-concurrency check
   after the first successful write.
-  **Emission authoring (`EmissionEditor` + `TokenEmissionControl`):** `EmissionEditor` is one
+  **Emission authoring (`EmissionEditor` + `TokenEmissionControl`):** `EmissionEditor` lives in
+  `@shadowcat/ui-kit` (beside `LightEmissionEditor` — a sheet module cannot import
+  `module-actors`, the seam rule this skill and `shadowcat-codebase-sheets` both enforce; this
+  module and `sheet-actor` both import it from ui-kit, never from each other), one
   controlled component for all three emission kinds (aura / sound / VFX) — props carry the current
   `AuraEmission | null` / `SoundEmission | null` / `VfxEmission | null`, `onAura`/`onSound`/`onVfx`
-  callbacks report replacements (`null` = section toggled off); asset fields are `<select>`s over
+  callbacks report replacements (`null` = section toggled off), plus a `disabled?: boolean` prop
+  (added for `ActorSheet`'s read-only rendering — `sheet-actor` wraps it in
+  `<fieldset disabled={readOnly}>` AND threads the prop, since a `<fieldset disabled>` alone does
+  not reach every nested control the shared markup renders); asset fields are `<select>`s over
   `listAssets(ctx.world)` filtered to `audio/*` (sound) and `image/*`+`video/*` (VFX), refetched on
   `ctx.onAssetChanged`. `ActorsPanel`'s create form mounts it with panel-owned `pendingAura`/
   `pendingSound`/`pendingVfx` `$state` (read through `$state.snapshot` at create, same convention as
-  `pendingVisual`). `TokenEmissionControl` (prop `{ tokenId: string | null }`, mounted by
+  `pendingVisual`); `ActorSheet` mounts ONE instance bound to `engine.aura`/`sound`/`vfx`,
+  committed through the sheet's existing `setEngine(field, next)` (whole-object write, `null`
+  clears — the same wholesale-override shape `TokenOverrides` uses), with NO GM gate — emissions
+  follow standard write rules; `light` alone keeps its GM gate (a vision input, unlike an
+  emitter). `TokenEmissionControl` (prop `{ tokenId: string | null }`, mounted by
   `ActorsPanel` beside `FaceSwapPalette`) is the per-token override editor: it renders only for a
   LINKED selected token (an instanced token's `overrides` never project) and only when
   `ctx.canEdit(tok, "/engine/overrides")` passes, writing `/engine/overrides/aura` (…`/sound`,

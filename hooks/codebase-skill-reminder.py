@@ -20,7 +20,7 @@ SUBSYSTEMS = [
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
     ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),
-    ("tables-notes",         [r"src/server/src/data/engine/table\.rs", r"src/server/src/data/engine/table/", r"src/server/src/tables/", r"src/client/core/src/table-docs\.ts", r"src/server/src/data/engine/note\.rs", r"src/server/src/data/engine/note/", r"src/server/src/data/sqlite/notes\.rs", r"src/client/core/src/note-docs\.ts"]),
+    ("tables-notes",         [r"src/server/src/data/engine/table\.rs", r"src/server/src/data/engine/table/", r"src/server/src/tables/", r"src/client/core/src/table-docs\.ts", r"src/server/src/data/engine/note\.rs", r"src/server/src/data/engine/note/", r"src/server/src/data/sqlite/notes\.rs", r"src/client/core/src/note-docs\.ts", r"src/modules/notes/", r"src/modules/tables/"]),
     ("module-toolchain",     [r"src/server/src/modules\.rs", r"src/server/src/http/module_routes\.rs", r"src/client/core/src/(loader|module-rest)\.ts", r"src/modules/settings/src/ModuleManager", r"examples/"]),
     ("documents-permissions", [r"src/server/src/data/", r"src/client/core/src/wire\.ts"]),
     ("actors-tokens",        [r"src/modules/actors/", r"src/modules/factions/", r"src/modules/conditions/", r"src/client/core/src/actor\.ts"]),
@@ -28,7 +28,7 @@ SUBSYSTEMS = [
     ("realtime-sync",        [r"src/server/src/ws/", r"src/server/src/http/", r"src/server/src/auth/", r"src/client/core/src/(store|optimistic|ws-client)\.ts"]),
     ("panels",               [r"src/modules/panels/", r"src/client/ui-kit/src/panelsBridge"]),
     ("templates",            [r"src/client/core/src/(merge|templates)\.ts", r"src/client/ui-kit/src/(templatesController|TemplateControls|TemplateModalHost|MergeConflictModal|SheetHost)"]),
-    ("sheets",               [r"src/client/core/src/sheets\.ts", r"src/client/ui-kit/src/(sheetsController|sheetEdit|SystemTreeEditor)", r"src/modules/sheet-(fallback|actor|item)/"]),
+    ("sheets",               [r"src/client/core/src/sheets\.ts", r"src/client/ui-kit/src/(sheetsController|sheetEdit|SystemTreeEditor)", r"src/modules/sheet-(fallback|actor|item|note|table)/"]),
     ("client-shell",         [r"src/modules/entry/", r"src/modules/core-ui/", r"src/modules/topbar/", r"src/modules/statusbar/", r"src/modules/settings/", r"src/modules/game-settings/", r"src/client/shell/", r"src/client/ui-kit/", r"src/client/core/src/(contributions|index)(\.test)?\.ts$"]),
     ("server-ops",           [r"src/server/src/main\.rs", r"src/server/src/config\.rs", r"src/server/src/db\.rs", r"src/server/src/backup\.rs", r"src/server/tests/backup_cli\.rs"]),
 ]

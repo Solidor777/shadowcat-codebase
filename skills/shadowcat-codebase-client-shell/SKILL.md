@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-client-shell
-description: "Use when touching the Shadowcat UI shell: the contribution/Surface module architecture, Contribution.panel metadata, AppContext (incl. the chat, uiState.panelLayout, panels/PanelsBridge, and multi-scene viewedSceneId/setGmViewedScene/searchDocuments/sceneSelection seams), the hash router + entry views, i18n/locale, or the shell/UI modules (entry, core-ui, topbar, statusbar, settings, scene-browser). Covers src/client/{shell,ui-kit} + those src/modules. For the panel-manager internals (module-panels, engines, layout tree) invoke shadowcat-codebase-panels; for the render-engine consumption of viewedSceneId invoke shadowcat-codebase-scene-rendering. Invoke shadowcat-codebase-core first."
+description: "Use when touching the Shadowcat UI shell: the contribution/Surface module architecture, Contribution.panel metadata, AppContext (incl. the chat, uiState.panelLayout, panels/PanelsBridge, canCreate/canDelete + role_capabilities, the rejected-intent toast, and multi-scene viewedSceneId/setGmViewedScene/searchDocuments/sceneSelection seams), the hash router + entry views, i18n/locale, or the shell/UI modules (entry, core-ui, topbar, statusbar, settings, scene-browser, notes, tables). Covers src/client/{shell,ui-kit} + those src/modules. For the panel-manager internals (module-panels, engines, layout tree) invoke shadowcat-codebase-panels; for the render-engine consumption of viewedSceneId invoke shadowcat-codebase-scene-rendering. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Client Shell & UI Modules
@@ -425,8 +425,50 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   takes precedence) so the server resolves a statted template's references as the SENDER, never
   the button's author. Details →
   [[shadowcat-codebase-chat]].
+- **`canCreate`/`canDelete` advisory mirrors + `role_capabilities`.** `ServerMsg::Welcome`
+  carries `role_capabilities: RoleCapabilities { all, by_type }` — the CONNECTING user's own
+  world-level capabilities, projected from `WorldCapDefaults.role_caps` for their role by
+  `data::permission::project_role_caps_for` (`shadowcat-codebase-documents-permissions`; nothing
+  about another role crosses). `@shadowcat/core`'s `canCreateDoc(docType, role, roleCaps)` mirrors
+  `apply_intent`'s Create arm (`role === "gm"` ⇒ true; else `roleCaps.all` or
+  `roleCaps.by_type[docType]` contains `"core:create"`); `WorldSession.canCreate(docType)` reads it
+  off the stored Welcome projection, exposed as `AppContext.canCreate(docType): boolean`.
+  `WorldSession.canDelete(doc)` mirrors the `Operation::Delete` gate (`role === "gm"` ⇒ true; else
+  the SAME private `#capsFor(doc)` resolver `canEdit` already uses contains `core:delete` — never
+  a second resolver call, never raw `doc.owner`), exposed as `AppContext.canDelete(doc)`. Both are
+  ADVISORY (the server re-checks at `apply_intent`) and both are used to HIDE, not gate, an
+  affordance the server would refuse — `ActorsPanel`'s whole create form sits under
+  `canCreate(ACTOR_DOC_TYPE)` (carried-light/hide-name/ownership stay `role === "gm"`-gated
+  Update-path controls). Every `setAppContext` fixture defaults `canCreate`/`canDelete`
+  by the SAME rule `role` already uses (`() => (over.role ?? "gm") === "gm"`), so an unmodified
+  GM-role fixture keeps its create/delete affordances.
+- **Rejected-intent toast.** `WorldSession`'s `WsClient.onReject` handler, beside
+  `#optimistic.reject(id)`, invokes an optional `opts.onReject?(reason: RejectReason)` —
+  `RejectReason` is the EXISTING ts-rs type `ws-client.ts` already threads through, no second name
+  introduced. `App.svelte` wires it to `notifications.push("warning",
+  t(\`intent.rejected.${reason}\`))` (three keys: `forbidden`/`conflict`/`invalid`), the same sink
+  `Table.svelte` wires `AppContext.notify` to. This is the ONE place a refused write becomes
+  user-visible feedback — every sheet built on `setField` inherits it for free; a per-sheet reject
+  handler would fork this decision.
+- **`firstChannel`/`buildMoveOp` live in `@shadowcat/core`, not a module.** `firstChannel
+  (documents): string | null` (`chat-docs.ts`) returns the world's `channel-registry` singleton's
+  first key, `null` only in the pre-resync window (the registry is server-seeded) — EVERY
+  roll/draw-posting surface (`ItemSheet`, `NoteSheet`, `TableSheet`, `TablesPanel`) reads this ONE
+  symbol and disables its send/draw control while it is `null`; no module hardcodes a `"general"`
+  channel literal. `buildMoveOp(docId, targetParentId, currentParentId): WireOperation`
+  (`move-op.ts`) is the one `{ op: "move", ... }` builder — the asset-browser folder tree and the
+  notes panel's Move-to both call it, so the wire shape never forks between the two `parent_id`
+  trees that use it.
+- **`buildUpdate` is the one Update-op builder.** `buildUpdate(docId, edits: FieldEdit[]):
+  WireOperation` (`update-op.ts`, `@shadowcat/core`) builds every `{ op: "update", doc_id,
+  changes }` envelope in the client — the `old ?? null` OCC collapse and the `remove: true` change
+  shape (which still carries `new: null`, a required wire field) are stated there once. ui-kit's
+  `setField`/`unsetField`/`setFields` (`sheetEdit.ts`, taking `Pick<AppContext, "dispatchIntent">`)
+  wrap it; `CombatController`, scene-tools' `controller.svelte.ts`, `ToolRail`, and every panel that
+  edits a field call it directly or through those wrappers. A multi-document batch composes several
+  `buildUpdate` results into one `dispatchIntent`. No module hand-builds an `op: "update"` literal.
 - `src/modules/{entry,core-ui,panels,stage,topbar,statusbar,settings,game-settings,scene-browser,
-  chat,chat-composer,chat-card,combat-tracker}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind
+  chat,chat-composer,chat-card,combat-tracker,notes,tables}/` — entry = `@shadowcat/module-entry` (login + world mgmt, behind
   `<Entry onEnterWorld>`); core-ui owns the layout grid + region surfaces into the singleton
   `root` (its main region hosts `shadowcat.surface:panel-host`; BOTH cells of the `1fr` row —
   `.main` AND `.toolrail` — carry the growth cap (`min-height: 0` + a non-visible `overflow-y`),
@@ -445,8 +487,13 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   (inviolable — never docked/floated/minimized); the panel modules each contribute one
   `shadowcat.panel`; defaults are launcher-closed for every panel except chat (docked right
   by default); game-settings gmOnly. `topbar` = `@shadowcat/module-topbar`: hosts
-  `LauncherMenu` (open/close any registered panel by id via `AppContext.panels.toggle`,
-  `launcher-item-{panelId}` testids, a11y menu + focus management) + `Presence` (member
+  `LauncherMenu` (open/close any registered panel by id via `AppContext.panels.toggle` — a
+  TOGGLE, so activating an already-open panel closes it; each item is a `role="menuitemcheckbox"`
+  whose `aria-checked` reads `AppContext.panels.isOpen(id)` live, `launcher-item-{panelId}`
+  testids, a11y menu + focus management; the shell e2e suite's ONE idempotent `openPanel`
+  helper in `fixtures.ts` reads that attribute and clicks only when closed, dismissing the
+  dropdown with Escape otherwise because the full-viewport launcher backdrop intercepts a second
+  trigger click) + `Presence` (member
   roster) + a standing settings-entry button that toggles `settings:panel` through the same
   `AppContext.panels` seam — imports NOTHING from `@shadowcat/module-panels` (seam boundary by
   design: topbar's package.json declares no module-panels dependency and the launcher talks to
@@ -469,6 +516,14 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   `@shadowcat/module-combat-tracker` (the default combat tracker panel, order 2, launcher-closed)
   — both own end-to-end here (`CombatController`/`AppContext.combat` above is their dispatch
   layer); the document/resolver shapes they read and write are `shadowcat-codebase-combat`'s.
+  `notes`/`tables` (order 3, launcher-closed, neither `gmOnly`) = `@shadowcat/module-notes`/
+  `-tables` — `NotesPanel`'s tree comes from `buildNoteTree` (`tree.ts`, a pure helper: a child
+  whose parent is absent from the recipient's own view promotes to root rather than hiding, and
+  every level orders by `(engine.sort, created_at)`); `TablesPanel` is a flat name-sorted list.
+  Both live-search via `docTypes: ["note"|"table"]` (no client-side re-filter), gate Create on
+  `canCreate`/Delete on `canDelete`, and are the panel-level consumers of `buildNoteDoc`/
+  `buildTableDoc`/`buildMoveOp`/`firstChannel` above. The doc_type sheets these panels open into
+  (`NoteSheet`/`TableSheet`) belong to `shadowcat-codebase-sheets`, not here.
 
 ## Hard invariants
 
@@ -547,7 +602,8 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   plus the shell/UI module pages `_shadowcat_module-core-ui.html`, `_shadowcat_module-entry.html`,
   `_shadowcat_module-topbar.html`, `_shadowcat_module-statusbar.html`,
   `_shadowcat_module-scene-browser.html`, `_shadowcat_module-settings.html`,
-  `_shadowcat_module-game-settings.html`. Produce with `pnpm build:all`. `@shadowcat/module-settings`
+  `_shadowcat_module-game-settings.html`, `_shadowcat_module-notes.html`,
+  `_shadowcat_module-tables.html`. Produce with `pnpm build:all`. `@shadowcat/module-settings`
   and `@shadowcat/module-game-settings` are distinct packages with distinct pages.
 - Rationale: `docs/design/ARCHITECTURE.md` §1 (client UI packaging) + §2 invariant 7 (framework-neutral API).
 - Relationships:

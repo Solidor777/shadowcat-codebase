@@ -162,7 +162,8 @@ pipeline-derived tags.
   `apply_command` Update arms). An explicit tag of the same text outranks the derived copy.
 - **`asset_folder` placement:** `parent_id` must be an `asset_folder` in the same scope
   (`check_asset_folder_parent`, batch-aware for a same-command parent + child), reached through
-  the shared `check_parent_placement` helper the Create AND Move arms both call. Folders ARE
+  the shared `check_parent_placement` helper the Create AND Move arms both call (and
+  `import_world`'s post-loop pass, over an already-inserted bundle). Folders ARE
   re-parentable after Create — via the GM-only `Operation::Move` only, never a field-path
   Update — so the tree is kept acyclic by `check_move_acyclic`'s batch-aware ancestor walk at
   the same chokepoint, on the `apply_intent` AND `apply_command` paths alike (structural
