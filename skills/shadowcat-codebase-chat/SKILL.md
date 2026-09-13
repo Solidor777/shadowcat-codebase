@@ -630,8 +630,8 @@ with zero message-specific plumbing in any of those subsystems.
      true`) is deliberate — it authorizes writing `/engine` only,
      not `/permissions`/`/embedded`, even for this trusted origin. A write scoped to EXACTLY
      `/engine` or `/permissions/property_overrides` is ALSO exempted from the additive
-     `declared_caps_for_path` world/module-requirement check (`apply_intent::is_scoped_smr_write`
-     in the `Operation::Update` arm, a three-way conjunction: origin + doc_type + exact
+     `declared_caps_for_path` world/module-requirement check (`authorize_update_change::is_scoped_smr_write`,
+     a three-way conjunction: origin + doc_type + exact
      path) — `CapabilityRequirement` carries no `doc_type`, so its ancestor-overlap rule would
      otherwise make ANY world-declared requirement under `/engine` (e.g. an actor's
      `/engine/vision`) block every `ServerMessageRevision` `/engine` write in that world,

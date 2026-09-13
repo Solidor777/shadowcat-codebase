@@ -118,4 +118,10 @@ check p2 "C:/Dev/Shadowcat/src/client/ui-kit/src/performance.svelte.ts" "shadowc
 check p3 "C:/Dev/Shadowcat/src/modules/settings/src/PerformanceEditor.svelte" "shadowcat-codebase-performance"
 check p4 "C:/Dev/Shadowcat/src/modules/statusbar/src/PerfStats.svelte" "shadowcat-codebase-performance"
 
+# `sandbox` precedes `module-toolchain` (whose `examples/` glob would otherwise claim the
+# validator example crate) — absolute paths per the real Edit/Write payload shape.
+check v1 "C:/Dev/Shadowcat/src/server/src/sandbox/mod.rs"            "shadowcat-codebase-sandbox"
+check v2 "/srv/checkouts/shadowcat/examples/validator-rust/src/lib.rs" "shadowcat-codebase-sandbox"
+check v3 "C:/Dev/Shadowcat/src/server/tests/sandbox.rs"              "shadowcat-codebase-sandbox"
+
 echo "ALL HOOK TESTS PASS"

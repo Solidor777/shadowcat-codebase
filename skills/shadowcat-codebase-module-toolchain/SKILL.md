@@ -19,6 +19,13 @@ enabled set after `Welcome`, dynamically imports each enabled module through the
 modules-folder → server → import-map path (identical in dev and prod), and activates it through the
 existing `ModuleRegistry`.
 
+One deliberate exception to "never executes module code": a manifest may ALSO declare sandboxed
+server-side validators under the `validators` key (`ValidatorDecl { docType, wasm }`, mirrored on
+`InstalledModule.validators` and the client's `ModuleManifest.validators`) — opt-in per world via
+`WorldModuleEntry.validators_enabled`, compiled and run inside `wasmi` over the `system` band only.
+That whole mechanism (guest ABI, runtime, registry, fault policy) is owned by
+`shadowcat-codebase-sandbox`; this skill owns only the manifest key's place in discovery.
+
 ## Key files & seams
 
 **Server (authoritative, never runs module code):**

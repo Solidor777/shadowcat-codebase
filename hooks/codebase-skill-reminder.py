@@ -21,6 +21,7 @@ SUBSYSTEMS = [
     ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),
     ("tables-notes",         [r"src/server/src/data/engine/table\.rs", r"src/server/src/data/engine/table/", r"src/server/src/tables/", r"src/client/core/src/table-docs\.ts", r"src/server/src/data/engine/note\.rs", r"src/server/src/data/engine/note/", r"src/server/src/data/sqlite/notes\.rs", r"src/client/core/src/note-docs\.ts", r"src/modules/notes/", r"src/modules/tables/"]),
+    ("sandbox",              [r"src/server/src/sandbox/", r"examples/validator-rust/", r"src/server/tests/sandbox\.rs"]),
     ("module-toolchain",     [r"src/server/src/modules\.rs", r"src/server/src/http/module_routes\.rs", r"src/client/core/src/(loader|module-rest)\.ts", r"src/modules/settings/src/ModuleManager", r"examples/"]),
     ("documents-permissions", [r"src/server/src/data/", r"src/client/core/src/wire\.ts"]),
     ("actors-tokens",        [r"src/modules/actors/", r"src/modules/factions/", r"src/modules/conditions/", r"src/client/core/src/actor\.ts"]),

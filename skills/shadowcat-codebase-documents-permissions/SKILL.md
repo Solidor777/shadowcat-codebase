@@ -401,6 +401,34 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   transaction commits, so the per-world seq counter is NOT consumed on rejection, and surfaces
   to the client via the rejected-intent path (`DataError::SchemaViolation { pointer,
   reason }`) — no new wire frame.
+- `apply_intent` is ALSO the sandboxed-validator chokepoint: opted-in third-party WASM
+  validators run over the `system` band of every Create and every Update touching that band
+  at ANY depth (`permission::targets_system_band` decides — an embedded-child
+  `/embedded/<coll>/<idx>/system…` write included, and fail-closed on every embedded
+  boundary shape: whole-map, whole-collection, or whole-child rewrites classify as
+  system-band writes because they replace children's `system` bands wholesale), BEFORE the
+  write transaction opens.
+  Per op, the pass runs `check_command_scope` followed by Phase 1's OWN authorization functions
+  (`authorize_create_intent`/`authorize_update_access`/`authorize_update_change` — the same
+  symbols Phase 1's arms call inside the transaction, so the screen and Phase 1 cannot
+  diverge on who is `Forbidden`, and a bare-id Update can never feed another world's
+  document through this world's validators), then `sandbox::validate_document`, whose
+  `validate_document::prior_permitted` parameter withholds the pre-image band unless the
+  writer holds whole-document READ. Phase
+  1's OCC covers only each change's own pointer, so a concurrent write to another path of the
+  same document re-validates inside the transaction against the in-transaction merge
+  (`apply_intent::validated_pre_images` is the capture it diverges from) — re-validation,
+  never `Conflict`. `import_world` is the only other call site (inside its own
+  already-exclusive transaction; it persists the bundle's enablement record with
+  `validators_enabled` forced `false`); `apply_command` never runs one. Both chokepoints call
+  the same `sandbox::validate_document`, which first re-runs Phase 1's own pure structural
+  chain on the document — a structurally-invalid write surfaces Phase 1's own error before
+  any validator is consulted or faulted. A refusal maps to
+  `DataError::OpFailed("validator <module>: <reason>")`, a technical fault to
+  `DataError::Validator(ValidatorFault)`. The whole mechanism (guest ABI, runtime, registry,
+  fault counting and the single auto-disable funnel at `Room::commit_ops_locked`'s error
+  arm) is owned by `shadowcat-codebase-sandbox`; this bullet owns only its placement
+  relative to the document write path.
 - The client `wire` module — Zod mirror: `VisibilitySchema = z.enum(["all","gm_only",
   "owner_or_gm"])`, `property_overrides`. ts-rs generates the TS types from the Rust source.
   Three boundary rules the mirror carries that a plain shape copy would not:
