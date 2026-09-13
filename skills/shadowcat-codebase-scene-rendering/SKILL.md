@@ -1282,9 +1282,13 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   overlay is cosmetic, fog/vision secrecy is untouched; `PerformanceSettings.reducedMotion`
   snaps `TokenAnimator.startAnim`/`animateSamples` to the end pose and forces the fog/light
   cross-fade factor to 1. Antialias cannot change post-init: `Stage` re-creates the backend
-  only when the `antialias` derived value flips (any other budget edit applies live), and
-  exposes "data-fps-cap"/"data-render-scale"/"data-idle-skip" through a dedicated reactive
-  writer (a settings edit carries no document commit).
+  only when the `antialias` derived value flips (any other budget edit applies live), and —
+  because a destroyed renderer's WebGL context can never be re-initialized on the same
+  element — re-creates the canvas itself via `{#key}` so the mount effect's `canvas` binding is
+  always pristine; the budget observability attributes
+  ("data-fps-cap"/"data-render-scale"/"data-idle-skip") are markup-OWNED reactive attributes
+  on the (never re-created) host div, not an effect writer, so no writer can go stale against
+  a re-created element.
 - `Stage` (`src/modules/stage`) — mounts the render engine over a `ReadableDocuments` view.
 - `src/modules/scene-tools/` — the `controller` + `hit-test` modules, tools (place/select/move/
   draw/template/measure/ping/wall/region/light) dispatching intents. Wall tool writes a **three-flag**
