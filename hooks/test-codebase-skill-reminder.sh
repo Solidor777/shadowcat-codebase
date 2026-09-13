@@ -111,4 +111,11 @@ check s2 "C:/Dev/Shadowcat/src/modules/sheet-table/src/TableSheet.svelte" "shado
 check t9 "C:/Dev/Shadowcat/src/modules/notes/src/NotesPanel.svelte"   "shadowcat-codebase-tables-notes"
 check t10 "C:/Dev/Shadowcat/src/modules/tables/src/TablesPanel.svelte" "shadowcat-codebase-tables-notes"
 
+# `performance` precedes `client-shell` (whose broad module globs would otherwise claim these
+# paths) — absolute Windows-style paths per the real Edit/Write payload shape.
+check p1 "C:/Dev/Shadowcat/src/client/core/src/performance.ts"        "shadowcat-codebase-performance"
+check p2 "C:/Dev/Shadowcat/src/client/ui-kit/src/performance.svelte.ts" "shadowcat-codebase-performance"
+check p3 "C:/Dev/Shadowcat/src/modules/settings/src/PerformanceEditor.svelte" "shadowcat-codebase-performance"
+check p4 "C:/Dev/Shadowcat/src/modules/statusbar/src/PerfStats.svelte" "shadowcat-codebase-performance"
+
 echo "ALL HOOK TESTS PASS"

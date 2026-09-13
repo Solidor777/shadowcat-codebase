@@ -1253,6 +1253,38 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   resolves gradation band→darkening alpha + tint color, applies `renderHint` (e.g. `"darkvision"`
   → gray-wash desaturation overlay), and interpolates day/night fades. Called by `PixiBackend`
   `setLighting` which renders per-cell darkening/tint sprites + a `BlurFilter` for soft band edges.
+- **Performance render budget (client/render; the seam type lives in `@shadowcat/core` — see
+  `shadowcat-codebase-performance`).** `RenderEngineOpts.performance` (a getter, the
+  `RenderEngineOpts.viewedSceneId` pattern, read fresh every tick, never cached) feeds
+  `RenderEngine`'s budget branches; absent ⇒ `PRESETS.quality` with `idleSkip: false` (legacy/
+  test callers keep the unconditional per-tick render). `DisplayBackend` gained
+  `setFrameCap`/`setRenderScale`/`render` for it (`MockBackend` records structurally;
+  `PixiBackend.setRenderScale` re-applies the last CSS-pixel viewport after changing
+  `resolution`, since `renderer.resize` takes CSS dimensions), and `createPixiBackend` removes
+  the renderer's own auto-render ticker listener so `RenderEngine` owns the render call.
+  **Idle-skip:** the constructor wraps `opts.backend` in `wrapDirtyTracking` (the ONE dirty-flag
+  seam — every reconciler/view/compositor/lighting object is built against the wrapped backend)
+  and the ticker renders only when the flag is set, when `TokenView.hasAnimatedVisual` is true
+  (`tickTokenAnimations` is deliberately excluded from dirty-tracking because `TokenView.tick`
+  calls it unconditionally every tick), or when `PerformanceSettings.idleSkip` is off;
+  `RenderEngine.start` renders one initial frame unconditionally so the idle accounting starts
+  clean. `RenderEngine.start` applies the initial budget (frame cap via `fpsCapToTickerValue`,
+  render scale) BEFORE the first frame and seeds a `lastPerf` snapshot the ticker diffs ONCE
+  per tick — the one comparison site every live budget key reacts through: a render-scale push
+  marks dirty (the push reallocates and blanks the backing store, and the wrapper deliberately
+  does not dirty-track it), a `PerformanceSettings.lighting` flip re-runs
+  `RenderEngine.applyCommittedLighting`, and a `PerformanceSettings.tokenFx` flip re-reconciles
+  `TokenView`; `RenderEngineOpts.onStats` pushes an fps/frameMs sample at most 4×/s. **Layer budgets:** `PerformanceSettings.tokenFx` off ⇒ `TokenView.toSpec` drops every
+  condition-driven fx entry and keeps only the selection highlight (bounded by the selection
+  size); `PerformanceSettings.lighting` `"static"` ⇒ `RenderEngine.applyLightSweep` clears
+  in-flight sweeps and re-applies the committed frame (no per-frame interpolation), `"off"` ⇒
+  `RenderEngine.applyCommittedLighting` targets `null` and the sweep paints nothing — the
+  overlay is cosmetic, fog/vision secrecy is untouched; `PerformanceSettings.reducedMotion`
+  snaps `TokenAnimator.startAnim`/`animateSamples` to the end pose and forces the fog/light
+  cross-fade factor to 1. Antialias cannot change post-init: `Stage` re-creates the backend
+  only when the `antialias` derived value flips (any other budget edit applies live), and
+  exposes "data-fps-cap"/"data-render-scale"/"data-idle-skip" through a dedicated reactive
+  writer (a settings edit carries no document commit).
 - `Stage` (`src/modules/stage`) — mounts the render engine over a `ReadableDocuments` view.
 - `src/modules/scene-tools/` — the `controller` + `hit-test` modules, tools (place/select/move/
   draw/template/measure/ping/wall/region/light) dispatching intents. Wall tool writes a **three-flag**

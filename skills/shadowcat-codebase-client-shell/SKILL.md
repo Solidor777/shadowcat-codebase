@@ -351,6 +351,22 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   that subtree only. External modules ship a stylesheet via the manifest `style` field,
   installed as one link per enabled module by the world session (see
   `shadowcat-codebase-module-toolchain`).
+- **Performance settings** — `AppContext.performance` (a ui-kit `PerformanceController`, the
+  `performanceController` singleton — see `shadowcat-codebase-performance` for the controller
+  and the render-side budget seams) holds the per-device render budget. The shell side is
+  exactly the theme-mirror pattern and nothing more: `main`'s entry module calls
+  `performanceController.load(readPerformanceMirror(localStorage), readDeviceSignals())`
+  pre-mount (so pre-login screens never flash the wrong budget) and registers
+  `performanceController.onChange = (p) => writePerformanceMirror(localStorage, p)`.
+  `readPerformanceMirror`/`writePerformanceMirror` (in `sessionState`) read/write the
+  `PERFORMANCE_STORAGE_KEY` blob through `parsePersisted`/`serializePersisted`
+  (`@shadowcat/core`) — fail-closed to the auto default on a garbled value, a throwing
+  storage swallowed with a log. `readDeviceSignals` guards every global probe on existence
+  (matchMedia, navigator.hardwareConcurrency, the Chromium-only navigator.deviceMemory), so
+  each output field is present only when its probe exists in this environment — jsdom has no
+  matchMedia at all, while Node ≥ 21.5 reports a value for
+  `DeviceSignals.hardwareConcurrency`. Per-device only: never the server `ui_state`,
+  deliberately — a phone and a desktop on one account keep separate budgets.
 - **Multi-scene / viewed-scene seams** — `AppContext.viewedSceneId: string | null`
   (a live getter, `Table`: `get viewedSceneId() { return session.viewedSceneId; }` —
   NEVER destructure a snapshot of it), `AppContext.setGmViewedScene(id): void` (GM-only local
