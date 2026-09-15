@@ -1104,13 +1104,21 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   modules (renderer host), `engine`, `reconciler` (doc→scene reconcile), `compositor`,
   `layers` (`CORE_LAYERS` z-order, 0-based: `CORE_LAYERS.background` 0, `CORE_LAYERS.grid` 1,
   `CORE_LAYERS.tiles` 2, `CORE_LAYERS.regions` 3, `CORE_LAYERS.drawings` 4, `CORE_LAYERS.walls` 5,
-  `CORE_LAYERS.tokens` 6, `CORE_LAYERS.templates` 7, `CORE_LAYERS.lighting` 8, `CORE_LAYERS.mask` 9,
-  `CORE_LAYERS.overlays` 10 —
+  `CORE_LAYERS.tokens` 6, `CORE_LAYERS.templates` 7, `CORE_LAYERS.vfx` 8, `CORE_LAYERS.lighting` 9,
+  `CORE_LAYERS.mask` 10, `CORE_LAYERS.overlays` 11 —
   read the array, not this list, before placing a module layer: a module's fractional `order` is
   relative to these indices, so an off-by-one lands it under the wrong neighbour),
   `camera`, `grid`, `token-view` + `token-animator` (tween),
-  `wall-view`, `drawing-view`, `template-view`, `ping-view`, `emote-view`. Modules draw through the
-  render-layer API; the canvas host is not replaceable.
+  `wall-view`, `drawing-view`, `template-view`, `ping-view`, `emote-view`, `vfx-view`. Modules draw
+  through the render-layer API; the canvas host is not replaceable.
+  **`vfx-view` (the `VfxView` class + `vfxAnchorZIndex`)** renders effect nodes in the `vfx`
+  core layer (between `templates` and `lighting`, BELOW `mask`, so lighting tints effects and
+  the fog mask still hides them at unseen points): per-token emitters (`emitter:<token>`,
+  tracking `TokenView.transformOf`'s live tween — never a second interpolation) and room-wide
+  one-shots (`oneshot:<id>`, 64-per-scene cap, oldest evicted). `VfxNodeSpec.anchor` orders
+  simultaneous nodes (`below` 0 / `token` 1 / `above` 2, `"point"` also 1) via
+  `vfxAnchorZIndex`; the layer's container is `sortableChildren`. See `shadowcat-codebase-vfx`
+  for the whole subsystem (pipeline, wire, `/fx`, `SCENE_TOOL_CONTRACT`).
 - **Token visual rendering (faces + animated + generated token visuals).**
   the `token-animation` module — `computeAnimatedFrame(elapsedMs, fps, frameCount,
   loop) -> number`, pure tick-driven frame-index math (extracted for the same reason as

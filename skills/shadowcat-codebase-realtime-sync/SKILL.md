@@ -95,7 +95,19 @@ optimistically and roll back on divergence.
   `WsState::emote_rate` is a THIRD instance, again with its own per-user hit list — a bucket
   separate from `ping_rate` deliberately, so emote spam cannot starve pings nor vice versa —
   spent by `ClientMsg::Emote` alone against its own inline 30/min/user budget.
+  `WsState::vfx_rate` is a FOURTH instance, again with its own per-user hit list — charged by
+  BOTH VFX entry paths (the raw `ClientMsg::PlayVfx` arm and the `/fx` chat command, via
+  `MessageRequestCtx::vfx_rate`) at the same inline 30/min/user budget, so neither front door
+  buys more plays than the other and a VFX spam burst cannot starve ping, emote, or message
+  relays.
 - `ws::protocol` — client/server message frames; `ServerMsg`, `event_seq()`.
+  `ClientMsg::PlayVfx`/`ServerMsg::Vfx` is the ping-shaped aux pair for VFX one-shots:
+  `ws::conn`'s arm checks `vfx_rate` first, then `ws::vfx::validate_bounds` (no I/O), then
+  `ws::vfx::vfx_permitted` (spectator refused outright; scene must exist, be this world's,
+  grant the sender `cap::READ`) and `broadcast_aux`s the frame with a fresh per-broadcast
+  `id` (the render layer's `oneshot:<id>` node key). Denial is a SILENT drop, exactly like
+  `ScenePing` — see `shadowcat-codebase-vfx` for the full subsystem and the `/fx` chat
+  command, which shares `ws::vfx`'s validation/authz verbatim.
 - `ws::conn` — per-connection loop + egress; `ws::time` — server time source +
   client offset calibration (exists before its consumer).
   `send_room_event` (takes `room: &Room` alongside `repo`/`ctx`) is the single dispatch point

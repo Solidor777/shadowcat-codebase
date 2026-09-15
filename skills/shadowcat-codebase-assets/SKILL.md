@@ -39,9 +39,17 @@ pipeline-derived tags.
   arrived_size, retain)` → `Processed { content_type, byte_size, meta, converted }`. Constants
   `THUMB_PX`/`PREVIEW_PX`/`LOSSY_QUALITY`, `MAX_DECODE_AXIS_PX`/`MAX_DECODE_ALLOC_BYTES` (the
   bound every decode AND the animation probe run under), `WEBP_CONTENT_TYPE`, `SIBLING_SUFFIXES`
-  (`.orig`, `.thumb.webp`, `.preview.webp` — the single statement of the sibling set;
-  `sibling_paths`, `derivative_path`, `original_path` derive from it), `write_derivatives`
-  (regenerate-on-demand), `Variant`.
+  (`.orig`, `.thumb.webp`, `.preview.webp`, `.sheet.webp`, `.sheet.json` — the single statement
+  of the sibling set; `sibling_paths`, `derivative_path`, `original_path` derive from it),
+  `write_derivatives` (regenerate-on-demand), `Variant`. For an animated source
+  (`is_animated`), `process_staged` additionally derives a grid sheet ONCE at commit/reconvert
+  via `generate_grid_sheet` (never lazily, never a hard failure): `.sheet.webp` (frames tiled
+  near-square, downscaled past `SHEET_MAX_PX`=4096, lossless) + `.sheet.json`, with the
+  geometry/timings recorded on `AssetMeta.sheet` (`SheetMeta`) as flat `sheet_*` columns
+  (`sheet_rows` NULL ⇔ `None`). `sheet_path` exposes the sheet sibling's path; `serve` gains
+  `?variant=sheet` (404 when absent — never canonical-fallback, never regenerate) and
+  `GET /api/assets/{uuid}/meta` (membership-gated metadata without bytes). See
+  `shadowcat-codebase-vfx` for the consumers.
 - `data::asset::tags` — `derive(DeriveInput { content_type, meta, folder_names, provenance })`
   → sorted derived set: kind ("image" + subtype, or "other"), "animated"/"gif-animated",
   "square", "large" (either axis ≥ `LARGE_AXIS_PX` = 2048), "transparent", every ancestor
@@ -136,7 +144,8 @@ pipeline-derived tags.
   either table gets the index for free and cannot forget to maintain it.
 - **All mutation routes are GM-ONLY, with no owner exception** — `upload`, chunked sessions,
   `replace`, `delete`, `patch`, `bulk`, `reconvert`, `original`, `delete_folder` each go through
-  `require_gm`. `serve` (and its `?variant=` form) is the only membership-gated read.
+  `require_gm`. `serve` (and its `?variant=` form) and `GET /api/assets/{uuid}/meta` are the
+  only membership-gated reads.
   `Asset.created_by` is provenance, never authority. A chunked session is additionally bound to
   the user who opened it (403 for anyone else).
 - **Commit ordering is per operation, and every file-op moves the whole sibling set.** Create

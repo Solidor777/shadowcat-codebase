@@ -124,4 +124,13 @@ check v1 "C:/Dev/Shadowcat/src/server/src/sandbox/mod.rs"            "shadowcat-
 check v2 "/srv/checkouts/shadowcat/examples/validator-rust/src/lib.rs" "shadowcat-codebase-sandbox"
 check v3 "C:/Dev/Shadowcat/src/server/tests/sandbox.rs"              "shadowcat-codebase-sandbox"
 
+# `vfx` precedes `chat`, `scene-rendering` (whose broad `src/client/render/` glob would
+# otherwise claim the view), and `realtime-sync` (likewise for `src/server/src/ws/`) —
+# absolute paths per the real Edit/Write payload shape.
+check x1 "C:/Dev/Shadowcat/src/client/render/src/vfx-view.ts"        "shadowcat-codebase-vfx"
+check x2 "/srv/checkouts/shadowcat/src/modules/vfx/src/index.ts"     "shadowcat-codebase-vfx"
+check x3 "C:/Dev/Shadowcat/src/server/src/ws/vfx.rs"                 "shadowcat-codebase-vfx"
+check x4 "/srv/checkouts/shadowcat/src/server/src/chat/fx.rs"        "shadowcat-codebase-vfx"
+check x5 "C:/Dev/Shadowcat/src/client/core/src/vfx.ts"               "shadowcat-codebase-vfx"
+
 echo "ALL HOOK TESTS PASS"

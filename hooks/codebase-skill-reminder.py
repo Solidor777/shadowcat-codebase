@@ -17,6 +17,7 @@ import sys, json, os, tempfile, re
 SUBSYSTEMS = [
     ("dice",                 [r"src/server/src/dice/"]),
     ("formula",              [r"src/client/formula/"]),
+    ("vfx",                  [r"src/client/render/src/vfx-view", r"src/modules/vfx/", r"src/client/core/src/vfx\.ts", r"src/server/src/ws/vfx", r"src/server/src/chat/fx"]),
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
     ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),

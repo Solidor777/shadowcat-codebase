@@ -561,6 +561,25 @@ with zero message-specific plumbing in any of those subsystems.
   parse path** — proven by an exhaustive test over every command token, not just the default
   fallthrough — `System` is reserved for a future server-authored-notice producer that does not
   go through this parser at all.
+- `chat::fx` — the `/fx <asset-id-or-name> @<token name>` command, intercepted in
+  `handle_send_message` BEFORE `parse_command` runs (a `/fx` prefix with no word boundary —
+  `/fxwhatever` — falls through as ordinary text). The server resolves the asset (a raw UUID
+  used as-is; otherwise `Repository::asset_id_by_name`, case-insensitive on `original_name`)
+  and the target token's CENTER server-side (`Document.name` case-insensitive, READ-gated
+  through the same `resolve_access_world`/`effective_owner_via` projection `list_documents`
+  runs — an unreadable name collapses into the SAME "No such token." text as a nonexistent
+  one, no existence oracle) on the world's ACTIVE scene (`world-settings` `activeScene`),
+  charges the shared `vfx_rate` bucket BEFORE broadcast (the same per-user budget the raw
+  frame spends — one rate decision per VFX play regardless of entry path), then
+  reuses `ws::vfx`'s `validate_bounds`/`vfx_permitted` verbatim (a spectator is refused) and
+  `broadcast_aux`es `ServerMsg::Vfx`. A successful `/fx` authors NO message document —
+  `handle_send_message` returns `Ok(None)` (its return type is
+  `Result<Option<(Command, Vec<PendingEnrichment>)>, SendMessageError>` — every other success
+  is `Ok(Some(...))`, and the `ws::conn` call site's `Ok(None) => {}` arm sends no reply
+  frame); a failure authors ONE whispered `MessageKind::System` notice to the sender via the
+  generalized `build_system_error_notice` (whose `build_roll_error_notice` is a thin
+  wrapper). `/fx` without an `@`-target is refused with the usage notice (no coordinate-literal
+  form). See `shadowcat-codebase-vfx` for the whole subsystem.
 - `ws::protocol` — `ClientMsg::SendMessage { request_id, channel, content,
   actor_owner: Option<ActorOwnerRef>, audience: Audience }` (ts-rs exported; `audience` is
   `#[serde(default)]`, so an omitted field parses as `Audience::Public`).

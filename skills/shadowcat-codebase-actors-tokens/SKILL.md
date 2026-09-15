@@ -50,9 +50,12 @@ fx (`Condition.fx`), toggled by the GM or the token owner.
     `TokenOverrides::validate` for the override copies): css-`#rrggbb` color shape, finite
     opacity/volume (their `0..=1` range is a READ-side clamp where consumed, not an ingress
     rejection), finite non-negative radius bounded by the shared cell cap
-    `scene::pathfinding::MAX_FOOTPRINT_CELLS`, non-empty sound/vfx asset. Only the aura renders
-    (a filled disc UNDER the token art via `TokenNodeSpec.aura`); sound/vfx are stored,
-    playback-ready data with no consumer yet.
+    `scene::pathfinding::MAX_FOOTPRINT_CELLS`, non-empty sound/vfx asset. The aura renders as a
+    filled disc UNDER the token art (`TokenNodeSpec.aura`); the VFX emission PLAYS — the render
+    client's `VfxView` renders every enabled `EffectiveActor.vfx` as an `emitter:<token>` node
+    in the `vfx` layer, tracking the token's live tweened transform at its `VfxAnchor`
+    placement (`below` = footprint base, `token` = center, `above` = top edge) — see
+    `shadowcat-codebase-vfx`. Sound is stored, playback-ready data with no consumer yet.
   - **Token visual union:** `RenderVisual = {kind:
     "image", asset} | {kind:"animated", source: AnimatedSource, fps, loop} | {kind:"generated",
     art, crop, border?, background?}` — the only kinds the render layer ever draws. The

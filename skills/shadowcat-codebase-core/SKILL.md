@@ -585,7 +585,7 @@ source of truth. The ones agents break most:
 **Subsystem skills:** `documents-permissions`, `actors-tokens`, `scene-rendering`,
 `realtime-sync`, `client-shell`, `assets`, `dice`, `chat`, `formula`, `module-toolchain`,
 `sheets`, `panels`, `server-ops`, `templates`, `combat`, `tables-notes`, `performance`,
-`sandbox` (all `shadowcat-codebase-*`).
+`sandbox`, `vfx` (all `shadowcat-codebase-*`).
 
 ## Maintaining this skill family
 
