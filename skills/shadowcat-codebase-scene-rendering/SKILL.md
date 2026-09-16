@@ -296,6 +296,10 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `emitters::light_polygon(pos, walls, reach)` (`bound_for_reach` + `visibility_polygon`) are
   THE light occlusion raycast — `lighting_inputs_from` and the carried-light move timeline
   (`MoverLightInputs::sample_at`, below) both call it, never a second raycast rule.
+  `SceneEcs::token_sound_emission(token)` shares this SAME linked/instanced/override resolution
+  precedence for the audio subsystem's carried `SoundEmission` — see `shadowcat-codebase-audio`
+  for `scene::audibility`'s falloff/occlusion/listener-selection geometry, which composes
+  `segments_cross`/`elevation::wall_occludes` rather than re-deriving occlusion.
   **Carried-light authoring is GM-only, server-enforced:** `permission::carried_light_touched` /
   `carried_light_in_body` classify any write that creates, changes or removes an emission (direct
   pointer writes, value-compared ancestor writes, removals, create bodies), and `apply_intent`
@@ -1117,7 +1121,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   tracking `TokenView.transformOf`'s live tween — never a second interpolation) and room-wide
   one-shots (`oneshot:<id>`, 64-per-scene cap, oldest evicted). `VfxNodeSpec.anchor` orders
   simultaneous nodes (`below` 0 / `token` 1 / `above` 2, `"point"` also 1) via
-  `vfxAnchorZIndex`; the layer's container is `sortableChildren`. See `shadowcat-codebase-vfx`
+  `vfxAnchorZIndex`; the layer's container has child z-sorting enabled (`ensureLayers` sets
+  Pixi's sortableChildren flag on it — the only core layer that sorts). See `shadowcat-codebase-vfx`
   for the whole subsystem (pipeline, wire, `/fx`, `SCENE_TOOL_CONTRACT`).
 - **Token visual rendering (faces + animated + generated token visuals).**
   the `token-animation` module — `computeAnimatedFrame(elapsedMs, fps, frameCount,
@@ -1872,3 +1877,6 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `graphify query "scene ECS derived read-model vision fog stage pixi render tokens regions faces animated"`.
 - History/decisions: [[m8-brainstorm]], [[m8d-2-scene-tools]], [[m9-progress]],
   [[server-authoritative-movement-rule]], [[m10-pathfinding-architecture]].
+- `shadowcat-codebase-audio` — `scene::audibility` (the spatial-audio channel composed from this
+  skill's own occlusion primitives) and `scene::emitters::token_sound_emission` (the carried-
+  sound twin of `token_light_emission`).

@@ -133,4 +133,23 @@ check x3 "C:/Dev/Shadowcat/src/server/src/ws/vfx.rs"                 "shadowcat-
 check x4 "/srv/checkouts/shadowcat/src/server/src/chat/fx.rs"        "shadowcat-codebase-vfx"
 check x5 "C:/Dev/Shadowcat/src/client/core/src/vfx.ts"               "shadowcat-codebase-vfx"
 
+# `dice-3d` precedes `client-shell` (whose broad `src/client/ui-kit/` glob would otherwise
+# claim the bridge) — absolute Windows-style paths per the real Edit/Write payload shape.
+check d1 "C:/Dev/Shadowcat/src/modules/dice-3d/src/DiceOverlay.svelte" "shadowcat-codebase-dice-3d"
+check d2 "C:/Dev/Shadowcat/src/client/ui-kit/src/dice3dInteraction.ts" "shadowcat-codebase-dice-3d"
+
+# `audio` precedes `assets` (shared `data/asset(\.rs|/)`), `documents-permissions` (shared
+# `data/`), and `scene-rendering` (shared `scene/`) — absolute paths per the real Edit/Write
+# payload shape.
+check au1 "C:/Dev/Shadowcat/src/server/src/data/engine/audio.rs"         "shadowcat-codebase-audio"
+check au2 "/srv/checkouts/shadowcat/src/server/src/audio/transport.rs"   "shadowcat-codebase-audio"
+check au3 "C:/Dev/Shadowcat/src/server/src/scene/audibility.rs"          "shadowcat-codebase-audio"
+check au4 "/srv/checkouts/shadowcat/src/server/src/data/asset/process/audio.rs" "shadowcat-codebase-audio"
+check au5 "C:/Dev/Shadowcat/src/client/audio/src/engine.ts"             "shadowcat-codebase-audio"
+check au6 "/srv/checkouts/shadowcat/src/client/core/src/audio.ts"        "shadowcat-codebase-audio"
+check au7 "C:/Dev/Shadowcat/src/client/core/src/audibility.ts"           "shadowcat-codebase-audio"
+check au8 "/srv/checkouts/shadowcat/src/client/core/src/playlist-docs.ts" "shadowcat-codebase-audio"
+check au9 "C:/Dev/Shadowcat/src/modules/audio/src/AudioPanel.svelte"     "shadowcat-codebase-audio"
+check au10 "/srv/checkouts/shadowcat/src/modules/sheet-playlist/src/PlaylistSheet.svelte" "shadowcat-codebase-audio"
+
 echo "ALL HOOK TESTS PASS"

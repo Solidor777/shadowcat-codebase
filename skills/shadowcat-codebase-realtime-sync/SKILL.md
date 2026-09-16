@@ -377,6 +377,15 @@ optimistically and roll back on divergence.
   self-authored broadcast `Event`, which identifies neither the `request_id` nor the specific
   intent an entry is waiting on, and which a client that cannot identify its own authorship never
   sees at all. See `shadowcat-codebase-combat`.
+- **`ClientMsg::AudioTransport { op }`/`AudioListenAs { token }` and `ServerMsg::AudioError
+  { reason }`** — GM-only fire-and-forget playlist/playback transport plus the connection-local
+  spatial-audio "listen as" override; `AudioError` is a connection-local refusal toast, never
+  broadcast, mirroring `ChatError`'s sender-only shape rather than the request_id-correlated
+  Combat/RollRequest pattern above (no `request_id` on either audio frame). The `listen_as`
+  override lives entirely in connection-local state, re-evaluated by the SAME generic any-`Event`
+  debounced sweep every `scene_subs` entry already gets — no new invalidation hook, and no
+  separate per-connection override machinery beyond what the scene-channel re-eval loop already
+  provides. See `shadowcat-codebase-audio`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
   selection.** Unlike `MoveRequest`/`handle_pathfind` (which SELECT server state and so must
   derive-from-token, per the never-fork table in `shadowcat-codebase-core`), `ScenePing` relays

@@ -502,6 +502,14 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 
 ## Hard invariants
 
+- **`audio-state`'s Create/Delete and Update are guarded by DIFFERENT `WriteOrigin`s — the one
+  per-operation split guard in the codebase, rather than a single uniform origin per doc_type.**
+  Create/Delete are `WriteOrigin::ConfigSeed`-only (seeded once by `world_seed`, never
+  client-reachable), while Update runs under `WriteOrigin::AudioTransport`
+  (`audio::transport::handle_transport`'s GM-gated commit via `apply_intent`). A uniform
+  single-origin guard was tried during design and is a documented spec contradiction — do not
+  "simplify" it back to one origin. Precedent for a future doc_type with the same "seeded once,
+  mutated by a different trusted path thereafter" shape; see `shadowcat-codebase-audio`.
 - **Redaction is fail-closed and owner-aware.** `can_see` is the one chokepoint across every
   egress path; a partial-visibility tier (`OwnerOrGm`) uses a distinct flag — never overload the
   GM see-all boolean, or you leak `GmOnly` to owners [[ownerorgm-tier-no-widen]].

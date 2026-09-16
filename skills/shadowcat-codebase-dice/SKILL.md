@@ -144,6 +144,12 @@ on.
   all, OR either label's matching records include ANY with `ordered: false` (a mixed
   ordered+unordered pool under one label also has no well-defined sum) — an all-dropped-but-
   ordered label still yields `Some(0)`, since the sum-of-kept is simply empty, not missing.
+  `DieRecord.kind: Option<DieKind>` (`#[serde(default)]`, fail-closed `None` for a roll stored
+  before the field existed) mirrors the originating `RawDie.kind` — an every-recipient
+  face-space fact like `natural`, filled at all three `dice::eval::groups` construction sites
+  (`resolve_group`'s main per-die map, the Standard-explode push, `push_extra`), so a roll and
+  its `dice::recalc::rederive` re-roll are covered by the same sites. Its client consumer is
+  the 3D dice overlay's physical-shape mapping — see `shadowcat-codebase-dice-3d`.
   `RollResult`.
 - `dice::eval::groups` — `resolve_group(group, group_index, naturals, rng, raws)
   -> Vec<DieRecord>`: the per-group pipeline (reroll → explode → keep/drop, in modifier-Vec

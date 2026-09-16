@@ -53,8 +53,8 @@ stall the stage.
 - `@shadowcat/core` — `vfx.ts` (`VfxPlayRequest`, `VfxOneShotRequest`,
   `ResolvedVfxSource`, `resolveVfxSource`), `asset-meta.ts`
   (`AssetMetaCache` with `invalidate(id)` — wired to the asset-changed
-  notice at the consumption site so a replaced asset's stale `SheetMeta`
-  is dropped), `getAssetMeta`, `SCENE_TOOL_CONTRACT` +
+  notice at the consumption site, so an asset whose bytes were swapped
+  (re-upload or reconvert) never serves its stale `SheetMeta`), `getAssetMeta`, `SCENE_TOOL_CONTRACT` +
   `SceneToolMeta` (`contributions.ts`), `WsClient.playVfx`/`onVfx`
   (`VfxNotice`), `AppContext.vfx` (`ui-kit`).
 - `@shadowcat/render` — `"vfx"` in `CORE_LAYERS` (index 8: between

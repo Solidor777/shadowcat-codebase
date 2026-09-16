@@ -276,7 +276,14 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
 - Client: the `chat-docs` module mirrors `roll_embed`/`roll_button` (`RollOutcomeSchema`/
   `DieRecordSchema`, records `.passthrough()` for server-only audit fields; the
   unknown-segment fallback REFUSES both new kinds — fail-closed; i64 `total`/`margin` can
-  saturate past 2^53, a documented display-precision tradeoff). The card renders the block
+  saturate past 2^53, a documented display-precision tradeoff). The `roll_embed` member of
+  the `ChatSegment` union is the named exported `RollEmbedSegment` (plus
+  `RollEmbedSegmentSchema`/`rollEmbedSegmentSchemaImpl`), never an inline union literal and
+  never an `Extract<>` projection — the `TableDrawSegment` precedent: a projection cannot be
+  documented, and `AppContext.dice3d.roll` references the type directly (see
+  `shadowcat-codebase-dice-3d` for that seam). `DieRecord`/`DieRecordSchema` also mirror
+  the server's `DieRecord.kind` face-space field (a nullish `WireDieKindSchema` member). The card
+  renders the block
   form ONLY for kind `Roll` + raw single-`RollEmbed` content, inline chips otherwise, buttons
   via `ctx.chat.send({channel: sys.channel, content: "/roll "+formula})` (fresh PUBLIC roll —
   no audience inheritance), System notices muted+badged; everything escaped, the `{@html}`

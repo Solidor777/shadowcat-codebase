@@ -50,6 +50,14 @@ pipeline-derived tags.
   `?variant=sheet` (404 when absent — never canonical-fallback, never regenerate) and
   `GET /api/assets/{uuid}/meta` (membership-gated metadata without bytes). See
   `shadowcat-codebase-vfx` for the consumers.
+- `data::asset::process::audio` — the audio sibling of the pipeline above, dispatched from the
+  same `process_staged`: `symphonia` probe+decode → `rubato` resample to 48kHz (if needed) →
+  Opus VBR encode → Ogg and/or WebM mux (`AudioContainers`, selected at import). **The
+  canonical asset is NEVER swapped to Opus** — the original stays canonical. **Unlike
+  `thumb`/`preview`, the `.opus.ogg`/`.opus.webm` siblings are explicitly NOT `Variant`s and are
+  never regenerated on serve** — a missing one 404s rather than re-transcoding.
+  `AssetMeta.duration_ms`/`sample_rate` (both `Option<i64>`) are populated by this pipeline. See
+  `shadowcat-codebase-audio` for the full transcode/mixer picture.
 - `data::asset::tags` — `derive(DeriveInput { content_type, meta, folder_names, provenance })`
   → sorted derived set: kind ("image" + subtype, or "other"), "animated"/"gif-animated",
   "square", "large" (either axis ≥ `LARGE_AXIS_PX` = 2048), "transparent", every ancestor
@@ -62,7 +70,8 @@ pipeline-derived tags.
 - `data::asset::query` — the repo's vocabulary: `AssetFilter { folder: Option<FolderFilter>,
   tags, kind: Option<AssetKind>, query: Option<String> }` (`query` is a
   full-text query over the display name AND every explicit/derived tag, not a name substring; see
-  `assets_fts` below), `AssetSort { Name, Created, Size }`, `AssetCursor`, `sort_key_of`.
+  `assets_fts` below; `AssetKind::Audio` is the audio counterpart of the image kinds),
+  `AssetSort { Name, Created, Size }`, `AssetCursor`, `sort_key_of`.
 - `data::sqlite::assets` (sibling `impl SqliteRepository`) — `insert_asset`, `get_asset`,
   `list_assets_by_world`, `query_assets` (QueryBuilder; recursive CTE for folder subtrees;
   keyset `(sort_key, id) >`), `replace_asset_bytes(…, meta)`, `set_asset_tags(id, explicit,
@@ -73,7 +82,7 @@ pipeline-derived tags.
   `reparent_assets_of_deleted_folder`, `fill_tags`.
 - `data::engine::asset_folder` — `AssetFolderEngine { sort }`; folder name = `Document.name`,
   parent = `Document.parent_id`, `ASSET_FOLDER_DOC_TYPE`.
-- `http::assets` — `upload` (single-shot multipart), `serve` (`?variant=thumb|preview`),
+- `http::assets` — `upload` (single-shot multipart), `serve` (`?variant=thumb|preview|opus|opus-webm`),
   `replace`, `delete`, `detect_image_type`, `label_content_type`, `UploadRateLimiter`,
   `commit_replacement` (the row-first byte-swap tail `replace` and `mutate::reconvert` share),
   `delete_asset_files_and_row` (the delete tail `delete` and the folder purge share).
