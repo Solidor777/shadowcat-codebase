@@ -166,6 +166,26 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   different `Scope`) lives INSIDE `data::permission::effective_owner` itself, not duplicated
   at any join site — every join source above calls the one function, so the reachable owner set is
   identical regardless of which source resolved it.
+- **A scene with declared floors adds a LEVEL dimension to the `"vision"`/`"footprints"` derived
+  channels, alongside (never in place of) the existing ownership/tier conjuncts above — but the
+  level SCOPING happens in three different places, not one, and none of them is `apply_intent`
+  (which has no elevation awareness at all).** The movement/placement GATES — `Room::execute_move`,
+  `Room::publish`'s Create placement gate, and `SceneEcs::pathfind` — are what consult
+  `scene::elevation::level_of` (via `SceneEcs::visible_cells`/`visible_cells_cached`, level-scoped
+  to the mover's own floor), never `apply_intent`. `"vision"`'s `compute_derived` arm computes and
+  returns ALL levels' polygons/lit-cells in one payload, each group individually tagged with its
+  own `level` (the same multi-scope pattern `"footprints"` and `"audibility"` use) — the server
+  does not filter to one floor server-side; the CLIENT filters to the viewed level at render time
+  (`RenderEngine.toVisibility`/`toLighting`, matching `polygons`/`lit` groups on
+  `scene === activeScene && level === viewedLevel`). `SceneSubscribe.level` is consumed only by
+  `enrich_vision_explored`, which uses it to select which floor's persistent EXPLORED-FOG memory
+  gets echoed into the payload's `explored` key — a narrower scope than "what `\"vision\"`
+  computes." `"footprints"` is not itself level-scoped by subscription — its per-token entries
+  instead carry their own resolved `level`, redacted by ABSENCE exactly like every other
+  footprints-entry field (see the `TokenFootprint.level` bullet below for what that absence does
+  and does not mean). Full mechanism (the derived-channel egress rule the level dimension composes
+  with, and the per-token `token_footprint_visible` gate it must NOT bypass):
+  `shadowcat-codebase-scene-rendering`.
 - **`command::apply_field_change(v, ch)` is THE store-equal mutation rule — every store of document
   state, authoritative or derived, applies a `FieldChange` through it. Never hand-write a
   `remove`/`set` branch.** One function, one statement of the rule, repo-wide (client mirror: the
@@ -384,6 +404,18 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   from the enabled system package's manifest declaration). `world_seed::seed_author` attributes
   a seed commit to the world's first GM by sorted user id; a world with no GM member is not
   seeded (`Command.author` stays a required, real user).
+- **`WriteOrigin::Trigger` is a region-trigger-effect origin — the same capability-skip shape as
+  `CombatTransition`/`ConfigSeed` (`is_server_authored`/`skips_capability_gates` both `true`).**
+  Constructed only by `ws::room::Room::fire_region_triggers`'s own `commit_ops_locked` call, after
+  a `RegionTrigger`'s effect (`ConditionAdd`/`ConditionRemove`/`ResourceDelta`/`ChatNotice`/
+  `Teleport`) has already been resolved against the SCENE's own authority (the entering token's
+  mover must legitimately be able to move there; the trigger itself carries no separate per-write
+  authorization) — the chokepoint standing down means `fire_region_triggers`'s own resolution is
+  the ONLY authorization these writes get, the same consequence every other capability-skip origin
+  carries. A `Teleport` effect (`TriggerEffect::Teleport { target: PortalTarget }`) repositions the
+  entering token (same-scene when `target.scene: None`, cross-scene otherwise), gated to ONE hop
+  per move (`allow_teleport: false` on the recursive re-fire that processes the destination cells'
+  own `Enter` triggers — a chained portal is refused with a GM-only notice rather than looping).
 - `data::sqlite::apply_intent` — Phase-1 OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never

@@ -18,7 +18,10 @@ and restore as a deployment-operator tool, not an in-app feature.
 
 ## Key files & seams
 
-- `config` — `Cli` (flat `clap::Parser` struct, no `clap::Subcommand`) →
+- `config` — `Cli` (a flat `clap::Parser` struct PLUS one `#[command(subcommand)] command:
+  Option<CliCommand>` field, for `shadowcat audio-monitor` — every existing flat
+  flag still parses unconditionally; `CliCommand` is a `clap::Subcommand` enum with exactly one
+  variant today, named so it never shadows `std::process::Command` in the CLI tests) →
   `Config::load(cli)` layers CLI flag > `SHADOWCAT_*` env > TOML file > built-in default.
   `Config.db: String` (default `./shadowcat.db`), `Config.assets_dir: Option<String>` (`None` →
   sibling `assets/` beside the db file, via `Config::assets_path()`). `Cli.backup_to`/
@@ -30,6 +33,16 @@ and restore as a deployment-operator tool, not an in-app feature.
   `run_backup`/`run_restore` and `return Ok(())` — `SqliteRepository::connect` (the long-lived
   pool) and `axum::serve` are structurally unreachable on that path, not just conditionally
   skipped.
+- `audio_monitor` (`src/server/src/audio_monitor/`) — the `CliCommand::AudioMonitor` branch's
+  target: a localhost-only `SessionMonitor` trait plus one `#[cfg(target_os = ...)]` backend per
+  OS (`windows`/`macos`/`linux`), constructed by `platform_monitor()`. `main.rs`'s `Cli::parse()`
+  does the CLAP parsing and extracts `CliCommand::AudioMonitor(args)` before calling `run(args)`;
+  `server::run(args: AudioMonitorArgs)` receives the ALREADY-parsed args and builds the real
+  platform monitor — it parses nothing itself. `server::run_with_monitor`
+  is the same origin-allowlist + `hello`/`levels`/`watch` frame-serialization loop factored out
+  behind an injected `SessionMonitor`, so it is testable against a scripted `FakeMonitor`
+  (`#[cfg(test)]`-only, never compiled into the release binary) without a real OS audio API on
+  the test runner.
 - `db` — `parse_connect_options(url) -> Result<SqliteConnectOptions, sqlx::Error>` parses a URL
   into connect options exactly ONCE; `connect_pool_with_options(options) -> Result<SqlitePool,
   sqlx::Error>` is the SHARED single-writer pool-open bootstrap over already-parsed options

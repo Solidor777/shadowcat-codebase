@@ -101,6 +101,27 @@ channel's own posture.
   mirrors `footprints.ts`), `playlist-docs.ts` (re-exports + `buildPlaylistDoc`, mirrors
   `table-docs.ts`). `AppContext`'s only audio-flavoured member is `audio: AudioApi` (shell
   wiring).
+- `@shadowcat/module-ducking` (`src/modules/ducking/`) — three `DuckController`/`DuckSource`
+  consumers: `keySource.ts`'s `KeySource` (held-key push-to-duck), `micVad.ts`'s `MicVadSource`
+  (an `AudioWorklet`-hosted energy VAD; the raw audio buffer never leaves the worklet — only a
+  boolean per frame crosses the `MessagePort`), and `osMonitor.ts`'s `OsMonitorSource` (the
+  browser-side client for `shadowcat audio-monitor`'s localhost WebSocket — see
+  `shadowcat-codebase-server-ops`'s `audio_monitor` bullet for the server side). `keySource.ts`'s
+  `DuckSink` is the shape `AudioApi.duck.addSource(id)` returns. `controller.ts`'s
+  `DuckSourcesController` owns the key/OS-monitor sources for the whole world session
+  (constructed once in `register(ctx)`, outliving any one settings-panel mount) and carries a
+  `micToggle` field the real wiring sets. **The real wiring lives in `DuckingRuntime.svelte`, a
+  headless component contributed into the always-mounted `shadowcat.surface:overlay` surface —
+  never `register(ctx)` itself**, because `ModuleContext` (the framework-neutral type a module's
+  `register` receives) carries no `audio` member; `AudioApi` is reachable only through the
+  Svelte-side `AppContext` (`getAppContext()`), the same path every other `ctx.audio` consumer in
+  this codebase uses (`AudioPanel`, `StatusBar`, `PlaylistSheet`). `DuckingSettings.svelte`
+  itself only reads `audio.duck.depth`/`setDepth` at mount (a Settings-panel-local concern, safe
+  to lose on close) and calls `controller.micToggle` — the sources' actual duck-sink wiring must
+  outlive the Settings panel's mount, which is why it is NOT done inside the settings component.
+  Any future module needing a background service tied to `AppContext` rather than `ModuleContext`
+  should follow this same always-mounted-overlay pattern (mirrors `AssetPickOverlay`'s own
+  session-persistent, mostly-invisible `shadowcat.surface:overlay` contribution).
 
 ## Hard invariants
 

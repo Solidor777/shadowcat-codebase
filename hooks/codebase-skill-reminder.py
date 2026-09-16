@@ -19,7 +19,7 @@ SUBSYSTEMS = [
     ("formula",              [r"src/client/formula/"]),
     ("vfx",                  [r"src/client/render/src/vfx-view", r"src/modules/vfx/", r"src/client/core/src/vfx\.ts", r"src/server/src/ws/vfx", r"src/server/src/chat/fx"]),
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
-    ("audio",                [r"src/server/src/data/engine/audio\.rs", r"src/server/src/audio/", r"src/server/src/scene/audibility(\.rs|/)", r"src/server/src/data/asset/process/audio\.rs", r"src/client/audio/", r"src/client/core/src/(audio|audibility|playlist-docs)\.ts", r"src/modules/audio/", r"src/modules/sheet-playlist/"]),
+    ("audio",                [r"src/server/src/data/engine/audio\.rs", r"src/server/src/audio/", r"src/server/src/scene/audibility(\.rs|/)", r"src/server/src/data/asset/process/audio\.rs", r"src/client/audio/", r"src/client/core/src/(audio|audibility|playlist-docs)\.ts", r"src/modules/audio/", r"src/modules/sheet-playlist/", r"src/modules/ducking/"]),
     ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),
     ("tables-notes",         [r"src/server/src/data/engine/table\.rs", r"src/server/src/data/engine/table/", r"src/server/src/tables/", r"src/client/core/src/table-docs\.ts", r"src/server/src/data/engine/note\.rs", r"src/server/src/data/engine/note/", r"src/server/src/data/sqlite/notes\.rs", r"src/client/core/src/note-docs\.ts", r"src/modules/notes/", r"src/modules/tables/"]),
@@ -35,7 +35,7 @@ SUBSYSTEMS = [
     ("performance",          [r"src/client/core/src/performance\.ts", r"src/client/ui-kit/src/performance\.svelte\.ts", r"src/modules/settings/src/PerformanceEditor", r"src/modules/statusbar/src/PerfStats"]),
     ("dice-3d",               [r"src/modules/dice-3d/", r"src/client/ui-kit/src/dice3dInteraction"]),
     ("client-shell",         [r"src/modules/entry/", r"src/modules/core-ui/", r"src/modules/topbar/", r"src/modules/statusbar/", r"src/modules/settings/", r"src/modules/game-settings/", r"src/client/shell/", r"src/client/ui-kit/", r"src/client/core/src/(contributions|index)(\.test)?\.ts$"]),
-    ("server-ops",           [r"src/server/src/main\.rs", r"src/server/src/config\.rs", r"src/server/src/db\.rs", r"src/server/src/backup\.rs", r"src/server/tests/backup_cli\.rs"]),
+    ("server-ops",           [r"src/server/src/main\.rs", r"src/server/src/config\.rs", r"src/server/src/db\.rs", r"src/server/src/backup\.rs", r"src/server/tests/backup_cli\.rs", r"src/server/src/audio_monitor/"]),
 ]
 
 

@@ -120,12 +120,22 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   invalidated by a token-level mutation that changes `/embedded/actor/0/...` — this is the same
   failure shape as the two test bugs above, generalized to a case with no test coverage to catch
   it, so it stays on the direct, uncached `engine_as` path.
-  **`visible_cells_cached`:** `SceneEcs::visible_cells_cached(user,
-  scene, lenient) -> BTreeSet<(i32,i32)>` is a per-`(user, scene)` memoized wrapper around the same
+  **`visible_cells`/`visible_cells_cached` are LEVEL-SCOPED to the mover's own floor.** Both take
+  a trailing `mover_elevation: f64` argument (mirroring `move_walls`/`region_field`'s own
+  mover-elevation parameter) and filter `gather_vision_sources_in_scene`'s gathered sources down to
+  those resolving to the SAME level (`elevation::level_of`) as the mover before any cell is
+  accumulated — a source on another level of the same scene contributes nothing, matching
+  `player_lit_mask`'s per-level accumulation exactly. Every caller (`Room::execute_move`,
+  `Room::publish`'s Create placement gate, `SceneEcs::pathfind`) passes the mover's own resolved
+  elevation, never a client-claimed one. **`visible_cells_cached`:** `SceneEcs::visible_cells_cached(user,
+  world_role, world_defaults, scene, lenient, mover_elevation) -> BTreeSet<(i32,i32)>` is a
+  per-`(user, scene)` memoized wrapper around the same
   mask `visible_cells` computes for the movement gate — `visible_cells` itself and every
   other existing caller (pathfinder, the grid-parity tests) are unchanged and still call the uncached
   primitive. Keyed on `VisibilityInputsSnapshot` (`{lenient, settings, cell, sources: Vec<(id, vp,
-  floors)>, lights, light_walls, sight_walls}`) — a VALUE-COMPARISON cache like `engine_as_cached`,
+  floors)>, levels, mover_level, lights, light_walls, sight_walls}` — `sources` is already
+  level-filtered, and `mover_level` is fingerprinted explicitly too rather than relying solely on
+  the filtered `sources` list to imply it) — a VALUE-COMPARISON cache like `engine_as_cached`,
   not mutation-site invalidation: a cached mask is reused only when a freshly rebuilt snapshot
   compares equal to the one stored alongside it, so correctness is independent of which code path
   mutated the underlying documents (`apply_op`, `set_world_config`/`set_actors`, or any other
@@ -305,23 +315,70 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   pointer writes, value-compared ancestor writes, removals, create bodies), and `apply_intent`
   refuses them for a non-GM on both arms — an emission edits the SHARED field every viewer's
   mask reads, unlike the owner-writable presentation fields.
-- `scene::elevation` — the 2.5D single-level elevation model. `TokenEngine.elevation` /
+- `scene::elevation` — the 2.5D multi-level elevation model. `TokenEngine.elevation` /
   `LightEngine.elevation` (absent = `GROUND`; `elevation_or_ground` clamps a non-finite stored
-  value to ground) and `WallEngine.elevation` (`eng::WallElevation {bottom?, top?}` — the band a
-  wall's sight/light occlusion applies to: absent band ⇒ every elevation, absent end ⇒ unbounded).
-  `wall_occludes(band, e)` is `bottom ≤ e ≤ top`, and it FAILS CLOSED to "occludes everything" on
-  a malformed interval, a non-finite endpoint, or a non-finite source elevation. Elevation only
-  ever FILTERS the occluder set per source — the star-shaped raycast pipeline is untouched and
-  sight/light ranges stay 2D: `sight_wall_entries`/`light_wall_entries` collect the scene's walls
-  as `BandedWall`s once, and every consumer filters them through `walls_at_elevation` at ITS
-  source's elevation (`sight_walls_for`, each light in `lighting_inputs_from` at the light's own
-  elevation, a carried emission at its token's) — except environment ambient, which keeps the
-  FULL light-wall set at every elevation (walls always shadow sky-light, or daylight would flood
-  interiors). The visibility-cache snapshot fingerprints each source's elevation, so the same
-  walls at two elevations never share a cached mask. Accepted residual (owner-writable token
-  elevation lifts a GM-authored carried light over a deliberately banded wall) is bounded by the
-  emission's own reach — the light discloses nothing farther than its `dim` radius would at
-  ground level, and no token, wall or region geometry the READ gate withholds.
+  value to ground) are POINT elevations; `WallEngine.elevation`/`RegionEngine.elevation`/
+  `DrawingEngine.elevation`/`TemplateEngine.elevation` share ONE band type,
+  `eng::ElevationBand {bottom?, top?}` — a wall's sight/light occlusion band and a
+  region/drawing/template's floor band are the SAME shape, never a per-engine copy: absent band ⇒
+  every elevation, absent end ⇒ unbounded.
+  `band_contains(band, e)` is `bottom ≤ e ≤ top`, and it FAILS CLOSED to "contains everything" on
+  a malformed interval or a non-finite band endpoint — `wall_occludes(band, e)` wraps it with one
+  more fail-closed case (a non-finite SOURCE elevation also occludes). `band_contains` is the ONE
+  point-in-band predicate every consumer calls: `wall_occludes`, the movement gate
+  (`SceneEcs::move_wall_entries`'s per-mover filter), `SceneEcs::region_field`'s and
+  `SceneEcs::trigger_regions`'s per-mover selection, and the render filters — mirrored exactly by
+  `@shadowcat/core`'s `bandContains` (`sceneScopedDocs`'s TS twin), pinned by the shared
+  conformance corpus. Elevation only ever FILTERS the occluder set per source — the star-shaped
+  raycast pipeline is untouched and sight/light ranges stay 2D: `sight_wall_entries`/
+  `light_wall_entries` collect the scene's walls as `BandedWall`s once, and every consumer filters
+  them through `walls_at_elevation` at ITS source's elevation (`sight_walls_for`, each light in
+  `lighting_inputs_from` at the light's own elevation, a carried emission at its token's) — except
+  environment ambient, which keeps the FULL light-wall set at every elevation (walls always shadow
+  sky-light, or daylight would flood interiors). The visibility-cache snapshot fingerprints each
+  source's elevation, so the same walls at two elevations never share a cached mask. Accepted
+  residual (owner-writable token elevation lifts a GM-authored carried light over a deliberately
+  banded wall) is bounded by the emission's own reach — the light discloses nothing farther than
+  its `dim` radius would at ground level, and no token, wall or region geometry the READ gate
+  withholds.
+  **`SceneEngine.levels: Vec<SceneLevel>`** (each `{id, name, bottom, top, background}`, ts-rs
+  exported) declares a scene's named floors; `level_of(levels, elevation)` resolves the level
+  whose `[bottom, top)` band contains a point elevation — a roof (past every level's top) resolves
+  to the highest level whose `bottom` it clears, and an elevation below every level's bottom
+  resolves to the lowest level; `levels: []` resolves `None` (the degenerate pre-levels case,
+  identical to legacy single-floor behavior). Mirrored exactly by `@shadowcat/core`'s `levelOf`,
+  same conformance corpus. `SceneSubscribe.level` (an optional field on the `scene_subscribe`
+  wire frame) is consumed ONLY by `enrich_vision_explored`, which uses it to select which floor's
+  persistent EXPLORED-FOG memory gets echoed into the `"vision"` payload's `explored` key — it does
+  NOT scope what `compute_derived`'s `"vision"` arm computes overall: that arm always returns EVERY
+  level's polygons/lit-cells in one payload, each group individually tagged with its own `level`
+  (the multi-scope pattern `"footprints"`/`"audibility"` also use). The display-time restriction to
+  one floor happens on the CLIENT: `RenderEngine.toVisibility`/`toLighting` filter the
+  `polygons`/`lit` groups on `(g.scene === activeScene && (g.level ?? "") === (viewedLevel ?? ""))`
+  before building the fog/lighting mask, `""` being the ground/level-less-scene spelling both sides
+  use. Level-less scenes and an absent `level` leave `enrich_vision_explored`'s own scoping
+  unaffected. No
+  server-side resting-token fog-stripping exists per level: a level's own explored-fog follows the
+  same per-recipient accumulation model every scene already had, just additionally keyed by the
+  subscribed level. `"footprints"` is NOT itself level-scoped by subscription (always the whole
+  scene); each `TokenFootprint` entry instead carries its own resolved `level`
+  (`level_of` at the token's stored elevation, `null` for a level-less scene OR an unstated token —
+  the two are indistinguishable in the wire payload), redacted by
+  ABSENCE like every other footprints field — see `shadowcat-codebase-documents-permissions` for
+  the egress-conjunct shape this composes with. The movement/placement GATES
+  (`SceneEcs::visible_cells`/`visible_cells_cached`, reached from `Room::execute_move`,
+  `Room::publish`'s Create placement gate, and `SceneEcs::pathfind`) are level-scoped
+  independently of this subscription field — see the `visible_cells_cached` bullet above — by
+  filtering gathered vision sources to the mover's OWN resolved level before accumulating cells,
+  never by anything `SceneSubscribe.level` sets.
+  **Portals**: a region's `TriggerEffect::Teleport { target: PortalTarget }` (`PortalTarget
+  {scene, x, y, elevation, vfx}` — `scene: None` = the portal's own scene) repositions the
+  entering token, committed under `WriteOrigin::Trigger` (a server-authored, capability-gate-
+  skipping origin — full mechanism: `shadowcat-codebase-documents-permissions`), gated to ONE hop
+  per move by `ws::room::Room::fire_region_triggers`'s own recursive re-fire (a boolean guard
+  disallowing a second teleport on the destination cells' own `Enter` triggers — a chained portal
+  is refused with a GM-only notice, never looped). A token teleported off its combat's scene
+  keeps its combatant record and turn.
 - `scene::senses` — creature senses (tremorsense & kin). `VisionMode` is the v2 descriptor:
   `perceives: Perception` (terrain | creatures), `requires_los`, `render_hint`, beside
   `illumination_floor`/`default_range`; `VisionModesEngine::seed` adds `tremorsense` (creatures,

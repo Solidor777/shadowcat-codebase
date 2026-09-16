@@ -152,4 +152,7 @@ check au8 "/srv/checkouts/shadowcat/src/client/core/src/playlist-docs.ts" "shado
 check au9 "C:/Dev/Shadowcat/src/modules/audio/src/AudioPanel.svelte"     "shadowcat-codebase-audio"
 check au10 "/srv/checkouts/shadowcat/src/modules/sheet-playlist/src/PlaylistSheet.svelte" "shadowcat-codebase-audio"
 
+check am1 "C:/Dev/Shadowcat/src/server/src/audio_monitor/server.rs" "shadowcat-codebase-server-ops"
+check am2 "C:/Dev/Shadowcat/src/modules/ducking/src/keySource.ts" "shadowcat-codebase-audio"
+
 echo "ALL HOOK TESTS PASS"
