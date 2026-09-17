@@ -43,6 +43,45 @@ and restore as a deployment-operator tool, not an in-app feature.
   behind an injected `SessionMonitor`, so it is testable against a scripted `FakeMonitor`
   (`#[cfg(test)]`-only, never compiled into the release binary) without a real OS audio API on
   the test runner.
+  - **`linux.rs`'s `CaptureStream { _listener, stream }` field order is load-bearing**: with no
+    explicit `Drop` impl, Rust drops struct fields in DECLARATION order, and `StreamListener`
+    must tear down (unregister the `process` callback from the stream's internal listener list)
+    before `Stream` frees the memory that listener pointed into — reorder these fields and you
+    get a use-after-free the compiler will not catch. `stream` is read via a real
+    `is_connected()` accessor (backed by `pw::stream::Stream::state()`) that the capture loop's
+    shutdown-poll timer calls to sweep dead streams. `_listener`'s type (`StreamListener<D>`)
+    exposes NO other public API beyond its own `Drop`/`unregister(self)` (verified against the
+    vendored `pipewire-0.8.0` source — its fields are a private opaque hook/callback bundle) — a
+    genuine accessor is not possible here, so the leading underscore is the correct fix: rustc's
+    own recognized idiom for "held only for a drop-order side effect," verified empirically
+    (`rustc -D dead_code` on an isolated repro) to exempt the field from `dead_code` without an
+    `#[allow]`/`#[expect]` annotation. Reach for a genuine accessor first (as `is_connected` does
+    for `stream`) whenever the held type actually exposes one; fall back to `_`-prefixing only
+    when it structurally cannot, as verified here for `StreamListener`.
+  - **`macos.rs` calls raw Core Audio HAL functions (`AudioObjectGetPropertyData`,
+    `AudioHardwareCreateProcessTap`, etc.) via a hand-written `extern "C"` block that needs
+    `#[link(name = "CoreAudio", kind = "framework")]` directly above it** — omitting this
+    compiles cleanly (extern declarations don't need their symbols to resolve until link time)
+    and fails ONLY at the final link step with "undefined symbols for architecture arm64", which
+    is easy to miss if an earlier, unrelated compile error in the same file (e.g. the
+    `objc_msgSend` note below) already stops the build before link and hides it.
+  - **`macos.rs` hand-rolls Objective-C `objc_msgSend` calls (no `objc`/`objc2` crate)** — since
+    `objc_msgSend`'s real signature varies by the receiver method's arity, declare the symbol
+    exactly ONCE via `extern "C"` (minimal/generic signature) and `std::mem::transmute` its
+    function pointer to whatever specific `unsafe extern "C" fn(...)` type each call site needs.
+    Declaring the same `#[link_name = "objc_msgSend"]` symbol twice with different Rust
+    signatures is `clashing_extern_declarations`, a hard compile error, not a lint.
+  - **The vendored PipeWire crate's `StreamFlags` bitflags do NOT include `PASSIVE`** — verified against the
+    vendored crate source; the real set is `AUTOCONNECT, INACTIVE, MAP_BUFFERS, DRIVER,
+    RT_PROCESS, NO_CONVERT, EXCLUSIVE, DONT_RECONNECT, ALLOC_BUFFERS, TRIGGER`. For a
+    buffer-reading capture stream, `AUTOCONNECT | MAP_BUFFERS` (optionally `| RT_PROCESS` if the
+    `process` callback stays realtime-safe) is the crate's own `examples/audio-capture.rs`
+    precedent.
+  - CI must install `libpipewire-0.3-dev` on every `ubuntu-latest` job that compiles this crate —
+    not just the `rust` job. `libspa-sys`'s build script needs the system PipeWire headers/
+    pkg-config on `e2e`/`ui-e2e`/`docs` too, since each of those also runs `cargo build`/`cargo
+    doc` on the same workspace; a job missing the install step fails at the `libspa-sys` build
+    script, not with a Rust-level error.
 - `db` — `parse_connect_options(url) -> Result<SqliteConnectOptions, sqlx::Error>` parses a URL
   into connect options exactly ONCE; `connect_pool_with_options(options) -> Result<SqlitePool,
   sqlx::Error>` is the SHARED single-writer pool-open bootstrap over already-parsed options
