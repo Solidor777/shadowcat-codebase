@@ -54,10 +54,20 @@ with 3D dice off never downloads or initializes either.
   `MAX_CONCURRENT_ROLLS` and per-roll dice at `MAX_DICE_PER_ROLL` (the remainder is a "+N"
   badge on the chat card path — the card is the source of truth, the overlay a courtesy).
 - `settings.ts` / `performanceSeam.ts` / `audioSeam.ts` — the per-device appearance override
-  (`readDice3DSettings`/`writeDice3DSettings`, localStorage) and two seam stubs
-  (`dice3dEnabled`/`reducedMotionPreferred`/`antialiasPreferred`, `playThrowSound`) bound to
-  device-local defaults until the performance and audio seams land; only the function
-  bodies rewire then, never the call sites.
+  (`readDice3DSettings`/`writeDice3DSettings`, localStorage) and two seam functions
+  (`dice3dEnabled`/`reducedMotionPreferred`/`antialiasPreferred`, `playThrowSound`) reading the
+  real merged `AppContext.performance`/`AppContext.audio` (now fully integrated). **Each
+  takes its `AppContext` slice as an explicit parameter** (`Pick<AppContext, "performance">` /
+  `Pick<AppContext, "audio">`) rather than calling `getAppContext()` internally — Svelte 5's
+  `getContext()` (which `getAppContext()` wraps) is only valid during a component's SYNCHRONOUS
+  initialization, and every real call site fires from inside a post-mount `$effect`/document-
+  store-subscription callback (`DiceOverlay.svelte`'s `handlePlay`/`playQueued`/`ensureEngine`),
+  which throws `lifecycle_outside_component` if `getContext()` is called there. `DiceOverlay.svelte`
+  resolves `const ctx = getAppContext()` exactly ONCE at its own top level (synchronous, inside
+  component init) and threads that single `ctx` to every seam call. **Any future seam function
+  meant to be called from an async/deferred callback anywhere in this codebase needs the same
+  shape — resolve `AppContext` synchronously at the call site's owning component's top level,
+  thread it down, never call `getAppContext()` lazily from inside a callback.**
 - `Dice3DBridge` (`src/client/ui-kit/src/dice3dInteraction.ts`) — the late-binding
   `SceneInteractionBridge`-pattern seam exposed as `AppContext.dice3d`
   (`Dice3DInteraction` = `Dice3DHost` + `attach`): a system module that rolls outside chat
