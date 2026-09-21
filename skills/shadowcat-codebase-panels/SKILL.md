@@ -249,6 +249,24 @@ the reducer (intercept-and-redispatch), so the engine never owns state.
   it at all; only `onDidLayoutChange` (fed by `Overlay`'s `onDidChangeEnd`) covers both
   gestures. Both facts live in the vendored `dockview-core@7.0.2` source, not the wrapper code —
   read it, and re-verify on any dockview-core version bump, same as the pop-out invariants above.
+- **A persisted floating `Rect` is re-clamped against the CURRENT container on every `apply()`,
+  read-time only, never written back.** `clampFloatingRectToContainer(rect, containerW,
+  containerH)` fires ONLY when `rect` has NO overlap with the container at all (a rect persisted
+  from a wider viewport, or a container that has since shrunk — a window resize, a mobile
+  rotation) — a rect with ANY overlap, including one legitimately dragged partway off-screen
+  (`Rect`'s own contract permits that), passes through completely unchanged; a continuous
+  re-clamp must never undo a deliberate partial-off-screen placement. On a clamp, the rect is
+  pinned to the container's top-left-most reachable slot at its own (container-capped) size. The
+  clamped rect — never the tree's raw `f.rect` — is what `apply()`'s floating loop hands to
+  `addPanel`/`#reconcileFloating` AND what it snapshots into `#lastFloatingRect`; snapshotting the
+  unclamped rect there would desync the baseline `#handleFloatingLayoutChange` diffs against from
+  the actually-rendered widget, manufacturing a spurious re-emit on the next layout-change event.
+  `#floatingContainerSize()` (the dockview root element's `getBoundingClientRect`) is the SOLE
+  degenerate-bounds guard for this clamp: it returns `null` for an unavailable component OR a
+  zero-area read (mirroring `clampScreenRectToAvailable`'s own degenerate-bounds fallback), and
+  its one caller skips `clampFloatingRectToContainer` entirely on `null` — that function's own
+  width/height parameters are therefore always positive, and the function carries no
+  degenerate-bounds check of its own by design, so the decision has exactly one owner.
 
 ## Gotchas
 

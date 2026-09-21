@@ -27,12 +27,88 @@ and restore as a deployment-operator tool, not an in-app feature.
   sibling `assets/` beside the db file, via `Config::assets_path()`). `Cli.backup_to`/
   `restore_from: Option<String>` and `Cli.force: bool` are CLI-ONLY triggers — never on `Config`,
   never read from TOML/env (a one-shot operation is not persistent server configuration).
+- `Config.behind_tls_proxy` (default `false`, CLI/env-settable, never inferred) declares a
+  TLS-terminating reverse proxy fronts `bind` on the same host, making an otherwise-loopback bind
+  internet-reachable. `Config::is_exposed()` is the ONE derived predicate every "is this deployment
+  exposed" security decision reads — `setup_token_policy`'s `"auto"` arm, `AppState::
+  resolve_setup_token`'s warning, and the session cookie's secure-attribute flag (`auth::session::
+  session_layer`, [[shadowcat-codebase-realtime-sync]])
+  all call `is_exposed()` rather than `is_loopback_bind()` directly, so those three cannot drift
+  out of agreement on this input (a dedicated anti-drift test asserts all three flip together).
+  The `Strict-Transport-Security` response header is a NARROWER decision that reads
+  `behind_tls_proxy` directly, never through `is_exposed()`: a plain non-loopback bind with no TLS
+  anywhere in the path is "exposed" by `is_exposed()` but must never receive HSTS.
+- `Config.log_dir`/`Config::logs_path()` (`None` → sibling `logs/` dir beside the db file, the
+  same convention `assets_path`/`modules_path` use) feeds `main::init_tracing(log_dir: Option<&
+  Path>)`, which ADDITIONALLY writes daily-rotated log files (the `tracing_appender` crate's
+  rolling-file appender, DAILY rotation, `filename_prefix("shadowcat")`, retention bounded by
+  `main::MAX_LOG_FILES` = 14)
+  alongside the always-on stdout layer. `init_tracing` returns the `tracing_appender` crate's
+  non-blocking-writer guard type (`Option<WorkerGuard>`) rather than dropping it
+  internally — the caller (`main`) must hold it for the process's whole lifetime, since a dropped
+  guard stops the background writer thread and silently drops buffered lines. Only the
+  `audio-monitor` subcommand branch runs before `Config::load` and passes `None` (stdout-only,
+  since there is no `logs_path()` to derive a rotation root from yet); the `--backup-to`/
+  `--restore-from` one-shot branches and the normal serve path all run AFTER `Config::load` and
+  pass `Some(&config.logs_path())`.
+- `http::router` installs a global response-header layer via tower-http's overriding
+  set-header layer (`X_FRAME_OPTIONS: DENY`, `X_CONTENT_TYPE_OPTIONS: nosniff`,
+  `REFERRER_POLICY: same-origin`, unconditional on every route) plus a conditional
+  `Strict-Transport-Security` layer (tower's optional-layer helper, only when
+  `Config.behind_tls_proxy`) — a Content-Security-Policy is deliberately NOT set here. Both sit
+  INSIDE the request-id/trace layers, which wrap them (not the reverse), so a request-id is
+  stamped and the trace span opened before these headers run, and both still land on error
+  responses, not just successful ones. The override mode unconditionally replaces any existing
+  value with the same name on the way out, so a per-handler copy of one of these headers (e.g.
+  a per-branch X_CONTENT_TYPE_OPTIONS on `http::assets::serve`) is dead weight — remove it
+  rather than duplicate it ([[shadowcat-codebase-assets]] for the asset-serve headers this
+  affects).
 - `main` — `main()`'s FIRST branch: if both `backup_to` and `restore_from` are
   `Some`, `anyhow::bail!` before `Config::load` even runs. The three fields are cloned OUT of
   `main::cli` before `Config::load(cli)` consumes it by value. Either flag alone short-circuits to
   `run_backup`/`run_restore` and `return Ok(())` — `SqliteRepository::connect` (the long-lived
   pool) and `axum::serve` are structurally unreachable on that path, not just conditionally
   skipped.
+- `serve(listener, state, shutdown_fut)` (`http::serve`) is the testable core of normal server
+  startup: wraps `axum::serve(..).with_graceful_shutdown(serve::shutdown_fut)` with a
+  POST-shutdown `WsState::wait_for_drain` call bounded by `http::SHUTDOWN_DRAIN_TIMEOUT` (5s) —
+  because axum's WebSocket-upgrade callback spawns as a task DETACHED from the hyper
+  connection future that produced the 101 handshake, `axum::serve`'s own graceful shutdown
+  resolves once ordinary HTTP connections drain and does NOT wait for a live WebSocket session's
+  task to exit; without the drain step, `main` could return (dropping the tokio runtime) while a
+  `ws::conn::egress_loop` task is still mid-`send` on its Close frame. See
+  [[shadowcat-codebase-realtime-sync]] for the `WsState.live_connections`/`ConnectionGuard`/
+  `wait_for_drain` mechanism this drains and for `egress_loop`'s own shutdown-select arm. `main`'s
+  `shutdown_signal(ws)` is the `serve::shutdown_fut` passed in: it resolves on Ctrl+C
+  (`tokio::signal::ctrl_c`) or, under a Unix build, SIGTERM (`tokio::signal::unix::SignalKind::
+  terminate` — Windows has no SIGTERM, so the pending-forever future substituted there never
+  resolves and the `select!` reduces to Ctrl+C alone with no extra conditional compilation at the
+  call site; macOS and Linux both take the real branch), then calls `WsState::trigger_shutdown()`
+  before returning.
+- `create_world` (`http::routes::create_world`) is throttled per-account via
+  `http::throttle::WORLD_CREATE_PER_MIN_PER_ACCOUNT` (10/min trailing window, `AppState.
+  auth_throttle`, the same sliding-window limiter the login/invite endpoints share) —
+  `create_world` requires only an authenticated `AuthUser` with no per-world capability check, so
+  an unthrottled account could otherwise mint unbounded worlds (each seeding a full config-doc set
+  via `apply_intent`), exhausting storage/DB rows with no signal beyond ordinary write volume.
+- `POST /api/users/{id}/password` (`routes::reset_user_password`, server-admin-only via
+  `AdminUser` — the same guard `create_user` uses) and `create_user` both validate the plaintext
+  password through the ONE shared `routes::validate_password_policy` (length floor/ceiling), so the
+  two password-setting paths can never drift on what password is admissible.
+  `reset_user_password` hashes it, calls `SqliteRepository::set_user_password` (updates the hash
+  AND, via the shared `SqliteRepository::purge_sessions_for` helper, revokes every existing
+  session for that account in the SAME transaction — the identical live-eviction reasoning
+  `delete_user` already documents: a surviving session would keep the OLD password's authenticated
+  state alive), then kicks live WS connections via `state.ws.rooms.evict_user` — the SAME call
+  `delete_user`'s route makes, never a second eviction mechanism. `purge_sessions_for` is the ONE
+  session-purge helper in the crate, called by both `delete_user` and `set_user_password`
+  immediately before their respective `tx.commit()` on the SAME transaction as their own write; an
+  admin resetting their OWN password is not special-cased — their own sessions and live
+  connections are evicted too, intended, since a password change invalidates every session for the
+  account, self included. Failure mapping is condition-specific, not uniform: an unknown target id
+  is `AppError::NotFound` (404, existence-hiding, matching `create_user`/`delete_user`'s own
+  routes); a password failing `validate_password_policy` is `AppError::Unprocessable` (422); an
+  Argon2 hashing failure is `AppError::Internal` (500).
 - `audio_monitor` (`src/server/src/audio_monitor/`) — the `CliCommand::AudioMonitor` branch's
   target: a localhost-only `SessionMonitor` trait plus one `#[cfg(target_os = ...)]` backend per
   OS (`windows`/`macos`/`linux`), constructed by `platform_monitor()`. `main.rs`'s `Cli::parse()`
@@ -44,20 +120,23 @@ and restore as a deployment-operator tool, not an in-app feature.
   (`#[cfg(test)]`-only, never compiled into the release binary) without a real OS audio API on
   the test runner.
   - **`linux.rs`'s `CaptureStream { _listener, stream }` field order is load-bearing**: with no
-    explicit `Drop` impl, Rust drops struct fields in DECLARATION order, and `StreamListener`
-    must tear down (unregister the `process` callback from the stream's internal listener list)
-    before `Stream` frees the memory that listener pointed into — reorder these fields and you
-    get a use-after-free the compiler will not catch. `stream` is read via a real
-    `is_connected()` accessor (backed by `pw::stream::Stream::state()`) that the capture loop's
-    shutdown-poll timer calls to sweep dead streams. `_listener`'s type (`StreamListener<D>`)
-    exposes NO other public API beyond its own `Drop`/`unregister(self)` (verified against the
+    explicit Drop impl of its own, Rust drops struct fields in DECLARATION order, and the
+    pipewire crate's stream listener handle must tear down (unregister the `process` callback
+    from the stream's internal listener list) before the stream handle frees the memory that
+    listener pointed into — reorder these fields and you get a use-after-free the compiler will
+    not catch. `stream` is read via a real
+    `is_connected()` accessor (backed by the pipewire crate's own stream-state query) that the capture loop's
+    shutdown-poll timer calls to sweep dead streams. `_listener`'s type (the pipewire crate's
+    stream-listener handle, generic over `D`)
+    exposes NO other public API beyond its own drop/unregister-on-consume (verified against the
     vendored `pipewire-0.8.0` source — its fields are a private opaque hook/callback bundle) — a
     genuine accessor is not possible here, so the leading underscore is the correct fix: rustc's
     own recognized idiom for "held only for a drop-order side effect," verified empirically
-    (`rustc -D dead_code` on an isolated repro) to exempt the field from `dead_code` without an
-    `#[allow]`/`#[expect]` annotation. Reach for a genuine accessor first (as `is_connected` does
-    for `stream`) whenever the held type actually exposes one; fall back to `_`-prefixing only
-    when it structurally cannot, as verified here for `StreamListener`.
+    (a `-D dead-code` build of an isolated repro) to exempt the field from the dead-code lint
+    without an `#[allow]`/`#[expect]` annotation. Reach for a genuine accessor first (as
+    `is_connected` does for `stream`) whenever the held type actually exposes one; fall back to
+    `_`-prefixing only when it structurally cannot, as verified here for the pipewire crate's
+    stream-listener handle.
   - **`macos.rs` calls raw Core Audio HAL functions (`AudioObjectGetPropertyData`,
     `AudioHardwareCreateProcessTap`, etc.) via a hand-written `extern "C"` block that needs
     `#[link(name = "CoreAudio", kind = "framework")]` directly above it** — omitting this
@@ -65,13 +144,14 @@ and restore as a deployment-operator tool, not an in-app feature.
     and fails ONLY at the final link step with "undefined symbols for architecture arm64", which
     is easy to miss if an earlier, unrelated compile error in the same file (e.g. the
     `objc_msgSend` note below) already stops the build before link and hides it.
-  - **`macos.rs` hand-rolls Objective-C `objc_msgSend` calls (no `objc`/`objc2` crate)** — since
+  - **`macos.rs` hand-rolls Objective-C `objc_msgSend` calls (no third-party Objective-C-bridge
+    crate)** — since
     `objc_msgSend`'s real signature varies by the receiver method's arity, declare the symbol
-    exactly ONCE via `extern "C"` (minimal/generic signature) and `std::mem::transmute` its
+    exactly ONCE via `extern "C"` (minimal/generic signature) and transmute its
     function pointer to whatever specific `unsafe extern "C" fn(...)` type each call site needs.
     Declaring the same `#[link_name = "objc_msgSend"]` symbol twice with different Rust
-    signatures is `clashing_extern_declarations`, a hard compile error, not a lint.
-  - **The vendored PipeWire crate's `StreamFlags` bitflags do NOT include `PASSIVE`** — verified against the
+    signatures is a clashing-extern-declarations hard compile error, not a lint.
+  - **The vendored PipeWire crate's stream-flags bitflags do NOT include a passive-mode flag** — verified against the
     vendored crate source; the real set is `AUTOCONNECT, INACTIVE, MAP_BUFFERS, DRIVER,
     RT_PROCESS, NO_CONVERT, EXCLUSIVE, DONT_RECONNECT, ALLOC_BUFFERS, TRIGGER`. For a
     buffer-reading capture stream, `AUTOCONNECT | MAP_BUFFERS` (optionally `| RT_PROCESS` if the

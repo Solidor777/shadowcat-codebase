@@ -76,6 +76,26 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
     world a command is being applied to), it asserts `doc.scope` is `Scope::World` for that
     SAME id, rejecting any other scope — a guard inside `apply_intent`/`apply_command`, not a
     `world_of`-style derivation, so it does not duplicate `world_of` itself.
+- **`data::engine::geometry::validate_hex_color(color)`/`validate_asset_ref(asset)`** are the ONE
+  shared shape check for every colour-typed and asset-reference-typed engine field respectively —
+  `validate_hex_color` requires exactly `#` + 6 hex digits (the only syntax `<input
+  type="color">` ever emits; every client colour-authoring path in the tree uses that input), and
+  `validate_asset_ref` requires a well-formed UUID string (`data::asset::Asset.id: Uuid`), FORMAT
+  ONLY — it never queries the repository, so a dangling ref is a read-time "no asset" concern, not
+  an ingress rejection. Every colour/asset field's own `.validate()` calls the shared
+  function: `GeneratedBorder`/`GeneratedBackground`/`Stroke`/`Fill` (the last two via
+  `DrawingEngine::validate`), `EnvironmentLight` (via `SceneEngine::validate` and
+  `SceneDefaultsOverlay::validate`, shared by `SystemDefaultsEngine`/`WorldSettingsEngine`),
+  `Faction.color` (`FactionRegistryEngine::validate`), `TemplateEngine.color`, `LightEmission.color`
+  for colour; `TokenVisual::Image.asset`, `RenderVisual::Image.asset`, `AnimatedSource::
+  Frames.frames`, `AnimatedSource::Sheet.asset`, `SoundEmission.asset`, `VfxEmission.asset`,
+  `SceneEngine.background`, `SceneLevel.background` (per-level, via `validate_levels`),
+  `PortalTarget.vfx`, `PlaylistTrack.asset` (`PlaylistEngine::validate`, per track), `PlayingTrack.
+  asset` (`AudioStateEngine::validate`, per `playing` entry) for asset refs, wired
+  into `TokenEngine::validate`/`TokenOverrides::validate`/`ActorEngine::validate` (the last
+  unconditionally, since `visual` is required there) — see `shadowcat-codebase-actors-tokens` for
+  the token/actor fields' own shapes and `shadowcat-codebase-audio` for the playlist/audio-state
+  fields (fixture convention: a real UUID string, never a placeholder like `"a1"`).
 - `data::engine` — the typed `engine`-band structs + the ingress-validation
   registry, one submodule per doc-type family (`data::engine::token`, `data::engine::scene`,
   `data::engine::geometry`, `data::engine::registries`) plus the `data::engine` module itself:
@@ -341,6 +361,35 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   (`snapshot_base`'s keying); a record with no live counterpart is shape-checked only, never
   normalized, because it is historical. Validation is ingest-time, so a legacy stale-schema
   `base` is re-validated only when the document is rewritten.
+  `data::validation::validate_document_name(name: &Option<String>)` caps `Document.name`'s UTF-8
+  byte length at `data::validation::MAX_DOCUMENT_NAME_BYTES` (512) — the ONE envelope field exempt
+  from the three-block (`system`/`engine`/`base`) caps above, since it lives outside all of them;
+  folded into `validate_system_size` as its first statement, so it runs at all 4 pre-existing
+  `validate_system_size` call sites (Create and Update post-image, top-level and embedded) with no
+  new chokepoint. `data::validation::validate_document_id(id)` rejects a `Document.id` that is not
+  a v4 (random) or v7 (timestamp+random) UUID (format-only, via the `uuid` crate's own version
+  query); `validate_document_id_tree(doc)` recurses it over `doc` and every
+  embedded descendant, run at FOUR ingress points, not one. At BOTH authoritative Create paths
+  (`data::sqlite::apply_command`'s Create arm and `apply_intent` Phase 1's Create-op validation
+  block) it is wired immediately BEFORE `validate_property_overrides`. **An Update DOES revisit
+  ids** — `apply_intent`'s `Operation::Update` arm re-runs it over the MERGED post-image, in
+  lockstep just before `validate_engine_tree` (after `validate_system_size`/
+  `validate_property_overrides` re-check the merge result): a whole-collection embedded-child
+  replacement, or an Update that adds an embedded child wholesale, introduces a child id this
+  chokepoint has never checked before, so the Create-only framing does not hold for the recursion
+  shape as a whole. `SqliteRepository::import_world` also runs it over every imported row (a
+  bundle is untrusted input, same posture as a live Create/Update), alongside its own
+  `validate_system_size`/`validate_property_overrides`/`validate_engine_tree` calls. Every
+  server-generated id in the tree already uses `Uuid::new_v4()`, so this closes an ingress gap
+  without touching any production id-generation path — it rejects only a CLIENT-supplied
+  v1/nil/other-version id (or, on Update/import, one introduced via an embedded child). Every
+  test fixture that becomes a `Document.id` must therefore be v4-shaped: `crate::test_ids::
+  test_uuid(n)` (`#[cfg(test)]`-only, `src/server/src/test_ids.rs`) and
+  `shadowcat_test_support::test_doc_id(n)` reproduce `Uuid::from_u128(n)`'s low-order bytes while
+  forcing the version/variant nibbles to v4/RFC4122 — the now-standard replacement for a bare
+  `Uuid::from_u128(n)` anywhere the result becomes a `Document.id` (a `request_id`/`message_id`
+  correlation id compared against a hardcoded wire-format string literal is NOT a `Document.id`
+  and is deliberately left as plain `Uuid::from_u128`).
 - `data::validation::validate_system_schema_tree` (tier-2) — a read-only recursive
   `system`-band structural gate, run beside (not instead of) `validate_engine_tree`.
   `validate_value_against_schema(value, schema) -> Result<(), SchemaMismatch>` is the pure

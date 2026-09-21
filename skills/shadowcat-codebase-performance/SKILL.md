@@ -22,9 +22,9 @@ engine through getters read fresh every tick.
 
 - `src/client/core/src/performance.ts` — the OWNED seam type every consumer reads:
   `PerformanceSettings` (`fpsCap`/`renderScale`/`antialias`/`tokenFx`/`lighting`/`vfx`/
-  `dice3d`/`spatialAudio`/`idleSkip`/`reducedMotion`), `PerformancePreset`, `DeviceSignals`,
-  the three static `PRESETS`, `resolveAuto` (mobile when coarse-pointer + compact, or
-  `DeviceSignals.hardwareConcurrency` ≤ 4, or `DeviceSignals.deviceMemoryGb` ≤ 4; the
+  `dice3d`/`spatialAudio`/`idleSkip`/`reducedMotion`/`textureBudgetBytes`), `PerformancePreset`,
+  `DeviceSignals`, the three static `PRESETS`, `resolveAuto` (mobile when coarse-pointer +
+  compact, or `DeviceSignals.hardwareConcurrency` ≤ 4, or `DeviceSignals.deviceMemoryGb` ≤ 4; the
   `DeviceSignals.reducedMotion` signal is OR-ed onto whatever preset resolves),
   `PersistedPerformance` (`{preset, overrides}`), `parsePersisted`/`serializePersisted`
   (fail-closed per KEY, never per record), `effectiveSettings`,
@@ -33,6 +33,15 @@ engine through getters read fresh every tick.
   `PERFORMANCE_STORAGE_KEY`. The `PerformanceSettings.vfx`/`dice3d`/`spatialAudio` keys are
   reserved for their owning subsystems (VFX, 3D dice, audio): when those consumers land they
   MUST read these fields through this same type — never a private copy.
+- **`textureBudgetBytes`** — an approximate GPU-resident texture-cache byte budget, per preset
+  (`mobile` 128 MiB, `balanced` 512 MiB, `quality` 1 GiB); `sanitizeOverrides` drops a
+  non-finite or non-positive override the same fail-closed-per-key way as every other field. It is
+  PRESET-DERIVED ONLY today — `PerformanceEditor.svelte` exposes no per-key control for it (unlike
+  `fpsCap`/`renderScale`/the boolean toggles), so a `"custom"` preset can only acquire a non-default
+  value by hand-editing the persisted blob. The consuming manager
+  (`@shadowcat/render`'s `TextureCacheManager`) and the backend bookkeeping that feeds it live in
+  `shadowcat-codebase-scene-rendering` — this skill owns only the budget NUMBER's shape and
+  persistence, not the eviction policy.
 - `src/client/ui-kit/src/performance.svelte.ts` — `PerformanceController`, mirroring
   `ThemeController`'s shape exactly (`$state`-backed getters, `subscribe`/`load`/`serialize`,
   a module singleton `performanceController`, and `activePerformance` for reactive component
@@ -47,8 +56,11 @@ engine through getters read fresh every tick.
 - `src/client/render/` — the budget consumers: `RenderEngineOpts.performance` (a getter, the
   `RenderEngineOpts.viewedSceneId` pattern, read fresh per tick) and
   `RenderEngineOpts.onStats` (host observability hook, at most 4×/s);
-  `DisplayBackend.setFrameCap`/`DisplayBackend.setRenderScale`/`DisplayBackend.render`
-  (`MockBackend` records structurally); `createPixiBackend` removes the renderer's own
+  `DisplayBackend.setFrameCap`/`DisplayBackend.setRenderScale`/`DisplayBackend.setTextureBudget`/
+  `DisplayBackend.render` (`MockBackend` records structurally); `RenderEngine`'s ticker re-pushes
+  `setTextureBudget` only when `PerformanceSettings.textureBudgetBytes` actually changes since the
+  last tick (same change-gated pattern as `setRenderScale`), and pushes it once unconditionally in
+  `start()` alongside the frame cap and render scale; `createPixiBackend` removes the renderer's own
   auto-render ticker listener so `RenderEngine` owns the render call; `wrapDirtyTracking`
   intercepts every mutating draw call into the engine's dirty flag;
   `TokenView.hasAnimatedVisual` keeps animated sprites rendering every tick under idle-skip;

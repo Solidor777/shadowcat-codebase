@@ -286,7 +286,11 @@ separately enforces a per-turn movement budget against the same documents this s
   controls gated by `ctx.combat.canAct`, the two-click End confirm, "Roll all" — `model.ts`'s
   `rollTargets` excludes `Event` combatants and, for a non-GM, everything but the caller's own
   rows), `CombatantRow` (name/conditions/initiative/per-resource cells, GM-only hide/remove/drag),
-  and `AddCombatants` (adds the current token selection, authors one-off `Event` combatants).
+  and `AddCombatants` (adds the current token selection, authors one-off `Event` combatants;
+  its "Add selected" button label is a `PluralEntry` (`combatTracker.addSelected`) rendered via
+  `ctx.plural("combatTracker.addSelected", selectableTokenIds.length, { n: selectableTokenIds.length })`
+  — see `shadowcat-codebase-client-shell`'s `I18n.plural` entry for the category-selection
+  contract — never `ctx.t`).
   `TurnBadge` lights the launcher item on the viewer's own turn only. `@shadowcat/module-
   game-settings` gained three editors reading/writing the shapes this skill owns:
   `CombatSettings` (world-tier `CombatDefaults` chain editor, one control per leaf plus an

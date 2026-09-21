@@ -83,8 +83,12 @@ on.
   this group produces, including exploded/penetrated children — read by
   `RollOutcome::by_label`/`compare_labels`, orthogonal to mode; duplicate labels across groups are
   NOT an error, they pool under `by_label`), `Expr` (Dice(DiceGroup)/Const(ConstTerm)/Bin/Neg/
-  Call{name: FnName, args}) — `FnName` (Floor/Ceil/Round/Abs/Min/Max, `arity()` fixed per variant,
-  checked at parse time only).
+  Call{name: FnName, args}) — `FnName` (Floor/Ceil/Round/Abs/Min/Max). `FnName::arity()` returns a
+  MINIMUM, not always an exact count: `Floor`/`Ceil`/`Round`/`Abs` require exactly `arity()`, but
+  `Min`/`Max` are variadic and admit any count `>= arity()` (2) — `FnName::accepts_arg_count(count)`
+  is the ONE admissibility check `dice::notation::parser::P::fn_call` applies at parse time
+  (`Expr::Call` itself carries no arity guarantee once constructed), so a fixed-arity/variadic
+  decision made on `FnName` is never re-decided at the call site.
   `ConstTerm{value: i32, label: Option<String>}` mirrors `DiceGroup`'s label field onto a bare
   constant — the parser's label-consumption (`take_label()`) applies to EITHER atomic factor
   (a `DiceGroup` or a `Const`), not only dice groups; a labeled constant is Total/Sum-mode
@@ -276,7 +280,8 @@ on.
   | '-' factor | fn_call | dice | int`, `fn_call := ident '(' expr (',' expr)* ')'`). `fn_call`
   recognizes an `Ident` as a math function only when immediately followed by `(` at the `factor`
   position — the same lexer `Ident` token the modifier grammar already consumes, so no lexer
-  change was needed for the six function names themselves; `FnName::arity` is checked at parse
+  change was needed for the six function names themselves; `FnName::accepts_arg_count` (Min/Max
+  variadic >= 2, every other variant exact) is checked at parse
   time, producing `Expr::Call{name: FnName, args}`. `Token::Comma`/`Token::Colon` are two new
   single-char tokens: `Comma` separates `fn_call` arguments, `Colon` separates a modifier's
   threshold from its optional value fields (`tr<offset>:<value>`, `xs<N>:<extra>:<counter>`,

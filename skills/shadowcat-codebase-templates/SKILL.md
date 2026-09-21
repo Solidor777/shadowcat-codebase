@@ -206,7 +206,12 @@ is the `base` derivation at Create plus ordinary Create validation.
 - `MergeConflictModal` (+ `TemplateModalHost`) — unchanged UX; consumes `WireMergeConflict`
   (the hand-written Zod mirror in the `wire` module of the ts-rs-generated `MergeConflict` —
   the `wire.test.ts` parity assertions pin the two shapes equal) instead of an engine-produced
-  type. `ConflictGroup.label` comes from the push outcome's `name`.
+  type. `ConflictGroup.label` comes from the push outcome's `name`. `onApply`'s return type is
+  `void | Promise<void>`: a `submitting` guard disables both Apply and Cancel for the duration of
+  an asynchronous `onApply` call, re-enabling unconditionally in a finally block on settle (success or
+  rejection) — the production wiring's own dispatch is eager (resolves before the caller awaits
+  anything meaningful), so this guard exists for a caller whose `onApply` genuinely awaits a
+  round trip, not for today's wiring specifically.
 - `AppContext.templates: TemplatesApi` (`stampInstance`, `pull`, `push`, `revert`, `findInstances`,
   `syncState`, `canPull`, `canPush`) — unchanged shape; still the seam every sheet/module reaches
   templates through.

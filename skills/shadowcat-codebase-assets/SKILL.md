@@ -54,8 +54,8 @@ pipeline-derived tags.
   same `process_staged`: `symphonia` probe+decode → `rubato` resample to 48kHz (if needed) →
   Opus VBR encode → Ogg and/or WebM mux (`AudioContainers`, selected at import). **The
   canonical asset is NEVER swapped to Opus** — the original stays canonical. **Unlike
-  `thumb`/`preview`, the `.opus.ogg`/`.opus.webm` siblings are explicitly NOT `Variant`s and are
-  never regenerated on serve** — a missing one 404s rather than re-transcoding.
+  `Variant::Thumb`/`Variant::Preview`, the `.opus.ogg`/`.opus.webm` siblings are explicitly NOT
+  `Variant`s and are never regenerated on serve** — a missing one 404s rather than re-transcoding.
   `AssetMeta.duration_ms`/`sample_rate` (both `Option<i64>`) are populated by this pipeline. See
   `shadowcat-codebase-audio` for the full transcode/mixer picture.
 - `data::asset::tags` — `derive(DeriveInput { content_type, meta, folder_names, provenance })`
@@ -140,6 +140,20 @@ pipeline-derived tags.
   `pickAsset` AppContext seam opens `AssetPickOverlay` (contributed into
   `shadowcat.surface:overlay`, deliberately NOT GM-gated — any member picks; the managing
   panel contribution is `gmOnly`). Replaces the retired `@shadowcat/module-assets`.
+  `folderOps.ts`'s `folderChildren(docs, parentId, nameCompare?)` takes an INJECTED name-tie-break
+  comparator (defaulting to a plain locale-compare, so the module stays independently
+  testable with no `@shadowcat/ui-kit` dependency) — `FolderTree.svelte`, the production caller,
+  passes `ctx.compare` (ui-kit's locale-reactive collator; see `shadowcat-codebase-client-shell`'s
+  `I18n.compare`), so this pure sort module never constructs its own collator.
+  `appendFolderSortKey(docs, parentId) -> number` (`folderOps.ts`) is the folder-tree caller of
+  `@shadowcat/core`'s shared `appendSortKey`/`SORT_KEY_DENSITY` sibling-ordering primitive (see
+  `shadowcat-codebase-client-shell` for that primitive's general contract, shared with
+  `appendNoteSortKey` in `shadowcat-codebase-tables-notes`): it derives its siblings from
+  `folderChildren(docs, parentId)` (using `folderChildren`'s default comparator — the append key
+  depends only on the numeric `sort` values, not name order) and feeds their `sort` values
+  through. `buildFolderDoc(world, name, parentId, sort = 0)` takes the allocated key as an
+  explicit fourth argument; the `0` default serves a caller with no sibling list to allocate an
+  append key from.
 
 ## Hard invariants
 
@@ -205,9 +219,32 @@ pipeline-derived tags.
   session lands the asset at the world root rather than failing the upload. Sessions are
   in-memory only.
 - **`serve` never lets a browser render a stored type as a document**: `X-Content-Type-Options:
-  nosniff` always, and `Content-Disposition: inline` only for the raster types in
+  nosniff` always — set by `http::router`'s global security-header layer
+  ([[shadowcat-codebase-server-ops]]), NOT a per-handler header on `serve` itself (a per-branch
+  copy would be dead weight: the router's overriding set-header layer unconditionally replaces any
+  existing value on the way out) — and `Content-Disposition: inline` only for the raster types in
   `INLINE_CONTENT_TYPES`; everything else — SVG included — is an attachment (`<img>` embedding
-  is unaffected). A GM-declared pass-through type is stored verbatim but cannot execute.
+  is unaffected), naming itself via the shared `mutate::attachment_disposition` helper (also used
+  by `mutate::original`'s retained-original download, never a bare `"attachment"` restated at a
+  second call site). A GM-declared pass-through type is stored verbatim but cannot execute.
+- **Every `http::assets::serve` response branch (canonical, every `?variant=`, and its own
+  304/not-modified replies) sets `Cache-Control: no-cache`** — the request URL carries no asset
+  version, so a cache must always revalidate through `If-None-Match` rather than trust a heuristic
+  freshness lifetime; this is what makes the ETag load-bearing rather than a courtesy. Contrast
+  the embedded client bundle (`http::embed::static_handler`): a hashed-URL chunk under `assets/`
+  (`http::embed::is_hashed_asset_path`, matching `vite.config.ts`'s content-hashed build output —
+  `assets/[name]-[hash].js`) gets `public, max-age=31536000, immutable` instead, since a changed
+  file there gets a brand-new URL; every other embedded path (`index.html`, `popout.html`,
+  favicons, the stably-named `runtime/*.js` import-map chunks) stays `no-cache` because its URL
+  never changes when its content does.
+- **`http::compression::AssetAndWsSafePredicate`** is the response predicate
+  `http::router` installs globally on its compression layer — the tower-http default (excludes
+  `image/*`, gRPC, SSE, bodies under 32 bytes) PLUS the Opus/WebM audio-derivative content types
+  (`data::asset::process::audio::{OPUS_CONTENT_TYPE, WEBM_CONTENT_TYPE}` — already compressed, so
+  gzip/br would spend CPU for an equal-or-larger output) PLUS any `101 Switching Protocols`
+  response (a WebSocket upgrade hands the raw TCP stream to the WS protocol from that point on;
+  wrapping it in a gzip/br encoder would corrupt every frame sent after the upgrade — refused by
+  status code alone, since that status never occurs on an ordinary REST/asset response).
 - **Every decode is bounded** (`decode_limits`: axis ≤ `MAX_DECODE_AXIS_PX`, allocation ≤
   `MAX_DECODE_ALLOC_BYTES`) — on the reader sites AND on `is_animated`'s raw GIF decoder,
   which the crate constructs with no limits at all and which would otherwise allocate a

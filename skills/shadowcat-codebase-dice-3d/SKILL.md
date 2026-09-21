@@ -62,7 +62,7 @@ with 3D dice off never downloads or initializes either.
   `getContext()` (which `getAppContext()` wraps) is only valid during a component's SYNCHRONOUS
   initialization, and every real call site fires from inside a post-mount `$effect`/document-
   store-subscription callback (`DiceOverlay.svelte`'s `handlePlay`/`playQueued`/`ensureEngine`),
-  which throws `lifecycle_outside_component` if `getContext()` is called there. `DiceOverlay.svelte`
+  where Svelte's own runtime throws a lifecycle error if `getContext()` is called there. `DiceOverlay.svelte`
   resolves `const ctx = getAppContext()` exactly ONCE at its own top level (synchronous, inside
   component init) and threads that single `ctx` to every seam call. **Any future seam function
   meant to be called from an async/deferred callback anywhere in this codebase needs the same
@@ -105,7 +105,7 @@ with 3D dice off never downloads or initializes either.
 ## Gotchas
 
 - **`three`/`@dimforge/rapier3d-compat` must stay lazy-imported** — the only references are
-  `DiceEngine`'s dynamic `import()` calls (plus type-only imports, which erase at build).
+  `DiceEngine`'s dynamic import calls (plus type-only imports, which erase at build).
   A static import anywhere in the module's graph drags both chunks into the eagerly-loaded
   bundle for every device, including ones with 3D dice off.
 - **The d10's constants are load-bearing geometry, not proportions to taste.** Its kite

@@ -282,6 +282,18 @@ tree of notes (`data::sqlite::notes::check_note_parent`) and are private to thei
     a malformed `engine.body` both yield `null`. Validates through chat-docs.ts's exported
     `SegmentListSchema` (the SAME schema `ChatMessageEngine.content` validates against — a note body
     and a chat message body share one segment grammar and one validator, never a re-spelled copy).
+  - `appendNoteSortKey(notes, parentId) -> number` — the `sort` a newly created note appended
+    under `parentId` (or `null` for root) should take: filters `notes` to `doc_type === "note"`
+    with a matching `parent_id`, reads each survivor's `engine.sort` (defaulting a missing/absent
+    value to `0`), and hands the resulting values to `@shadowcat/core`'s shared
+    `appendSortKey`/`SORT_KEY_DENSITY` primitive (`sort-key.ts` — see
+    `shadowcat-codebase-client-shell` for that module's general contract, shared with
+    `appendFolderSortKey` in `shadowcat-codebase-assets`) rather than re-deriving the
+    "highest sibling → append" computation locally. Two call sites feed it the caller's own
+    optimistic view: `NotesPanel`'s panel-level create (siblings = every root note) and
+    `NoteSheet`'s child-note create (siblings = the open note's existing children) — the two
+    modules never import one another, so this lives in `@shadowcat/core` beside `buildNoteDoc`
+    rather than in either.
 
 ## Hard invariants
 

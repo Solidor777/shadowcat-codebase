@@ -50,8 +50,25 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   for the resolver and the combat-specific `CombatDefaults` shape this chain carries.
 - `<Surface>` is the host that renders contributions for a
   surface id; `AppContext`, `setAppContext`/`getAppContext`, `__APP_CONTEXT_KEY__`.
-- `t(key, params)`, `locale()`, the `i18n` adapter over
-  core's `I18n`; catalogs in `ui-kit/src/locales/`.
+- `t(key, params)`, `locale()`, `plural(key, count, params)`, `compare(a, b)` — the `i18n` Svelte
+  adapter over core's `I18n`; catalogs in `ui-kit/src/locales/`. `I18n` resolves a key/entry
+  missing from the active locale's catalog against `fallbackLocale` (constructor arg, default
+  `"en"`) before falling through to the raw key string — `t`/`plural` share that one chain.
+  `plural(key, count, params)` selects a CLDR plural category, via the standard ECMAScript
+  plural-rules API, from a catalog entry shaped as a `PluralEntry` (`{ other, zero?, one?, two?,
+  few?, many? }`; `other` is mandatory, every other category optional and falls back to `other`
+  when absent) rather than a plain string; `{count}` is merged into the interpolation params
+  automatically. Category selection uses that plural-rules API bound to whichever locale SUPPLIED
+  the matched entry (active locale first, then `fallbackLocale`) — NEVER the active locale's own
+  rules — because a fallback-sourced entry selected under the active locale's grammar can pick the
+  wrong category (a French-active session with only an English catalog entry: the English rules
+  select `"other"` for a count of zero while the French rules would select `"one"`, so using the
+  active locale's own rule would render "0 item" instead of "0 items"). A `t()` lookup
+  that lands on a `PluralEntry` reads as a miss (no count to select with) and falls through the
+  chain rather than stringifying the object. `compare(a, b)` wraps one string-collation object per
+  `I18n` instance, rebuilt on every `setLocale` — the ONE collator every locale-aware sort in the
+  client reads (`AppContext.compare`, `folderChildren`'s injected comparator, `TablesPanel`'s name
+  sort); no call site constructs its own collator.
 - **Module-facing i18n registration**: `I18n.addMessages(locale, messages, opts)` merges a
   fragment into a locale's catalog (last write wins — a later call for the same `(locale, key)`
   overwrites an earlier one, including a BUILT-IN key; no collision arbitration beyond that).
@@ -125,6 +142,52 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   `AppContext.combat` is exposed to every module/Svelte surface exactly like `AppContext.pathfind`;
   all `setAppContext` fixture sites default it to a real `CombatController` over the fixture's
   `documents`, never a stub.
+- **`HookBus` pre-declares `core:hook-fault`** (an `"info"`-kind hook, registered in the
+  constructor before any `defineHook` call) and dispatches it from every `emitInfo`/`emitMutate`/
+  `emitCancel`'s per-listener catch with `{ hook, error }` — fire-and-forget observability; nothing
+  about dispatch to the ORIGINAL hook's other listeners changes because of it. `emitFault`'s only
+  re-entrancy guard is GENUINE self-recursion: a fault raised by a listener registered ON
+  `core:hook-fault` itself is dropped (that throw is still isolated by the ordinary per-listener
+  catch, just with no further fault dispatch) — a second synchronous fault from a DIFFERENT
+  listener on the SAME hook, a concurrent fault on a DIFFERENT hook, and a fault raised while an
+  earlier `core:hook-fault` dispatch is still in flight (including one that never resolves) all
+  still produce their own dispatch; a persistent "one fault at a time" flag would instead drop
+  those and let one hung `core:hook-fault` listener silently disable fault reporting for the rest
+  of the session. `WorldSession`'s constructor is the real consumer: it registers a `core:hook-fault`
+  listener that logs `hook ${fault.hook} handler faulted` through the session's own logger, the
+  same sink `#onWelcome`'s catch-all uses.
+- **`AppContext.plural`/`AppContext.compare`** sit beside `t` (`PluralFunc`/`CompareFunc` types in
+  `appContext.ts`) — every module goes through these seams for plural text/locale-aware sorting,
+  never the ui-kit `i18n` singleton directly, so a test can fixture-override them exactly like `t`
+  (`setAppContextForTest`'s `plural`/`compare` overrides). `AppContext.hooks: HooksEmitApi` is the
+  component-facing counterpart to `ModuleContext.hooks`: a Svelte component has no `ModuleContext`
+  of its own, so this is the one seam through which built-in UI (the chat composer's pre-send
+  interception, `chat:composer-send`) EMITS a hook a module registered against via its own
+  `register()`. `HooksEmitApi` exposes only `emitMutate<K extends keyof CoreHooks>(name, payload)`
+  — deliberately narrower than `ModuleContext.hooks`, since `defineHook`/`on` stay module-only
+  (declared once by the seam that owns the hook, e.g. `defineChatComposerHooks`, and subscribed to
+  via a module's `register`); a component emits, it never declares or listens. `WorldSession.hooks`
+  is a thin forwarder onto the session's own `HookBus`.
+- **`NotificationCenter` caps the VISIBLE set at `MAX_VISIBLE_NOTIFICATIONS` (5)** — a push beyond
+  the cap queues FIFO in a separate internal list and is promoted into `items` as a visible
+  notification dismisses (auto or manual); `items` never exposes a queued entry. `NotificationHost`'s
+  auto-dismiss `$effect` schedules its dismiss timer off `activeNotifications()` (i.e. `items`), so a
+  queued notification gets no timer at all until promotion makes it visible, at which point the
+  effect re-runs on the new `items` array and schedules it fresh from that moment — a notification's
+  auto-dismiss clock does not start ticking while it sits in the queue.
+- **`allocateSortKey`/`appendSortKey`/`SORT_KEY_DENSITY` (`@shadowcat/core`'s `sort-key` module) are
+  THE shared gap-based sibling-ordering primitive** for any document tree with an integer `sort`
+  field: a fresh sibling gets a key spaced `SORT_KEY_DENSITY` (1000) away from its neighbours
+  rather than a dense 0/1/2/... counter, so a later insert between two existing siblings can take
+  the integer midpoint without renumbering every later sibling; `allocateSortKey(prev, next)`
+  signals `renumber: true` (gap exhausted, no integer strictly between `prev`/`next`) rather than
+  silently colliding with a neighbour. `appendFolderSortKey` (asset-browser) and `appendNoteSortKey`
+  (`@shadowcat/core`, called from both `NotesPanel` and `NoteSheet`'s child-create) are its two
+  current callers — **both only ever APPEND today** (`appendSortKey`, the `prev = max, next = null`
+  case); nothing yet exercises `allocateSortKey`'s insert-between or prepend cases, or its
+  `renumber` signal, from a real UI drag-to-reorder. Route a new sibling-ordering need through this
+  module rather than re-deriving the "highest sibling → append" computation locally — a forked copy
+  is exactly the defect class `shadowcat-codebase-core`'s never-fork-a-decision rule targets.
 - `WsClient.moveRequest(scene, tokenId, path) → Promise<MoveStream>` — correlated-request mirror of
   `pathfind`: sends `MoveRequest`, resolves with the broadcast `MoveStream` when the matching
   `move_stream` frame arrives (mover's `request_id` correlates; the resolved value signals success
@@ -563,11 +626,14 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 
 ## Gotchas
 
-- **i18n MUST stay framework-neutral** — the core `I18n` is Svelte-free; the Svelte `t`/`locale`
-  adapter wraps it via `createSubscriber`. Don't pull a Svelte i18n lib into core.
-  **There is NO cross-locale fallback:** a key missing from the ACTIVE locale's catalog renders as
-  the raw key string, even when another loaded locale defines it. A partial translation therefore
-  ships visible key text rather than English, so a new key must land in every shipped catalog.
+- **i18n MUST stay framework-neutral** — the core `I18n` is Svelte-free; the Svelte
+  `t`/`locale`/`plural`/`compare` adapter wraps it via `createSubscriber`. Don't pull a Svelte i18n
+  lib into core.
+  **The cross-locale fallback is `fallbackLocale` only, not every loaded locale:** a key/entry
+  missing from the ACTIVE locale's catalog is looked up in `fallbackLocale` (`"en"` for the shared
+  `i18n` singleton) before falling through to the raw key string — a locale that is neither the
+  active one nor the fallback is never consulted. A partial translation in a THIRD locale therefore
+  still ships visible key text unless the missing key also lands in `fallbackLocale`'s catalog.
 - **`setAppContextForTest` does not emulate optimistic behavior** —
   `documents` defaults to `over.documents ?? over.store ?? new
   DocumentStore()`, so a test overriding only `store` gets that SAME plain store as `documents`.
@@ -599,14 +665,12 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   module that has gone stale stops publishing — with no `gm_role` involvement whatsoever
   (`ws::conn::welcome_capability_requirements`, whose own doc marks the union ADVISORY ONLY,
   vs. `SqliteRepository::apply_intent`'s enforcement reading only `world_cap_requirements`).
-- **`listWorldMembers` is FORKED — two implementations of one endpoint, already diverged.** The
-  shell's `api` module's `listWorldMembers` goes through `getJson`: it has a request timeout, does NOT
-  `encodeURIComponent` the world id, and raises status-only errors. Core's public
-  `user-rest` module's `listWorldMembers` (re-exported from `@shadowcat/core`'s public entry) encodes the id and surfaces the server's error
-  text, but has no timeout. The shell's `members` seam calls its own copy
-  (`WorldSession`'s), so the two can drift further with nothing failing. This is the
-  never-fork-a-decision class from `shadowcat-codebase-core`; do not add a third caller to either
-  copy without collapsing them.
+- **`listWorldMembers` has ONE implementation, not a fork.** It lives in `@shadowcat/core`'s
+  `user-rest` module (re-exported from `@shadowcat/core`'s public entry), `encodeURIComponent`s the
+  world id, bounds its fetch with a dedicated timeout constant, and surfaces the server's error
+  text. `WorldSession` (the shell) imports it directly from `@shadowcat/core`; the shell's own
+  `api` module declares no member-roster function of its own. Any new caller should import the
+  same `@shadowcat/core` function rather than adding a shell-local copy.
 - **Refactors across a callback boundary must preserve decision branches, not just await ordering**
   [[refactor-preserve-decision-branches]].
 - UI packaging target: swappable entry package + per-element packages + thin shell

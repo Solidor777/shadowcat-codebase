@@ -98,6 +98,61 @@ optimistically and roll back on divergence.
   `WsState::vfx_rate` is a FOURTH instance, again with its own per-user hit list — charged by
   BOTH VFX entry paths (the raw `ClientMsg::PlayVfx` arm and the `/fx` chat command, via
   `MessageRequestCtx::vfx_rate`) at the same inline 30/min/user budget, so neither front door
+  bypasses the other.
+  - **Graceful-shutdown drain.** `WsState.shutdown_tx`/`WsState.shutdown` is a
+    `tokio::sync::watch` pair the state itself owns and keeps alive (the sender never drops, so the
+    channel never closes on its own — a closed `watch` would make every connection's shutdown-select
+    arm resolve immediately, closing every socket as though a real shutdown had been requested);
+    `WsState::trigger_shutdown` is the ONLY place that sends. `WsState.live_connections`
+    (`Arc<AtomicUsize>`) + `WsState.drain_notify` (`Arc<tokio::sync::Notify>`) back `ConnectionGuard`,
+    an RAII handle `WsState::connection_guard` returns. It is acquired synchronously inside
+    `ws_handler`, BEFORE `.on_upgrade(...)` is called, then moved into the upgrade closure and
+    handed to `ws::conn::handle_socket` as a parameter (`_connection_guard: ConnectionGuard`) that
+    it holds for its whole task lifetime — `handle_socket` never acquires a second one. Acquiring
+    inside `.on_upgrade(...)`'s own callback instead would leave a window where `WsState::
+    live_connection_count` could read zero (and `wait_for_drain` return) before axum's internally
+    spawned task — which starts running strictly AFTER the 101 response is written — has run its
+    first line. Its drop decrements the count and, on reaching zero, wakes every `wait_for_drain`
+    waiter. This exists because axum's WebSocket-upgrade callback spawns as a task DETACHED from
+    the hyper connection future that produced the 101 handshake, so `axum::serve(..).
+    with_graceful_shutdown` resolves once ordinary HTTP connections drain and does NOT itself wait
+    for a live WebSocket session's task to exit. `WsState::
+    wait_for_drain(timeout)` is the race-free wait (constructs the notify future BEFORE
+    re-checking the count, the standard lost-wakeup-avoidance pattern) that `http::serve`
+    ([[shadowcat-codebase-server-ops]]) calls after `axum::serve(..).await` returns, bounded by
+    `http::SHUTDOWN_DRAIN_TIMEOUT`. `egress_loop` clones `WsState.shutdown` into its own
+    `EgressConnState.shutdown` and selects on `shutdown.changed()` as the FIRST arm of its biased
+    select (see the FIFO-ordering invariant below for why it sits ahead of `egress_loop::erx` too)
+    — on a real shutdown or a dropped sender it sends a Close frame and exits the loop, which is
+    what lets its `ConnectionGuard` drop and the count reach zero.
+  - **Heartbeat.** `egress_loop` owns a `tokio::time::interval(PING_INTERVAL)` (30s, a
+    delayed-not-bursty missed-tick policy, first tick consumed up front so a fresh connection
+    isn't pinged the instant it opens) that on each fire checks `EgressConnState.last_activity`
+    against `PING_TIMEOUT` (90s = 3x `PING_INTERVAL`, giving a client that misses one heartbeat a
+    full second interval to answer before being dropped) — past the timeout it sends a Close frame
+    and exits the loop; otherwise it sends `ServerMsg::Ping`. `last_activity`
+    (`Arc<std::sync::Mutex<std::time::Instant>>` — a MONOTONIC clock, shared between
+    `handle_socket`'s ingress task and `egress_loop`, so an NTP correction or a manual wall-clock
+    change can neither fabricate nor erase silence) is stamped by `handle_socket` on EVERY inbound
+    frame it receives, not only a recognized `ClientMsg::Pong` reply — a client quiet on the
+    heartbeat but actively sending other traffic (intents, search, etc.) is just as alive as one
+    that dutifully answers pings. The ping-timer arm sits SECOND in `egress_loop`'s biased
+    `select!`, immediately after `shutdown.changed()` and ahead of `egress_loop::erx`/
+    `egress_loop::rx`/the search-reeval timer — listed after those always-ready room/egress arms, a
+    continuously-broadcasting room would starve it indefinitely, the same starvation the shutdown
+    arm's own first-place position guards against.
+  - **`WS_MAX_MESSAGE_BYTES`** (`ws::conn`, set on both the max-message-size and max-frame-size
+    limits `ws_handler` configures on the WebSocket upgrade) is derived from `MAX_INTENT_DOCS` (16)
+    documents each at
+    `3 * MAX_DOCUMENT_BLOCK_BYTES` (`MAX_DOCUMENT_BLOCK_BYTES = data::validation::MAX_SYSTEM_BYTES`,
+    the per-block `system`/`engine`/`base` cap), plus 64 KiB of JSON structural headroom — never a
+    bare magic number, and well below `Config::default`'s `upload_max_bytes` (a WS frame is never
+    the transport for a large asset). `MAX_INTENT_DOCS` is enforced as a real structural chokepoint,
+    not just implied by the byte cap's sizing: `handle_socket`'s `ClientMsg::Intent` arm rejects
+    (`ServerMsg::Reject { reason: RejectReason::Invalid, .. }`, before any op reaches
+    `apply_intent`) an intent whose `ops.len()` exceeds it — a frame under the byte cap could
+    otherwise still carry an unbounded op count of tiny documents; both caps bound the same
+    quantity from opposite ends.
   buys more plays than the other and a VFX spam burst cannot starve ping, emote, or message
   relays.
 - `ws::protocol` — client/server message frames; `ServerMsg`, `event_seq()`.
@@ -272,12 +327,19 @@ optimistically and roll back on divergence.
   at a time under `publish_guard` — each intent's `Reject` (sent via this connection's own
   `egress_loop::erx`) or successful commit (broadcast on `Room.tx`) is fully resolved before the
   NEXT intent's `publish()` call even starts, so responses arrive in the SAME order the intents
-  were submitted. **`egress_loop`'s `tokio::select!` is now `biased;` with `egress_loop::erx`'s
-  receive arm listed first, for exactly this reason** — an unbiased `select!` gives NO ordering
-  guarantee between two independently-scheduled channels (`egress_loop::erx`, this connection's
-  direct replies, vs `egress_loop::rx`, the room broadcast), so it could deliver a LATER intent's
-  broadcast confirmation before an EARLIER intent's `Reject`, even though the server processed
-  them strictly in order. **A single such inversion — or any self-authored intent that receives
+  were submitted. **`egress_loop`'s `tokio::select!` is `biased;` with `egress_loop::erx`'s
+  receive arm listed ahead of the room-broadcast arm, for exactly this reason** — an unbiased
+  `select!` gives NO ordering guarantee between two independently-scheduled channels
+  (`egress_loop::erx`, this connection's direct replies, vs `egress_loop::rx`, the room broadcast),
+  so it could deliver a LATER intent's broadcast confirmation before an EARLIER intent's `Reject`,
+  even though the server processed them strictly in order. **The graceful-shutdown arm
+  (`egress_loop`'s `shutdown.changed()` arm) is listed FIRST of all, ahead of even `egress_loop::
+  erx`** — a sustained broadcast/intent stream keeps both `egress_loop::erx` and `egress_loop::rx`
+  ready on nearly every poll, and an ordering after them would let that traffic defer this
+  connection's close indefinitely once shutdown has been requested; putting it first does not
+  disturb the erx-before-rx ordering guarantee above, since shutdown firing means the loop exits
+  before either of those arms would matter again. **A
+  single such inversion — or any self-authored intent that receives
   NEITHER a matching `Event` NOR a `Reject` at all — permanently misaligns every later
   self-authored confirm for the rest of the connection's lifetime**: the removal always finds
   something to take, so it silently confirms whatever pending entry happens to be oldest,
@@ -381,9 +443,10 @@ optimistically and roll back on divergence.
   { reason }`** — GM-only fire-and-forget playlist/playback transport plus the connection-local
   spatial-audio "listen as" override; `AudioError` is a connection-local refusal toast, never
   broadcast, mirroring `ChatError`'s sender-only shape rather than the request_id-correlated
-  Combat/RollRequest pattern above (no `request_id` on either audio frame). The `listen_as`
-  override lives entirely in connection-local state, re-evaluated by the SAME generic any-`Event`
-  debounced sweep every `scene_subs` entry already gets — no new invalidation hook, and no
+  Combat/RollRequest pattern above (no `request_id` on either audio frame). The
+  `egress_loop::listen_as` override lives entirely in connection-local state, re-evaluated by the
+  SAME generic any-`Event` debounced sweep every `egress_loop::scene_subs` entry already gets —
+  no new invalidation hook, and no
   separate per-connection override machinery beyond what the scene-channel re-eval loop already
   provides. See `shadowcat-codebase-audio`.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene

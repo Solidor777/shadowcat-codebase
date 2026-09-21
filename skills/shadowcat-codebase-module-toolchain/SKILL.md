@@ -50,7 +50,11 @@ That whole mechanism (guest ABI, runtime, registry, fault policy) is owned by
   `is_strictly_within` proper-descendant check, guards BOTH the `id` segment and the `*path`
   segment, rejects path==root equality); `set_world_enabled_modules`/get (`PUT/GET
   /api/worlds/{id}/enabled-modules`, `require_gm`, atomic validate-all + dedup,
-  `MAX_ENABLED_MODULES`; rejects an enabled set naming more than one `provides_system` module —
+  `MAX_ENABLED_MODULES`; validation collects every per-entry failure (not-installed, incompatible,
+  validators-enabled-with-none-declared) into one `Vec<String>` and reports them together in a
+  single `AppError::Unprocessable` — a GM correcting a multi-entry batch sees every bad id in one
+  response instead of one rejection per round trip — while the whole batch is still rejected
+  atomically on any failure, unchanged; rejects an enabled set naming more than one `provides_system` module —
   the server's system-defaults derivation and the client's singleton-contract winner must never
   diverge on which system is active — and, after persisting, runs
   `ws::conn::reseed_world_config` so the stored `system-defaults` singleton refreshes from the

@@ -241,7 +241,17 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   relative-epsilon corner test (over-include is the safe direction).
 - `scene::vision` — raycast `visibility_polygon(viewpoint, walls, bound)`,
   `bound_for(...)`, `Seg`/`Rect`/`P`, `point_in_poly` (shared). Public-source computational
-  geometry only.
+  geometry only. `visibility_polygon` pre-filters `walls` through `seg_overlaps_rect` (a plain
+  AABB-overlap test against `bound`) before cloning/angle-sampling — safe because every caller
+  constructs `bound` to CONTAIN the viewpoint (`bound_for`/`bound_for_scene`), so a wall whose bbox
+  has zero overlap with `bound`'s bbox lies entirely outside it; by convexity, a ray from an
+  interior point already crosses one of `Rect::edges()` (always present in the filtered set)
+  before it could reach that wall, so `nearest_hit` never needed to consider it — excluding it
+  changes no polygon vertex, only how many segments get scanned per ray. Pinned by a mutation
+  test (`scene::vision::tests`): a wall straddling `bound`'s edge (half in, half out) must still
+  occlude a point directly behind its in-bound sliver — flipping the filter from an overlap test
+  to a strict-containment test makes that test fail exactly as expected, confirming it is a real
+  negative control and not a happy-path-only check.
   **Three bound builders, and the two wrappers UNION onto `bound_for` rather than replacing it** —
   each calls it first and then only `.min`s low edges / `.max`es high edges, so a bound can only ever
   GROW. That monotonicity is the invariant: a bound that could shrink is an under-reveal defect on a
@@ -1255,6 +1265,65 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   async-completion pattern (anywhere in-flight code can swap in a different display object) must
   follow the same object-identity-guard shape; a key-equality guard is not sufficient here
   [[async-completion-needs-object-identity-not-key]].
+  **GPU texture-cache bookkeeping (`PixiBackend`'s `textureCache: TextureCacheManager`,
+  `@shadowcat/render`'s `TextureCacheManager` — the eviction POLICY itself is
+  `shadowcat-codebase-performance`'s `textureBudgetBytes` budget number applied here; see that
+  skill for the budget's shape/persistence, this one for the mechanism).** Every token visual
+  (image and animated), the background sprite, and a VFX one-shot/emitter's texture all feed the
+  SAME cache instance, keyed by serve URL, via `applyNodeTextures` — a node's `textureUrls` field
+  (`TokenNode.textureUrls`/`VfxRenderNode.textureUrls`) records which urls it currently holds a
+  reference for. `applyNodeTextures` diffs a node's prior `textureUrls` against the freshly
+  resolved set on every visual swap: releases any prior url absent from the new set, and for each
+  new url either `acquire`s a fresh reference or `touch`es one the node ALREADY holds (a reload
+  triggered by `fps`/`loop` alone, or an A→B→A cycle landing back on A) — re-`acquire`ing an
+  already-held url would increment the ref count with no matching release, permanently
+  over-referencing that url. `removeToken`/`removeVfx` release the node's whole `textureUrls` set
+  on teardown; the background sprite tracks its own single `backgroundTextureUrl` the same way.
+  **`PixiBackend#loadAssetTexture` is the ONE producer — it registers every texture with
+  `TextureCacheManager` at load, unconditionally, regardless of which caller's race it wins or
+  loses; consumers only ever CLAIM references, never register.** On entry it calls
+  `TextureCacheManager.beginLoad(url)`; on a successful `Assets.load`, before returning, it calls
+  `TextureCacheManager.register(url, estimateTextureBytes(texture), now)` — creating a `refCount:
+  0` entry when none exists yet (a no-op on a url already tracked, so it never clobbers a fresher
+  `bytes` estimate or an already-live ref count); a finally block calls `endLoad(url)` regardless
+  of success or failure. This is what makes a load whose caller lost the object-identity/
+  `sourceKey` stale-guard race (described above) still become tracked and evictable instead of
+  landing in PixiJS's own `Assets` cache untracked for the tab's life — EVERY call site that loses
+  that race (the background branch, the token image/animated branches, both VFX branches) does
+  nothing further: the comment at each one says so explicitly, and a fix introducing a per-site
+  acquire/release pair there would be redundant with the loader's own unconditional `register`.
+  The WINNING call site is what claims a reference, via `applyNodeTextures` — a node's
+  `textureUrls` field (`TokenNode.textureUrls`/`VfxRenderNode.textureUrls`) records which urls it
+  currently holds a reference for. `applyNodeTextures` diffs a node's prior `textureUrls` against
+  the freshly resolved set on every visual swap: releases any prior url absent from the new set,
+  and for each new url either `acquire`s a fresh reference or `touch`es one the node ALREADY holds
+  (a reload triggered by `fps`/`loop` alone, or an A→B→A cycle landing back on A) — re-`acquire`ing
+  an already-held url would increment the ref count with no matching release, permanently
+  over-referencing that url. `removeToken`/`removeVfx` release the node's whole `textureUrls` set
+  on teardown; the background sprite tracks its own single `backgroundTextureUrl` the same way.
+  `estimateTextureBytes` approximates a
+  decoded texture's GPU-resident size as `max(1,width) * max(1,height) * 4` (RGBA8), floored at 1
+  per dimension so a degenerate 0-size texture (e.g. pixi.js's own empty-texture stub in a test
+  double) still contributes a nonzero, budget-comparable estimate. `TextureCacheManager.sweep`'s
+  four parameters (`now`, the byte budget, its idle-eviction threshold, and the per-url `unload`
+  callback) form a pure, Pixi-free eviction policy (`sweep`/`register`/`beginLoad`/`endLoad`/
+  `acquire`/`release`/`touch`/`has`/`totalBytes`, unit-tested with no GL context) — NEVER evicts an
+  entry with `refCount > 0` regardless of budget or idle time (this is what makes a live sprite's
+  texture safe), and ALSO never evicts a url with a nonzero `beginLoad`/`endLoad` in-flight count
+  regardless of `refCount` — this closes the window between a losing load's `register` (refCount
+  0, otherwise immediately evictable) and the eventual winner's `acquire`, which a `refCount`-only
+  check would miss since `register` and `acquire` are two separate calls with real time between
+  them; it first unloads every unreferenced entry idle longer than that threshold
+  (`TEXTURE_TTL_MS` = 5 minutes — independent of budget, so a scene visited once and not
+  revisited eventually frees
+  its art even with budget to spare), then evicts unreferenced entries oldest-`lastUsed`-first
+  while `totalBytes()` exceeds the budget. `PixiBackend.tickTokenAnimations` drives the sweep,
+  throttled to `TEXTURE_SWEEP_INTERVAL_MS` (5s, an accumulator, NOT a per-call sweep) even though
+  that method itself runs every frame; `setTextureBudget` takes effect on the NEXT sweep, not
+  immediately, unlike `setFrameCap`/`setRenderScale` which touch the renderer directly. Sweep's
+  `unload` callback is the caller's real `Assets.unload(url)`, wrapped in a swallowed `.catch` — a
+  url already unloaded or never registered with `Assets` (e.g. a test double's stub url) is not a
+  real failure, mirroring `loadAssetTexture`'s own fail-quiet contract.
 - `engine` (client/render module) — `visionSweeps: Map<tokenId, {samples, elapsed,
   durationMs}>` drives the mover's fog sweep during `MoveStream` playback (keyed per token — unions
   concurrent sweeps' visible sets rather than clobbering). `animateSamples(id, samples, durationMs,

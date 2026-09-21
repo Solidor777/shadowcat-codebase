@@ -35,8 +35,8 @@ channel's own posture.
 
 - `data::engine::audio` — `PlaylistEngine { tracks: Vec<PlaylistTrack>, mode: PlaylistMode,
   channel: AudioChannel, fade_ms }`, `PlaylistMode { Sequential, Shuffle, LoopAll, Single }`
-  (wire `snake_case`), `AudioChannel { Music, Ambience, Sfx }` (wire `lowercase`; `"master"`/
-  `"ui"` are CLIENT-ONLY buses that never appear here), `AudioStateEngine { playing:
+  (wire form is snake_case), `AudioChannel { Music, Ambience, Sfx }` (wire form is lowercase;
+  `"master"`/`"ui"` are CLIENT-ONLY buses that never appear here), `AudioStateEngine { playing:
   Vec<PlayingTrack>, shuffle_seed: u32 }`, `PlayingTrack { id, playlist: Option<Uuid>,
   track_index: u32, asset, channel, gain, loop_, startedAt: f64, pausedAt: Option<f64> }`.
   `PLAYLIST_DOC_TYPE = "playlist"`, `AUDIO_STATE_DOC_TYPE = "audio-state"`.
@@ -71,18 +71,18 @@ channel's own posture.
   calling `compute_audibility` once per `SceneEcs::token_scene_ids()` entry that passes
   `SceneEcs::scene_visible_to` (the `ctx_can_see_engine` gate `resolved_footprints` shares, so
   the two channels never disagree about which scene ids a recipient may learn of — never a
-  single active-scene resolution) and reads a connection-local `listen_as` override threaded from
-  `ClientMsg::AudioListenAs` through `ws::conn`'s existing scene-channel re-eval loop — no new
-  invalidation hook; it reuses the generic any-`Event` debounced sweep every `scene_subs` entry
-  already gets.
+  single active-scene resolution) and reads a connection-local `egress_loop::listen_as` override
+  threaded from `ClientMsg::AudioListenAs` through `ws::conn`'s existing scene-channel re-eval
+  loop — no new invalidation hook; it reuses the generic any-`Event` debounced sweep every
+  `egress_loop::scene_subs` entry already gets.
 - `data::asset::process::audio` — the Opus transcode (symphonia probe+decode → rubato resample
   to 48kHz if needed → Opus VBR encode via `opus`), muxed into whichever container(s)
   `AudioContainers` selects at import time (`Ogg`/`WebM`/`Both`, default `Both`: Ogg for gapless
   loop decode, WebM for the WebKit `canPlayType` gap on Ogg/Opus) — `.opus.ogg` via the `ogg`
   crate, `.opus.webm` via this module's own minimal EBML writer, each a SIBLING derivative,
   dispatched from `process_staged`. **The canonical asset is NEVER swapped to Opus** — the
-  original stays canonical and every non-GM player's playback fallback. **Unlike `thumb`/
-  `preview`, the Opus siblings are explicitly NOT `Variant`s and bypass `ensure_derivative`
+  original stays canonical and every non-GM player's playback fallback. **Unlike
+  `Variant::Thumb`/`Variant::Preview`, the Opus siblings are explicitly NOT `Variant`s and bypass `ensure_derivative`
   entirely** — `http::assets::serve`'s `?variant=opus|opus-webm` branch 404s a missing sibling
   rather than regenerating one, since a minutes-long transcode is produced at commit time or not
   at all. Over-cap input or any pipeline failure falls back to pass-through
@@ -95,16 +95,42 @@ channel's own posture.
   emitter, gain→pan→`sfx`, buffer decode shared with `OneShotPlayer.getBuffer`'s LRU cache),
   `OneShotPlayer` (decode+cache, `ONE_SHOT_CACHE_BUDGET_BYTES` = 32 MiB LRU), `DuckControllerImpl`
   (`approach`'s exponential smoothing, `DEFAULT_DUCKABLE = [music, ambience]`).
-- `@shadowcat/core` — `audio.ts` (`AudioApi` — including `serverNow`/`transport`, both thin
-  forwarders to `WsClient` — `DuckController`/`DuckSource`, `AudioChannelId`), `audibility.ts`
-  (`parseAudibility`/`sceneAudibility`, fail-closed to `EMPTY_AUDIBILITY`/`EMPTY_SCENE_AUDIBILITY`,
-  mirrors `footprints.ts`), `playlist-docs.ts` (re-exports + `buildPlaylistDoc`, mirrors
-  `table-docs.ts`). `AppContext`'s only audio-flavoured member is `audio: AudioApi` (shell
-  wiring).
+- `@shadowcat/core` — `audio.ts` (`AudioApi` — including `serverNow`/`transport`/`preload`, all
+  thin forwarders to `WsClient`/`AudioEngine` — `DuckController`/`DuckSource`, `AudioChannelId`),
+  `audibility.ts` (`parseAudibility`/`sceneAudibility`, fail-closed to
+  `EMPTY_AUDIBILITY`/`EMPTY_SCENE_AUDIBILITY`, mirrors `footprints.ts`), `playlist-docs.ts`
+  (re-exports + `buildPlaylistDoc`, mirrors `table-docs.ts`). `AppContext`'s only audio-flavoured
+  member is `audio: AudioApi` (shell wiring).
+- **Next-track preload.** `AudioApi.preload(asset)`/`AudioEngine.preload` begins fetching an
+  anticipated next track's stream ahead of a playlist advance, so the advance itself has no
+  audible gap while the browser fetches/decodes. Bounded to exactly ONE in-flight preload element
+  at a time: a second `preload` call releases the first (`#releasePreload`, `el.pause()`); the
+  element is never connected to the mixer graph and is fetched via `el.load()`, never `el.play()`
+  — assigning `src` alone queues a source but does not itself guarantee a fetch starts (a detached
+  `<audio>` element with no other live reference may never fetch on iOS Safari without an explicit
+  `load()`). `applyState` releases the preload once its asset appears in the fresh state's
+  `playing` set (a real `TrackPlayer`/`FallbackTrackPlayer` is about to stream it) so it never sits
+  forever as an unused duplicate fetch; `dispose()` releases any unused preload. A no-op before
+  `unlock()` (nothing to preload into before a device gesture) — the caller simply re-issues it on
+  the next relevant `audio-state`/playlist change rather than this being queued.
+  `resolveNextTrackAsset(playlist, currentTrackIndex)` (`playlist-docs.ts`) resolves the asset id
+  to preload FOR preloading purposes only, never for playback decisions: `sequential`/`loop_all`
+  are deterministic from the current index alone (the latter wraps), so this client-side helper
+  resolves them directly, while `shuffle` (server-seeded RNG via `AudioStateEngine.shuffleSeed`,
+  unreproducible client-side) and `single` (never advances) both resolve `null` — preloading is
+  simply skipped for those two modes rather than guessing wrong and evicting a useful preload;
+  this client deliberately carries NO mirror of the server's shuffle draw
+  (`audio::state::apply`'s `resolve_track_index`). `WorldSession.#preloadNextTracks` is the one
+  caller: on every `audio-state` document change, it walks `AudioStateEngine.playing`, looks up
+  each entry's source `PLAYLIST_DOC_TYPE` document locally (no network round trip; a missing or
+  since-deleted playlist is skipped), and feeds `resolveNextTrackAsset`'s result into
+  `AudioEngine.preload`. Since `preload` itself holds at most one element, only the LAST playing
+  entry processed in that loop stays preloaded when several tracks play across different channels
+  at once — an accepted narrowing (typical worlds run one music track at a time), not a queue.
 - `@shadowcat/module-ducking` (`src/modules/ducking/`) — three `DuckController`/`DuckSource`
   consumers: `keySource.ts`'s `KeySource` (held-key push-to-duck), `micVad.ts`'s `MicVadSource`
-  (an `AudioWorklet`-hosted energy VAD; the raw audio buffer never leaves the worklet — only a
-  boolean per frame crosses the `MessagePort`), and `osMonitor.ts`'s `OsMonitorSource` (the
+  (an AudioWorklet-hosted energy VAD; the raw audio buffer never leaves the worklet — only a
+  boolean per frame crosses the MessagePort), and `osMonitor.ts`'s `OsMonitorSource` (the
   browser-side client for `shadowcat audio-monitor`'s localhost WebSocket — see
   `shadowcat-codebase-server-ops`'s `audio_monitor` bullet for the server side). `keySource.ts`'s
   `DuckSink` is the shape `AudioApi.duck.addSource(id)` returns. `controller.ts`'s
@@ -127,7 +153,7 @@ channel's own posture.
 
 - Playback position is NEVER client-authoritative: every readout derives from
   `startedAt`/`pausedAt` against the calibrated server clock (`WsClient.serverNow()`), never
-  `Date.now()` or a local timer.
+  the browser's own wall-clock time or a local timer.
 - The audio-state singleton's Create/Delete and Update are guarded by DIFFERENT `WriteOrigin`s
   (`ConfigSeed` vs `AudioTransport`) — a uniform single-origin guard was tried and is a
   documented spec contradiction; do not "simplify" it back to one origin.
@@ -148,10 +174,19 @@ channel's own posture.
   bug fix likely has a sound-emitter twin worth checking.
 - `PlaylistTrack.loop_`/`AudibleEmitter.loop_` are Rust-side names; the wire field is `loop`
   (`#[serde(rename = "loop")]`) — a TS consumer reads `.loop`, not `.loop_`.
-- `u32`/`f64` substitutions for `u64`/`i64` throughout this subsystem's wire-facing types
-  (`shuffle_seed`, `startedAt`/`pausedAt`) are deliberate ts-rs bigint-drift avoidance, not an
-  oversight — see `data::engine::table::RowRange`'s own doc for the class of bug this avoids.
-- Web Audio requires a user gesture before `AudioContext.resume()` succeeds; `AudioEngine.unlock()`
+- `PlaylistTrack.asset` and `PlayingTrack.asset` are ingress-validated through the shared
+  `data::engine::geometry::validate_asset_ref` (`PlaylistEngine::validate` per track,
+  `AudioStateEngine::validate` per `playing` entry) — FORMAT ONLY, a well-formed UUID string, same
+  as every other asset-reference field in `shadowcat-codebase-documents-permissions`'s shared-field
+  list. A placeholder like `"a1"`/`"tavern-loop"` fails ingress; every fixture whose document goes
+  through `apply_intent` (not a direct call to the pure `audio::state::apply` reducer, which never
+  validates) must use a real UUID string.
+- `u32`/`f64` substitutions for the wider 64-bit integer types throughout this subsystem's
+  wire-facing types (`shuffle_seed`, `startedAt`/`pausedAt`) are deliberate ts-rs bigint-drift
+  avoidance, not an oversight — see `data::engine::table::RowRange`'s own doc for the class of bug
+  this avoids.
+- Web Audio requires a user gesture before the browser will resume an audio context;
+  `AudioEngine.unlock()`
   is the one call site that constructs the context, and anything that arrives before it
   (`applyState`/`applyAudibility`) is queued (`#pendingState`/`#pendingAudibility`), not dropped.
 

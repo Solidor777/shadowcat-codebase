@@ -883,6 +883,24 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   `images` toggle, opens `AppContext.pickAsset` and inserts a `[[asset:<uuid>|alt]]` span at the
   cursor — the label falls back to `id.slice(0, 8)` unconditionally (no asset-name-lookup surface
   exists on `AppContext` to populate a real name).
+  **Pre-send interception hook and in-flight guard.** `Composer.svelte`'s `send()` runs the trimmed
+  draft through `chat:composer-send` (`ChatComposerSendPayload{text, cancel}`, a `"mutate"`-kind
+  hook declared by `defineChatComposerHooks`/`CHAT_COMPOSER_HOOK_VERSION`, `@shadowcat/core`'s
+  `chat-hooks` module) via `ctx.hooks.emitMutate` BEFORE building the `SendMessage` frame — a
+  module registers against it through its own `ModuleContext.hooks.on` in `register()` to rewrite
+  the outgoing text (e.g. implement a system-specific client-only slash command) or veto the send
+  outright (`cancel: true`); the composer applies whichever `text`/`cancel` the hook chain settled
+  on and never inspects the text itself, so server-side `/`-command parsing (`chat::parse_command`)
+  stays the sole authority over what ALREADY-sent text means. A cancelled send never reaches
+  `ctx.chat.send` and the input is left untouched (no optimistic clear, no error) — a module that
+  cancels is responsible for its own UI feedback. A `sending` in-flight `$state` guard (checked
+  alongside `canSend`, reflected in the Send button's `disabled`) blocks a second Enter/click from
+  double-sending while an earlier hook-dispatch-then-`ctx.chat.send` round trip is still pending;
+  it clears in a finally block regardless of outcome.
+  **`chat.roll.successes`** (`MessageCard`'s roll-successes chip) is a `PluralEntry` catalog entry
+  (`{ one, other }`), rendered via `ctx.plural("chat.roll.successes", outcome.successes, { n:
+  outcome.successes })` rather than `ctx.t` — see `shadowcat-codebase-client-shell`'s `I18n.plural`
+  entry for the category-selection contract.
 - **`@shadowcat/module-chat-card`** — fail-closed render (`parseMessageEngine` null ⇒ nothing).
   **The segment renderer + the `{@html}` sink live in `@shadowcat/ui-kit`, not this module:**
   `SegmentList.svelte` (`src/client/ui-kit/src/SegmentList.svelte`) is the extracted
