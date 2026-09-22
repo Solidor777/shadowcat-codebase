@@ -106,8 +106,8 @@ optimistically and roll back on divergence.
     `WsState::trigger_shutdown` is the ONLY place that sends. `WsState.live_connections`
     (`Arc<AtomicUsize>`) + `WsState.drain_notify` (`Arc<tokio::sync::Notify>`) back `ConnectionGuard`,
     an RAII handle `WsState::connection_guard` returns. It is acquired synchronously inside
-    `ws_handler`, BEFORE `.on_upgrade(...)` is called, then moved into the upgrade closure and
-    handed to `ws::conn::handle_socket` as a parameter (`_connection_guard: ConnectionGuard`) that
+    `ws_handler`, BEFORE `.on_upgrade(...)` is called; the upgrade closure takes ownership of it
+    and hands it to `ws::conn::handle_socket` as a parameter (`_connection_guard: ConnectionGuard`) that
     it holds for its whole task lifetime — `handle_socket` never acquires a second one. Acquiring
     inside `.on_upgrade(...)`'s own callback instead would leave a window where `WsState::
     live_connection_count` could read zero (and `wait_for_drain` return) before axum's internally
