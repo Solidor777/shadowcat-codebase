@@ -261,12 +261,20 @@ the reducer (intercept-and-redispatch), so the engine never owns state.
   `addPanel`/`#reconcileFloating` AND what it snapshots into `#lastFloatingRect`; snapshotting the
   unclamped rect there would desync the baseline `#handleFloatingLayoutChange` diffs against from
   the actually-rendered widget, manufacturing a spurious re-emit on the next layout-change event.
-  `#floatingContainerSize()` (the dockview root element's `getBoundingClientRect`) is the SOLE
-  degenerate-bounds guard for this clamp: it returns `null` for an unavailable component OR a
-  zero-area read (mirroring `clampScreenRectToAvailable`'s own degenerate-bounds fallback), and
-  its one caller skips `clampFloatingRectToContainer` entirely on `null` — that function's own
-  width/height parameters are therefore always positive, and the function carries no
-  degenerate-bounds check of its own by design, so the decision has exactly one owner.
+  `#floatingContainerSize()` is the SOLE degenerate-bounds guard for this clamp: it returns `null`
+  for a missing `#host` OR a zero-area read (mirroring `clampScreenRectToAvailable`'s own
+  degenerate-bounds fallback), and its one caller skips `clampFloatingRectToContainer` entirely on
+  `null` — that function's own width/height parameters are therefore always positive, and the
+  function carries no degenerate-bounds check of its own by design, so the decision has exactly one
+  owner. **It reads `this.#host.getBoundingClientRect()` (the caller-supplied container `init()` is
+  given), never `component.element`'s (dockview-core's OWN internally-created root)** —
+  dockview-core assigns that root a fixed placeholder size at construction and corrects it only
+  once its internal resize observer first fires, asynchronously, so a read taken right after a
+  page reload (before that observer has fired) sees the placeholder rather than any real layout
+  state and mis-clamps an already in-bounds persisted rect down to the placeholder's own size.
+  `#host` is a real page-layout element sized correctly by CSS from first paint, with no
+  placeholder-then-correct lifecycle of its own. `#floatingOverlayRect` (below) reads `#host` for
+  the identical reason. Any future size/origin read this engine adds must do the same.
 
 ## Gotchas
 

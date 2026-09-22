@@ -894,9 +894,15 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   stays the sole authority over what ALREADY-sent text means. A cancelled send never reaches
   `ctx.chat.send` and the input is left untouched (no optimistic clear, no error) — a module that
   cancels is responsible for its own UI feedback. A `sending` in-flight `$state` guard (checked
-  alongside `canSend`, reflected in the Send button's `disabled`) blocks a second Enter/click from
-  double-sending while an earlier hook-dispatch-then-`ctx.chat.send` round trip is still pending;
-  it clears in a finally block regardless of outcome.
+  alongside `canSend`, reflected in the Send button's `disabled`) covers ONLY the
+  `chat:composer-send` hook's own await — never the
+  dispatched `ctx.chat.send(...)` call, which runs fire-and-forget with its own `.catch` surfacing
+  a later rejection via `errorMsg`. An ordinary ACCEPTED chat op carries no ack frame at all:
+  `WsClient.trackChatOp`/`sendChatMessage` resolve that promise only on the wire client's
+  multi-second silence timeout, so awaiting the full send inside the guard would leave the Send
+  control (and the Enter-key path) disabled for that whole window on every ordinary message. The
+  hook call and frame build run inside a try/finally block that resets `sending` on every exit from
+  that region, including a synchronous throw from the hook.
   **`chat.roll.successes`** (`MessageCard`'s roll-successes chip) is a `PluralEntry` catalog entry
   (`{ one, other }`), rendered via `ctx.plural("chat.roll.successes", outcome.successes, { n:
   outcome.successes })` rather than `ctx.t` — see `shadowcat-codebase-client-shell`'s `I18n.plural`

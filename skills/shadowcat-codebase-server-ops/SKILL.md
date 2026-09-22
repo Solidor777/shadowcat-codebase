@@ -24,7 +24,8 @@ and restore as a deployment-operator tool, not an in-app feature.
   variant today, named so it never shadows `std::process::Command` in the CLI tests) →
   `Config::load(cli)` layers CLI flag > `SHADOWCAT_*` env > TOML file > built-in default.
   `Config.db: String` (default `./shadowcat.db`), `Config.assets_dir: Option<String>` (`None` →
-  sibling `assets/` beside the db file, via `Config::assets_path()`). `Cli.backup_to`/
+  sibling `assets/` beside the db file via `Config::assets_path()`, falling back to the current
+  directory when the db has no on-disk location — see `db::database_file` below). `Cli.backup_to`/
   `restore_from: Option<String>` and `Cli.force: bool` are CLI-ONLY triggers — never on `Config`,
   never read from TOML/env (a one-shot operation is not persistent server configuration).
 - `Config.behind_tls_proxy` (default `false`, CLI/env-settable, never inferred) declares a
@@ -38,19 +39,52 @@ and restore as a deployment-operator tool, not an in-app feature.
   The `Strict-Transport-Security` response header is a NARROWER decision that reads
   `behind_tls_proxy` directly, never through `is_exposed()`: a plain non-loopback bind with no TLS
   anywhere in the path is "exposed" by `is_exposed()` but must never receive HSTS.
-- `Config.log_dir`/`Config::logs_path()` (`None` → sibling `logs/` dir beside the db file, the
-  same convention `assets_path`/`modules_path` use) feeds `main::init_tracing(log_dir: Option<&
-  Path>)`, which ADDITIONALLY writes daily-rotated log files (the `tracing_appender` crate's
-  rolling-file appender, DAILY rotation, `filename_prefix("shadowcat")`, retention bounded by
-  `main::MAX_LOG_FILES` = 14)
-  alongside the always-on stdout layer. `init_tracing` returns the `tracing_appender` crate's
-  non-blocking-writer guard type (`Option<WorkerGuard>`) rather than dropping it
+- `db::database_file(url: &str) -> Result<Option<PathBuf>, sqlx::Error>` is the ONE decider for
+  which file on disk a `Config.db` connection string names — the sole function every sibling-
+  directory resolver and one-shot backup/restore path is required to route through rather than
+  treating `Config.db` as a bare path itself. Parses `url` only through `db::parse_connect_options`
+  (never a second URL parser) and returns `None` for both in-memory spellings (`:memory:`/
+  `sqlite::memory:`, detected via sqlx's connect-options filename accessor returning a generated
+  `file:sqlx-in-memory-` marker — the only public signal of sqlx's private in-memory flag) and a
+  `mode=memory` query parameter on any URL (re-read from the URL's own query string via the `url`
+  crate's form-urlencoded parser, since sqlx consumes that flag internally with no getter); otherwise
+  `Some` of the real path — a bare filesystem path, or the path component of a `sqlite:`/
+  `sqlite://` URL, including one containing the literal substring "memory" (not itself an
+  in-memory signal). `Config::db_sibling_dir(name: &str) -> Option<PathBuf>` (private) is the only
+  resolver that calls `database_file` directly, joining `name` onto its parent directory via the
+  private `Config::sibling_of`; `assets_path`, `modules_path`, and `logs_path` all route through
+  `db_sibling_dir`. `backups_path_for(&self, db_file: &Path) -> PathBuf` takes an ALREADY-resolved
+  db file instead (its one production caller, `http::routes::admin_backup`, has already called
+  `database_file` itself to decide how to react to `None`/`Err`, so a second internal call would
+  re-derive the same decision a second way; `main::run_backup` takes an explicit output directory
+  and never calls it) and spells the same sibling layout through
+  `sibling_of` directly. **Never derive a filesystem path from `Config.db`
+  directly** — a `sqlite:`-scheme URL or a bare path containing "memory" both defeat a naive string
+  check, which is the defect class `database_file` exists to close.
+- `Config::logs_path() -> Option<PathBuf>`: an explicit `Config.log_dir` always wins (even over an
+  in-memory `db`); otherwise `db_sibling_dir("logs")` — `None` whenever the db has no on-disk
+  location (either in-memory spelling, `mode=memory`, or an unparseable connection string), meaning
+  file logging is off entirely rather than a directory this function invents on the caller's
+  behalf; otherwise a sibling `logs/` dir beside the db file, the same convention `assets_path`/
+  `modules_path` use. `main::init_tracing(log_dir:
+  Option<&Path>) -> anyhow::Result<Option<WorkerGuard>>` reads `config.logs_path().as_deref()` at
+  every `Config`-dependent call site and propagates a failure via `?`; ADDITIONALLY writes
+  daily-rotated log files (the `tracing_appender` crate's rolling-file appender, DAILY rotation,
+  `filename_prefix("shadowcat")`, retention bounded by `main::MAX_LOG_FILES` = 14) alongside the
+  always-on stdout layer when its argument is `Some`. `main::build_rolling_appender(dir: &Path) ->
+  anyhow::Result<RollingFileAppender>` is the ONE log-directory-creation seam: it calls
+  `std::fs::create_dir_all(dir)?` BEFORE `tracing_appender::rolling::Builder::build(dir)`, because
+  the vendored crate's own `Inner::new` prunes old log files (a directory read) before it creates
+  the target directory itself — creating the directory here first is what keeps that prune from
+  ever observing a missing directory (which would otherwise `eprintln!` an unconditional,
+  uncatchable error on a fresh install's first-ever start). `init_tracing` returns the
+  `tracing_appender`
+  crate's non-blocking-writer guard type (`Option<WorkerGuard>`) rather than dropping it
   internally — the caller (`main`) must hold it for the process's whole lifetime, since a dropped
-  guard stops the background writer thread and silently drops buffered lines. Only the
-  `audio-monitor` subcommand branch runs before `Config::load` and passes `None` (stdout-only,
-  since there is no `logs_path()` to derive a rotation root from yet); the `--backup-to`/
-  `--restore-from` one-shot branches and the normal serve path all run AFTER `Config::load` and
-  pass `Some(&config.logs_path())`.
+  guard stops the background writer thread and silently drops buffered lines. `None` reaches
+  `init_tracing` two ways: the `audio-monitor` subcommand branch runs before `Config::load` and has
+  no `Config` to derive a directory from at all; every other caller passes `config.logs_path()`
+  through unchanged, which is itself `None` whenever `logs_path()`'s own rule above says so.
 - `http::router` installs a global response-header layer via tower-http's overriding
   set-header layer (`X_FRAME_OPTIONS: DENY`, `X_CONTENT_TYPE_OPTIONS: nosniff`,
   `REFERRER_POLICY: same-origin`, unconditional on every route) plus a conditional
@@ -85,12 +119,19 @@ and restore as a deployment-operator tool, not an in-app feature.
   resolves and the `select!` reduces to Ctrl+C alone with no extra conditional compilation at the
   call site; macOS and Linux both take the real branch), then calls `WsState::trigger_shutdown()`
   before returning.
-- `create_world` (`http::routes::create_world`) is throttled per-account via
-  `http::throttle::WORLD_CREATE_PER_MIN_PER_ACCOUNT` (10/min trailing window, `AppState.
-  auth_throttle`, the same sliding-window limiter the login/invite endpoints share) —
-  `create_world` requires only an authenticated `AuthUser` with no per-world capability check, so
-  an unthrottled account could otherwise mint unbounded worlds (each seeding a full config-doc set
-  via `apply_intent`), exhausting storage/DB rows with no signal beyond ordinary write volume.
+- `create_world` (`http::routes::create_world`) is throttled per-account via `AppState.
+  auth_throttle` (the same sliding-window limiter the login/invite endpoints share), budget
+  `state.config.world_create_per_min_per_account.unwrap_or(throttle::
+  WORLD_CREATE_PER_MIN_PER_ACCOUNT)` — `Config.world_create_per_min_per_account: Option<usize>`
+  (env `SHADOWCAT_WORLD_CREATE_PER_MIN_PER_ACCOUNT`; no CLI flag) layers exactly like
+  `login_per_min_per_identity`/`invite_per_min_per_account`, `None` falling back to the 10/min
+  built-in constant. The shell's `playwright.config.ts` sets this env var to relax the budget for
+  its e2e suite, the same pattern its login/invite overrides already use, since one long-lived
+  in-memory-DB server process (`reuseExistingServer`) accumulates world-creation calls across many
+  local runs against one seeded account. `create_world` requires only an authenticated `AuthUser`
+  with no per-world capability check, so an unthrottled account could otherwise mint unbounded
+  worlds (each seeding a full config-doc set via `apply_intent`), exhausting storage/DB rows with
+  no signal beyond ordinary write volume.
 - `POST /api/users/{id}/password` (`routes::reset_user_password`, server-admin-only via
   `AdminUser` — the same guard `create_user` uses) and `create_user` both validate the plaintext
   password through the ONE shared `routes::validate_password_policy` (length floor/ceiling), so the
@@ -194,9 +235,16 @@ and restore as a deployment-operator tool, not an in-app feature.
   all (file copy/rename only), so the foreign-keys pragma `connect_pool` always enables has no
   restore-time counterpart to diverge from.
 - `POST /api/admin/backup` (`http::routes::admin_backup`, admin-only via `AdminUser`)
-  — in-server backup trigger, layered ABOVE `backup`. Writes into
-  `Config::backups_path()` (`config`, `None` → sibling `backups/` beside the db file, mirroring
-  `assets_path()`'s convention), one timestamped subdirectory per run. Holds `AppState.write_barrier`
+  — in-server backup trigger, layered ABOVE `backup`. Resolves the source db file via ONE
+  `db::database_file(&state.config.db)` call: `Ok(Some(path))` proceeds; `Ok(None)` (an in-memory
+  `Config.db`) is a caller-facing configuration mistake, rejected with `AppError::Unprocessable`
+  (422) — `"backup requires a file-backed database; {config.db} is in-memory"`, the same message
+  text `main::run_backup`'s own `database_file` call uses for the CLI path; `Err(e)` (a malformed
+  `Config.db` string) is logged via `tracing::error!` and rejected with the opaque
+  `AppError::Internal`, since that failure is a server-config defect rather than a caller mistake.
+  The output root comes from `Config::backups_path_for(&db_path)` (explicit `Config.backups_dir`,
+  else a sibling `backups/` beside the resolved db file), one timestamped subdirectory per run.
+  Holds `AppState.write_barrier`
   (`Arc<tokio::sync::RwLock<()>>`, `http`) in WRITE mode across the whole snapshot; asset
   `upload`/`replace` (`http::assets`) each acquire it in READ mode around their own commit+rename
   step, so no asset write can interleave with an in-server backup's file copy. DB writers need no

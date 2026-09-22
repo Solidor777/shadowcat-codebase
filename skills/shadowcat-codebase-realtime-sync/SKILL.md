@@ -366,6 +366,20 @@ optimistically and roll back on divergence.
 
 ## Gotchas
 
+- **`egress_loop` test harnesses under a paused tokio clock must keep post-pause test traffic off
+  the SQLite repository.** A sequenced `RoomEvent::Event` is filtered through a per-recipient
+  query that sqlx runs on the SQLite driver's own worker thread, not a tokio blocking-pool thread —
+  the only wait shape tokio's auto-advance inhibition recognizes. A `tokio::time::pause()`'d
+  runtime treats time waiting on that thread as idle and auto-advances the clock straight to the
+  next pending timer (a `tokio::time::timeout` deadline, or `egress_loop::ping_timer`'s own
+  tick), firing it instantly with no real time having passed. Keep test code issued AFTER the
+  pause on an out-of-band path instead: `Room::broadcast_aux`/`broadcast_aux_shared` reach the
+  sink through `send_plain` with no repository query at all, unlike `Room::publish`. `egress_loop`
+  ALSO creates `egress_loop::ping_timer` only after sending Welcome, so a harness must wait for a
+  loop-served reply before pausing/advancing the clock, or the timer is constructed at the
+  already-advanced instant and its first tick lands a full `PING_INTERVAL` late; the heartbeat
+  test harness's probe for this is an `Egress::TimePong` round trip, since only
+  `egress_loop::erx`'s arm answers it.
 - **A malformed field anywhere in a client-authored `Intent` frame produces a generic,
   UNCORRELATED `ServerMsg::Error` (`WsErrorCode::BadMessage`), never a `Reject` — and the client
   silently discards it (`case "error": break;`).** `Reject` requires the frame to parse into

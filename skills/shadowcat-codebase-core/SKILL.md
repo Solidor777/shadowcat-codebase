@@ -181,6 +181,15 @@ source of truth. The ones agents break most:
   real migrations can begin at that milestone. A dev DB predating a baseline edit fails the sqlx
   checksum — delete the dev DB file and restart. Any migration files that accumulate anyway are
   deleted on sight (squashed into the baseline).
+- **Server-crate Rust tests never call a permanent-delete function on their own fixtures.** A test
+  needing a fresh, not-yet-existing directory owns it via `tempfile`'s directory-guard type and
+  lets it fall out of scope to recursively remove the directory, rather than calling
+  `remove_dir_all` explicitly at the end of the test; a test needing a file to be ABSENT after
+  having been present (e.g. to force a regenerate-on-miss path) `rename`s it aside within its own
+  temp directory instead of deleting it outright, preserving the same "derivative does not resolve
+  to an existing file" precondition. Production delete call sites (e.g. `backup`, `data::asset`,
+  `data::sqlite::export_import`, `world_bundle`, `http::assets`, `http::routes`,
+  `http::world_bundle`) are untouched by this convention — it governs test fixtures only.
 - **NEVER work around a rule — follow its INTENT; if unsure, ASK (user directive).**
   Verbatim: *"we do not try to work around rules, ever. we accept the intent of the rule and follow
   it. if we are unsure of the intent, ask the user."* Reworking text or code until a rule stops
