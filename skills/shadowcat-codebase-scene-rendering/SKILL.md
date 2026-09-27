@@ -297,6 +297,52 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   dominant tint. Two dim lights brighten their overlap; composition only ever brightens for the
   same content, and it stays inside the LOS gate, so no cell outside a source's reach becomes
   visible. Clean-room. Non-finite/empty inputs fail closed (under-reveal).
+- **Region ambient-light override — a FINAL per-cell adjustment step over the composed
+  illumination, applied by `LightingInputs::cell_light`** (`scene::visibility_compute`) after
+  either base: the additive `cell_illumination_from` sum, or the flat `all_bright` level-1.0
+  base. **INVARIANT: the adjustment applies EVEN under `LightMode::GlobalIllumination`** (and
+  under lighting-off) — the `all_bright` short-circuit skips gathering placed lights and light
+  walls, never this edit; a scene with no `"ambient_light"` region stays byte-identical either
+  way (`LightingInputs.ambient.is_empty()` fast path). The read path is
+  `SceneEcs::ambient_light_map(scene, levels, level)`, NOT `SceneEcs::region_field` directly —
+  `ambient_light_map` calls the shared `region_field_if` body with a LEVEL-SPAN predicate
+  (`elevation::band_overlaps_level`, matching any elevation of the level's span), while
+  `region_field` itself tests a single mover POINT elevation (`elevation::band_contains`) and
+  takes no `level`/`levels` parameter at all. Both facets share that ONE iteration body
+  (doc_type/parent/`enabled`/`/engine`-tier-visibility/shape-parse filtering + the
+  `behavior`→`RegionBehavior` mapping), so region admission can never drift between the two
+  reads — only the elevation predicate and the viewer differ (see the `region_field`
+  two-value-contract bullet above for the viewer split).
+  **Fold rules** (`regions::compose_ambient`, folding every enabled `AmbientLight` contribution
+  covering a cell into one `regions::AmbientAdjustment`): `Override` wins OUTRIGHT over any
+  `Darken`/`Brighten` on the same cell (mirrors `Impassable > Arrest > Terrain`'s
+  strongest-wins shape); overlapping `Darken`s and `Brighten`s SUM their signed deltas into one
+  net delta — additive perturbations over a baseline, NEVER a max (unlike terrain cost, which
+  takes the max of overlapping multipliers); two different `Override`s on the same cell resolve
+  to the DARKER of the two levels — the subsystem's fail-closed/under-reveal convention applied
+  to an authoring conflict rather than to a missing input. `AmbientAdjustment::apply` clamps an
+  `Override` into `[0, 1]` and a `Delta` result into `[0, 1]` after adding to the base.
+  New types (`data::engine::geometry`): `AmbientLightMode` (`darken | brighten | override`),
+  `AmbientLightOverride { mode, level }`, `RegionEngine::ambient_override:
+  Option<AmbientLightOverride>` (`RegionEngine::validate` enforces that a present
+  `ambient_override` implies `behavior == "ambient_light"`, a finite `level`, `[0,1]` for
+  `override`, `>= 0` for `darken`/`brighten`); `behavior` gains the `"ambient_light"` string
+  value alongside `"terrain"`/`"impassable"`/`"arrest"`.
+  **Cache gotcha, guarded against by dedicated tests rather than by inspection alone:** both
+  `LightingInputsSnapshot` and `VisibilityInputsSnapshot` carry the composed ambient map
+  (`self.ambient_light_map(scene, &levels, &mover_level)`, the AUTHORITATIVE read) as a
+  cache-key field precisely because `cell_light` consumes it — a snapshot field that instead
+  held a placeholder/default value (rather than a genuine re-read of the region set) would
+  leave that key INERT: the fingerprint would never change on a region edit, so a stale
+  cached lighting/visibility field would keep serving after an `"ambient_light"` region was
+  added, edited or deleted, until some UNRELATED input happened to also change. This is
+  exactly the class of bug an equality-based cache (see the `engine_as_cached`/
+  `visible_cells_cached` bullets below) is silently vulnerable to for any field it forgets to
+  thread — the cache-invalidation tests
+  (`lighting_inputs_cache_invalidates_when_an_ambient_region_is_added_or_edited`,
+  `visible_cells_cache_invalidates_when_an_ambient_region_is_added`) are what catch a
+  regression of this shape, by asserting a fresh recompute (not a stale hit) after exactly
+  such an edit — a green build with no such test would not.
 - `scene::emitters` — the carried-light seam. `eng::LightEmission` `{color, intensity,
   brightRadius, dimRadius, falloff?, enabled}` (radii in cells; `Falloff.curve` is the closed
   `FalloffCurve` enum `linear | quadratic | none`) is the ONE emission payload: a standalone
@@ -341,7 +387,7 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `@shadowcat/core`'s `bandContains` (`sceneScopedDocs`'s TS twin), pinned by the shared
   conformance corpus. Elevation only ever FILTERS the occluder set per source — the star-shaped
   raycast pipeline is untouched and sight/light ranges stay 2D: `sight_wall_entries`/
-  `light_wall_entries` collect the scene's walls as `BandedWall`s once, and every consumer filters
+  `light_wall_entries` collect the scene's walls as `elevation::WallEntry` values once, and every consumer filters
   them through `walls_at_elevation` at ITS source's elevation (`sight_walls_for`, each light in
   `lighting_inputs_from` at the light's own elevation, a carried emission at its token's) — except
   environment ambient, which keeps the FULL light-wall set at every elevation (walls always shadow
@@ -1449,7 +1495,30 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `RegionShape`/`RegionShapeKind`/`RegionBehavior` are exported from `@shadowcat/core`'s public
   entrypoint module (the client type is `RegionEngine`, not `RegionSystem` — no
   back-compat alias; the entrypoint's export list is written by hand, so any future `scene-docs`
-  addition needs its own export line — it is not automatic).
+  addition needs its own export line — it is not automatic). **A newly ts-rs-generated Rust type
+  needs an UPSTREAM hand-written re-export before that entrypoint line can even exist**:
+  `src/types/index.ts` (the `@shadowcat/types` barrel) exports each generated binding by name
+  (`export type { AmbientLightMode } from "./generated/engine/AmbientLightMode"`) — nothing
+  imports `src/types/generated/**` directly, so a type absent from this barrel is unreachable
+  from every client package regardless of any other export line. `scene-docs`'s own import
+  block and `@shadowcat/core`'s entrypoint module (above) are two FURTHER, separate hand-written
+  steps on top of it — three re-export lines across three files for one new generated type
+  (`AmbientLightMode`/`AmbientLightOverride` needed all three), none of them automatic.
+  **Region behavior gains a THIRD authoring mode, `"ambient_light"`** —
+  `RegionBehaviorMode = "terrain" | "impassable" | "arrest" | "ambient_light"`
+  (`ToolController`) — with conditional mode/level inputs (`ToolRail`'s
+  `data-testid="region-ambient-mode"`/`"region-ambient-level"`, shown only when
+  `controller.regionBehavior === "ambient_light"`) bound to `ToolController.regionAmbientMode`/
+  `regionAmbientLevel`. The module-private `regionAmbientOverride(controller)` is the ONE
+  function building `RegionEngine.ambient_override` (`null` unless `regionBehavior ===
+  "ambient_light"`, else `{mode, level}` from those two fields) — it is what keeps the client
+  from ever authoring the combination `RegionEngine::validate` rejects server-side — a present
+  `ambient_override` paired with a `behavior` other than `"ambient_light"`. **Both region-persist paths route
+  through it**: the single-shape flow (`makeRegionTool.onPointerUp`) and the compound-parts
+  commit (`ToolController.commitRegionParts`) each call `regionAmbientOverride(this/controller)`
+  when building their `RegionEngine` body — never re-derive the mode/level pairing inline at
+  either site, or the forked-decision defect this shared helper exists to close reopens between
+  the two authoring flows.
 - `scene-docs` (`src/client/core/src`) — **vision/lighting/movement data model: the server mask
   consumes these shapes; the client lighting render (see `lighting` above) is display-only**:
   world-scoped config-docs `world-settings`/`light-gradation`/`vision-modes`
@@ -1793,6 +1862,18 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `region_field`'s per-requester filter at all (that field only reads the `/engine`
   `property_overrides` entry) — a test or spec author who reaches for `permissions.default` here
   writes a region that still weights a non-GM's route.
+  **`behavior: "ambient_light"` is the one exception to the two-value contract's own secrecy
+  claim, not a third mode.** `SceneEcs::ambient_light_map` (the lighting field's per-cell
+  ambient-region reader) always calls `region_field_if(scene, None, ...)` — the AUTHORITATIVE
+  viewer, unconditionally, for every recipient — because an ambient-light region edits the
+  composed ILLUMINATION every viewer's field is built from, not a movement/route decision the
+  per-requester field exists to narrow. So a `gm_only` ambient-light region still darkens (or
+  brightens/overrides) a non-GM's lighting field AND, through the shared illumination read, the
+  movement gate — without the region's own GEOMETRY/visibility ever reaching that non-GM
+  (`region_field`'s ordinary per-requester rule still governs whether they can SEE the region
+  document or route around its shape). Two-value contract, one authority per facet: the
+  MOVEMENT facet (`RegionField::compose`/`terrain_multiplier`/`is_impassable`/`is_arrest`) still
+  reads whichever viewer the caller passed; the AMBIENT facet always reads `None`.
 - **The continuous-engine dispatch predicate MUST read the PER-REQUESTER region field, never the
   authoritative one.** `has_terrain_or_impassable()` is evaluated against `region_field(
   scene, Some(user))` for a non-GM — this is the single mechanism preventing a secret
