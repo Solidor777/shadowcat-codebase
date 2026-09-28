@@ -1087,11 +1087,20 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `token_vision_floors`). The two request seams — `ws::conn::handle_pathfind` (for the named,
   authorized token only; a hypothetical-footprint preview is non-exempt) and
   `Room::execute_move` (in the same read-guard block as `footprint`) — resolve the flag ONCE
-  into `pathfinding::MoveTraits { ignore_terrain }` and carry it in `RouteMover.traits` /
-  `MoveGateInputs.traits`; neither the router nor the executor re-derives it. The GM
+  into `pathfinding::MoveTraits` — which carries `ignore_terrain` AND `tags: BTreeSet<String>`,
+  both resolved from the SAME `token_movement_tags` call so the exemption and the per-tag cost can
+  never disagree about a mover — and carry it in `RouteMover.traits` / `MoveGateInputs.traits`;
+  neither the router nor the executor re-derives it. `MoveTraits` consequently no longer implements Copy
+  (it owns a tag set), so `terrain_cost` and its callers take it by reference; never clone it
+  inside a per-cell loop. The GM
   gameplay-gate exemption does not touch this: a GM moving a flying token is priced as flying.
   Every multiplier site reads the flag through the ONE chokepoint `pathfinding::terrain_cost(
-  regions, cell, traits)` — `astar_leg`'s edge weight, `replay_step_costs` (arrest + budget
+  regions, cell, traits)`, which also resolves `RegionEngine::cost_by_tag` for the mover via
+  `RegionField::resolved_terrain_multiplier` — per covering terrain region the MINIMUM cost whose
+  tag the mover carries, falling back to that region's flat cost when none matches, then the MAX
+  across overlapping regions (the same rule `compose` applies to flat costs). Both the flat and the
+  per-tag values are clamped `.max(1.0)` where the contribution is BUILT, not at one reader, so a
+  negative or `NaN` authored cost collapses to `1.0` and the two multiplier readers cannot diverge — `astar_leg`'s edge weight, `replay_step_costs` (arrest + budget
   truncation), `navmesh::los_smooth`'s per-span cost, and `execute_move`'s per-transition and
   Continuous tail pricing — plus the two non-price reads: the continuous dispatch predicate
   (`has_impassable()` alone for an exempt mover) and `los_smooth`'s chord rule (terrain dropped
@@ -1111,9 +1120,13 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `Continuous` branch (`scene`) computes the per-requester `region_field` once (same call the
   `GridStepped` branch already made — the `GridStepped` branch itself is completely untouched by
   this) and dispatches on `RegionField::has_terrain_or_impassable()` (`scene::regions`: true iff any
-  cell is `impassable` or `terrain` with `multiplier > 1.0` — the disjunction of `has_impassable`
-  and `has_weighted_terrain`; arrest-only fields do NOT trigger this
-  — arrest needs only a post-filter, not route-bending). For an `MoveTraits::ignore_terrain`
+  cell is `impassable` or `terrain` weighted FOR THIS MOVER — the disjunction of `has_impassable`
+  and `has_weighted_terrain`, both of which take the mover's tags, since a region may carry flat
+  cost exactly 1.0 and still weight a tagged mover through `cost_by_tag`; arrest-only fields do NOT
+  trigger this — arrest needs only a post-filter, not route-bending). **INVARIANT: the predicate's
+  notion of "weighted" must stay identical to the cost function's.** A predicate that reads only
+  flat cost sends a tag-weighted mover down the pure polyanya route, which applies NO terrain
+  weighting, silently dropping that mover's terrain cost entirely. For an `MoveTraits::ignore_terrain`
   mover the predicate is `has_impassable()` ALONE: terrain is plain ground for them, so a
   terrain-only field takes the pure any-angle route, while impassable still forces the weighted
   sub-path for every mover (a straight chord must never skip the refusal). **Terrain/impassable present:** the
@@ -1146,7 +1159,8 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
     straightens only when every cell its chord enters (`grid.footprint_cells ∪ grid.line_traversal`,
     the SAME union `cell_enterable`/`clip_to_visible_mask` use) is in `mask` (when `Some`), not
     impassable, not arrest, and — for a NON-exempt mover — not weighted terrain
-    (`terrain_multiplier > 1.0`; an `MoveTraits::ignore_terrain` mover's chord ignores terrain,
+    (`resolved_terrain_multiplier > 1.0` — tag-resolved, so a chord may not straighten through
+    terrain that is weighted only for THIS mover's tags; an `MoveTraits::ignore_terrain` mover's chord ignores terrain,
     never impassable or arrest), and the chord
     crosses no `blocksMove` wall — so a straightened chord can never shortcut INTO terrain/
     impassable/arrest the weighted search deliberately routed around or truncated at. **The single
