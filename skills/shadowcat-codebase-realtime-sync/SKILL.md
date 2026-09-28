@@ -463,6 +463,16 @@ optimistically and roll back on divergence.
   no new invalidation hook, and no
   separate per-connection override machinery beyond what the scene-channel re-eval loop already
   provides. See `shadowcat-codebase-audio`.
+- **Arming every connection's OWN re-eval deadline is the pattern for "server state a per-recipient
+  derivation reads has changed underneath it".** `ServerMsg::ExploredFogReset` is the second user of
+  it: `handle_reset_explored_fog` deletes the rows, `broadcast_aux` carries the notice, and the
+  `egress_loop` arm sets each connection's own re-eval deadline (a loop-local in `egress_loop`, not
+  a field on any shared state) so every recipient re-derives its own
+  `vision` payload from the now-empty `explored_fog` rather than serving its previous explored mask
+  until something else happens to invalidate it. The derivation itself
+  (`ws::conn::enrich_vision_explored`) reads the table fresh on every recompute, so the arm is the
+  whole invalidation — there is no cache to evict. Reach for this shape, not a new per-frame
+  invalidation hook, whenever a mutation changes what a per-recipient derived channel would compute.
 - **`ScenePing` is gated by `scene_ping_permitted`, not by scene
   selection.** Unlike `MoveRequest`/`handle_pathfind` (which SELECT server state and so must
   derive-from-token, per the never-fork table in `shadowcat-codebase-core`), `ScenePing` relays

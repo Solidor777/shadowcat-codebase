@@ -766,7 +766,14 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `to_bytes`/`from_bytes` (persistence), cell-based. Lifecycle: `explored_fog` rows are purged on
   scene delete (`delete_document_tx`, both authoritative delete paths), world delete
   (`delete_world`, by the denormalized `world_id`), and user delete (`delete_user`) — rows do not
-  orphan on any of these paths.
+  orphan on any of these paths. A FOURTH purge trigger is EXPLICIT rather than a side effect of
+  removing something else: `SqliteRepository::reset_explored_fog`, reached through the GM-only
+  `ClientMsg::ResetExploredFog` intent (`ws::conn::handle_reset_explored_fog`), deletes by scene
+  plus an OPTIONAL level and an OPTIONAL user, each absent scope widening to "every" rather than
+  narrowing. The GM check and the same-world scene check both return ONE identical `Forbidden`
+  value, so a caller cannot tell a missing role from a scene in another world. The purge is a hard
+  delete with no undo, which is what the fog model supports: a cleared cell re-marks the next time
+  the recipient's vision covers it.
 - `scene::regions` — pure region geometry, no ECS/I/O (mirrors
   `scene::movement`'s module invariant): `RegionShape` (`Rect`/`Circle`/`Polygon`), `RegionBehavior`
   (`Terrain`/`Impassable`/`Arrest`), `RegionEffect` (composed per-cell result), `rasterize(shape,
