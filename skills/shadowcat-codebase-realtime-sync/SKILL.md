@@ -491,6 +491,23 @@ optimistically and roll back on divergence.
   `onEmote` handler (`EmoteNotice`, no seq) → `WorldSession.sendEmote`/`onEmote`, carrying the
   same `viewedSceneId` cross-scene guard the `scene_ping` handler has (drop a frame whose
   `scene` isn't the viewed one — `shadowcat-codebase-scene-rendering`'s cross-scene gotcha).
+- **`ServerMsg::ScrollingText { scene, token, text, gm_only }` is the SERVER-AUTHORED twin of
+  `Emote`, with no client `ClientMsg` counterpart at all** — it originates only from a fired
+  region trigger (`TriggerEffect::ScrollingText`, `shadowcat-codebase-scene-rendering`), never
+  from a client send. Same aux shape as `ScenePing`/`Emote`: `Room::broadcast_aux`, no seq,
+  never touches the `RingBuffer`/gap-resync path — structurally unreachable from replay/resync,
+  same as the other two. Unlike ping/emote's binary admit-or-drop, this frame carries its OWN
+  per-connection secrecy bit (`gm_only`, set at fire time from the firing region's `/engine`
+  visibility): `egress_loop`'s dedicated arm gates delivery through the pure, unit-testable
+  predicate `scrolling_text_admitted(gm_only, world_role)` rather than the room/scene-lookup
+  guards `scene_ping_permitted`/`token_emote_permitted` use — see
+  `shadowcat-codebase-scene-rendering`'s `ScrollingText` bullet for the full secrecy derivation,
+  the two independent text-length bounds (server ingress vs. client display truncation), and the
+  `EmoteKind` producing-call-site rule. Client chain: `WsClient`'s `onScrollingText` handler
+  (`ScrollingTextNotice`, no seq) → `WorldSession.onScrollingText`, carrying the same
+  `viewedSceneId` cross-scene guard as `scene_ping`/`emote` — one of the five instances of
+  `shadowcat-codebase-scene-rendering`'s cross-scene-divergence broadcast gotcha, alongside
+  `MoveStream`/`ScenePing`/`Emote`/`Vfx`.
 - **MoveRequest → MoveStream (broadcast):** `MoveStream` is an **aux broadcast frame** — sent
   via `Room::broadcast_aux_shared` like `ScenePing`, carrying NO seq number (it is cosmetic
   playback data, not an authoritative document event; it never touches the `RingBuffer`/gap-resync

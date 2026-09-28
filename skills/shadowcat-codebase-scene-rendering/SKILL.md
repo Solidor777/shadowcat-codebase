@@ -800,8 +800,10 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `Some(gm_user)` would incorrectly filter a GM's own field.
 - **Region triggers (mechanical effects on enter/arrest).** `RegionEngine.triggers:
   Vec<RegionTrigger>` (`TriggerEvent` = `enter`/`arrest`; `TriggerEffect` =
-  `condition_add`/`condition_remove`/`resource_delta`/`chat_notice`, the last with a
-  `NoticeAudience`) — ingress-validated in `normalize_engine`'s `"region"` arm
+  `condition_add`/`condition_remove`/`resource_delta`/`chat_notice`/`teleport`/`scrolling_text`,
+  `chat_notice` with a `NoticeAudience` — see the `ScrollingText` overlay bullet below and the
+  Portals bullet above for `teleport`'s own application mechanics) — ingress-validated in
+  `normalize_engine`'s `"region"` arm
   (`RegionEngine::validate`), because triggers are engine-EXECUTED payloads, unlike the
   movement fields' read-side fail-closed semantics. The composed `RegionField` erases region
   identity, so a second read model exists beside it: `SceneEcs::trigger_regions(scene)` builds
@@ -826,6 +828,51 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   per-requester form of the identity table (the server springs secrets); instead every notice
   a not-`visible_to_all` region fires is FORCED `Audience::GmOnly`, and condition/resource
   writes are ordinary egress-filtered document updates.
+- **`TriggerEffect::ScrollingText { text }` — a region-trigger floating overlay, the
+  server-authored twin of a player `Emote`.** Firing broadcasts `ServerMsg::ScrollingText {
+  scene, token, text, gm_only }` via `Room::broadcast_aux` — an OUT-OF-BAND, unsequenced aux
+  frame (no document, no seq), mirroring `Emote`'s own shape exactly: it never rides the
+  `RingBuffer`/`Room.tx` `RoomEvent::Event` path, so it is structurally unreachable from
+  replay/resync (a client that missed it while disconnected has no way to recover it — same
+  as a player emote). Rendered by reusing the EXISTING overlay lifecycle:
+  `WorldSession.onScrollingText` → `Stage`'s `onScrollingText` subscriber →
+  `RenderEngine.addEmote(token, text, "caption")` → `EmoteView`'s age-tracker (client/render's
+  `emote-view` module) — never a second floating-text renderer.
+  - **Two independent bounds, at two layers — neither is the other's mirror.** The SERVER
+    validates the authored `text` at ingress (`RegionEngine::validate`'s `"scrolling_text"` arm,
+    `data::engine::geometry`) against `chat::MAX_MESSAGE_CHARS` — the SAME constant and the SAME
+    precedent `TriggerEffect::ChatNotice` uses for its own `text` field, never a tighter
+    server-side cap of its own — no constant of that narrower shape exists in this codebase;
+    do not invent one when citing this bound. The CLIENT independently display-truncates in `EmoteView` via
+    `MAX_OVERLAY_DISPLAY_CHARS` (80 codepoints, `truncateForDisplay`) — a much shorter,
+    purely cosmetic limit the server's own bound does not know about: the server accepts more
+    text than the overlay ever shows.
+  - **`EmoteKind` is declared at the PRODUCING call site, never inferred by the renderer from
+    string length.** `RenderEngine.addEmote(tokenId, emote, kind: EmoteKind = "glyph")` — a
+    player-fired emote (`Stage`'s `onEmote` handler) omits `kind` and gets the default `"glyph"`
+    treatment (large single-line glyph font, `PixiBackend.drawEmotes`'s glyph branch never
+    wraps); `Stage`'s `onScrollingText` handler passes `"caption"` explicitly
+    (`e.addEmote(m.token, m.text, "caption")`), which wraps at `EMOTE_WRAP_WIDTH` in the smaller
+    `CAPTION_FONT_SIZE` font. A future overlay use case adds its own `kind` argument at ITS OWN
+    producing call site — never a length/content heuristic inside `EmoteView`/`PixiBackend`.
+  - **Anchor convention: bottom-centre.** `PixiBackend.drawEmotes` anchors every overlay
+    (glyph or caption) at `(0.5, 1)` with `g.y` at the token's TOP edge, so a multi-line caption
+    block grows UPWARD from that edge rather than centring over the token.
+  - **Secrecy, fail-closed.** `gm_only` is derived server-side in
+    `Room::apply_region_trigger_effects` from the SAME `secrecy_rows`/`visible_to_all` lookup
+    `TriggerEffect::ChatNotice`'s own forced-`GmOnly` audience uses (`gm_only: !visible_to_all`
+    — an unresolvable row fails closed to forced-GM-only, matching `ChatNotice`'s own fallback).
+    The per-connection drop is the named, unit-testable predicate `scrolling_text_admitted(
+    gm_only, world_role) -> bool` (`ws::conn`) — `!gm_only || world_role == WorldRole::Gm` —
+    called from `egress_loop`'s `ServerMsg::ScrollingText` arm, a silent drop (no error frame)
+    for a non-GM connection when `gm_only` is set. This — a pure, I/O-free, unit-testable
+    predicate reached from `egress_loop`'s per-connection match arm — is the preferred, testable
+    shape for any FUTURE secrecy-bearing aux frame; it sits beside the existing per-connection
+    decisions `ServerMsg::Evicted` (targeted delivery) and the `ServerMsg::MoveStream` egress
+    clip already use.
+  - Also joins the cross-scene-divergence broadcast gotcha below, whose guarded set is five
+    (`WorldSession.onScrollingText` drops any frame whose `scene` doesn't equal
+    `this.viewedSceneId`, same shape as `MoveStream`/`ScenePing`/`Emote`/`Vfx`).
 - `scene::pathfinding` — pure, headless grid A* (no I/O; clean-room):
   `DiagonalRule` (`chebyshev`|`manhattan`|`euclidean`|`alternating`) + `resolved_diagonal_rule`
   (world-only — no per-scene override; mirrors `resolveSceneSettings` precedence);
@@ -2058,21 +2105,22 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   crossings (both flankers emitted) is covered by dedicated regression tests in
   `scene::movement`. `execute_move`'s frozen-fixture "diagonal 3-step king path, full visible" case
   (`scene::move_exec`) pins the non-truncated outcome.
-- **Cross-scene `MoveStream`/`ScenePing`/`Emote` leak class — exists only because per-client scene
-  divergence is possible.** When every client renders the SAME scene (`activeScene`, in
-  lockstep), there is no per-client "which scene am I looking at" state for a broadcast
-  fan-out egress path to diverge against, so this leak class cannot exist.
-  `gmViewedScene` (GM local roam) is what introduces per-client scene divergence: a
-  room-wide `MoveStream`/`ScenePing`/`Emote` broadcast now reaches connections that may be viewing
-  DIFFERENT scenes than the event targets. `WorldSession` closes it client-side by dropping any
-  frame whose `scene` doesn't equal `this.viewedSceneId` (`onMoveStream`/the `scene_ping`/`emote`
-  handlers,
+- **Cross-scene `MoveStream`/`ScenePing`/`Emote`/`ScrollingText`/`Vfx` leak class — exists only because
+  per-client scene divergence is possible.** When every client renders the SAME scene
+  (`activeScene`, in lockstep), there is no per-client "which scene am I looking at" state for a
+  broadcast fan-out egress path to diverge against, so this leak class cannot exist.
+  `gmViewedScene` (GM local roam) is what introduces per-client scene divergence: a room-wide
+  `MoveStream`/`ScenePing`/`Emote`/`ScrollingText`/`Vfx` broadcast now reaches connections that may be
+  viewing DIFFERENT scenes than the event targets. `WorldSession` closes it client-side by
+  dropping any frame whose `scene` doesn't equal `this.viewedSceneId` (`onMoveStream`/the
+  `scene_ping`/`emote`/`onScrollingText`/`onVfx` handlers,
   the `worldSession` module) — a GM roaming scene B must not animate/ping-render scene A's event, and
   vice versa. **Any future per-client "which scene am I looking at/subscribed to" feature must
   re-audit EVERY broadcast fan-out egress path for this same divergence class, not just the render
-  layer** — `MoveStream`/`ScenePing`/`Emote` are the three that carry the client-side scene filter; a new room-wide
-  broadcast type added later (chat, pings, future presence/cursor frames) inherits the same risk
-  the instant any client can view something other than the room's single shared `activeScene`.
+  layer** — `MoveStream`/`ScenePing`/`Emote`/`ScrollingText`/`Vfx` are the five that carry the
+  client-side scene filter; a new room-wide broadcast type added later (chat, future
+  presence/cursor frames) inherits the same risk the instant any client can view something other
+  than the room's single shared `activeScene`.
 
 ## Pointers
 
