@@ -766,7 +766,28 @@ runs engine-owned geometry (movement-collision, per-player vision); the client r
   `to_bytes`/`from_bytes` (persistence), cell-based. Lifecycle: `explored_fog` rows are purged on
   scene delete (`delete_document_tx`, both authoritative delete paths), world delete
   (`delete_world`, by the denormalized `world_id`), and user delete (`delete_user`) — rows do not
-  orphan on any of these paths. A FOURTH purge trigger is EXPLICIT rather than a side effect of
+  orphan on any of these paths.
+  **Which ROW a recipient's memory reads and writes is a per-scene mode**, `FogPooling`
+  (`Individual` by default, `Shared` pooled), resolved server-side through `SceneEcs::resolve_scene`
+  on the ordinary engine < system-defaults < world-settings < per-scene fold and captured by
+  `SceneEcs::scene_fog_pooling` under the SAME ECS read lock as the grid maps, so one evaluation can
+  never mix a stale mode with fresh geometry. `scene::explored::explored_fog_key` maps the mode to
+  either the recipient's own id or the reserved `Uuid::nil()` sentinel, and
+  `ws::conn::enrich_vision_explored` computes it ONCE per scene and uses it for both its read and its
+  write — a read/write key that could diverge would let a player write into a bucket nobody reads and
+  silently stop accumulating fog. Flipping the mode migrates and merges NOTHING in either direction:
+  per-user rows go dormant under `Shared` and resume under `Individual`, which is why the fallback
+  direction matters — an unresolved mode falls back to `Individual`, never to pooled.
+  **A sentinel-keyed row is invisible to any query that INNER JOINs the owner table.**
+  `SqliteRepository::export_world_rows` translates a fog row's owner into a portable username for the
+  world bundle, and the nil sentinel matches no `users` row, so an inner join drops every pooled
+  scene's memory from the bundle with no count and no warning. It LEFT JOINs and classifies from the
+  ID (`ExportedFogRow::pool` is `user_id == Uuid::nil()`), never from the username being absent —
+  those two cases are different, and treating an unresolvable orphan as the pool would merge a
+  deleted user's private fog into the bucket every player reads. The bundle also carries `level_id`,
+  which is part of this table's primary key: omitting it collides two levels of one scene onto one
+  row. Check both whenever you add a row this table keys by something other than a real user.
+  A FOURTH purge trigger is EXPLICIT rather than a side effect of
   removing something else: `SqliteRepository::reset_explored_fog`, reached through the GM-only
   `ClientMsg::ResetExploredFog` intent (`ws::conn::handle_reset_explored_fog`), deletes by scene
   plus an OPTIONAL level and an OPTIONAL user, each absent scope widening to "every" rather than
