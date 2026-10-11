@@ -253,24 +253,18 @@ is the form tests and doc examples use).
   for the production server with the observed source, 17.00 ms for `serve_router+full-router`, 16.93
   ms for `bare-64k`). New test-support sources must call the helper, not an inline socket-option
   call.
-- **Throughput numbers from `layers` and `h2_send_buf_gate` are NOT reconciled.** On the same
-  servers the ladder reads production (`serve_router+full-router`, and the gate's own production
-  server, the `serve_router+full-router+observed-source` rung, at +3.2 percent) about 3.1 percent
-  slower than `bare-64k` at 2 runtime workers, while the gate's records read the production server 4.9 to 6.2
-  percent slower than the bare 64 KiB server at 4 workers. Fresh-process runs reproduce the ladder
-  at 2 workers (+3.1 percent) and read about +5 percent at 4 workers, but on that host the 4-worker
-  absolute times are 2.4 times the gate's, so worker count is a candidate cause of the
-  production-cost difference, NOT an established one. The buffer-versus-default gap (gate 0.954 to
-  0.958, ladder 0.996) is reproduced by neither configuration and is unattributed; worker count is
-  not a candidate for it (the 4-worker fresh-process runs read the buffer effect with the
-  opposite sign). Treat any single `layers` or gate run as one sample; do not quote either as "the
-  cost of the stall machinery". A later back-to-back run (three gate processes and three
-  `layers 100 3 4` processes alternating, release, one host) did not reproduce the 12 ms regime
-  either: medians read 25.8 to 49.6 ms and both instruments read the 64 KiB buffer faster than the
-  default, so the gate's 0.954 to 0.958 records stay unreconciled.
+- **The ladder-versus-gate throughput difference is owner-ruled noise; no reconciliation is open.**
+  On the same servers the ladder (`layers`) reads production (`serve_router+full-router`, and the
+  gate's own production server, the `serve_router+full-router+observed-source` rung) about 3.1
+  percent slower than `bare-64k` at 2 runtime workers, while the gate's records read the production
+  server 4.9 to 6.2 percent slower than the bare 64 KiB server at 4 workers, and the gate's
+  buffer-ratio records read 0.954 to 0.958. The owner ruled the difference noise, so do not
+  reopen it or schedule a rerun. Treat any single `layers` or gate run as one sample; do not quote
+  either as "the cost of the stall machinery".
 - **The host can change regime within one process, which makes multi-run results unreliable.** One
   process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
-  while single-rung probes spaced minutes apart read 11.3 to 11.7 ms. Read the per-run RECORD lines
+  while single-rung probes spaced minutes apart read 11.3 to 11.7 ms; the cause is not diagnosed
+  and it is not a blocker. Read the per-run RECORD lines
   and discard a result whose runs straddle two regimes; a median hides the straddle.
 - **`h2_send_buf_gate` has no ratio assertion.** It records the buffer ratio and the production ratio per
   run and asserts only that every download delivers every byte. A release-only assertion that the buffer ratio is at least
@@ -279,7 +273,8 @@ is the form tests and doc examples use).
 - **A wall-clock bound is a derived bound or it is record-only.** The partial-tail end-to-end test
   (`egress_stall_h2`) runs at `PARTIAL_TAIL_WINDOW`, releases the reader at five eighths of the
   window and asserts its premises before the discriminating bound, so each side keeps a three
-  eighths-of-window margin; the refresh rule itself is pinned by injected-clock unit tests on
+  eighths-of-window margin, which `PARTIAL_TAIL_WINDOW` holds at or under 1 s (the owner-ruled ceiling on
+  any timing assertion's margin: timing tests run on the owner's local machine); the refresh rule itself is pinned by injected-clock unit tests on
   `StreamTable::scan`. The test reads the sampler period through `egress_tick` and asserts
   `EGRESS_TICKS_PER_WINDOW` is the count its margins assume.
 - **Debug-only vendor reproducer.** The slot-release assertion that motivates the connection-end
