@@ -114,13 +114,14 @@ optimistically and roll back on divergence.
     spawned task — which starts running strictly AFTER the 101 response is written — has run its
     first line. Its drop decrements the count and, on reaching zero, wakes every `wait_for_drain`
     waiter. This exists because axum's WebSocket-upgrade callback spawns as a task DETACHED from
-    the hyper connection future that produced the 101 handshake, so `axum::serve(..).
-    with_graceful_shutdown` resolves once ordinary HTTP connections drain and does NOT itself wait
-    for a live WebSocket session's task to exit. `WsState::
+    the hyper connection future that produced the 101 handshake, so `conn_serve::serve_router`'s
+    connection drain resolves once the connections end and does NOT itself wait for an HTTP/1.1
+    WebSocket session's task to exit (an HTTP/2 session is a stream, so `serve_router` first runs
+    `WsState::trigger_shutdown` as its `serve_router::on_drain` hook; see [[shadowcat-codebase-tls]]). `WsState::
     wait_for_drain(timeout)` is the race-free wait (constructs the notify future BEFORE
-    re-checking the count, the standard lost-wakeup-avoidance pattern) that `http::serve`
-    ([[shadowcat-codebase-server-ops]]) calls after `axum::serve(..).await` returns, bounded by
-    `http::SHUTDOWN_DRAIN_TIMEOUT`. `egress_loop` clones `WsState.shutdown` into its own
+    re-checking the count, the standard lost-wakeup-avoidance pattern) that `http::serve_with`
+    ([[shadowcat-codebase-server-ops]]) calls after `conn_serve::serve_router` returns, bounded by
+    `http::session_wait`. `egress_loop` clones `WsState.shutdown` into its own
     `EgressConnState.shutdown` and selects on `shutdown.changed()` as the FIRST arm of its biased
     select (see the FIFO-ordering invariant below for why it sits ahead of `egress_loop::erx` too)
     — on a real shutdown or a dropped sender it sends a Close frame and exits the loop, which is

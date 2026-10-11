@@ -28,17 +28,22 @@ and restore as a deployment-operator tool, not an in-app feature.
   directory when the db has no on-disk location — see `db::database_file` below). `Cli.backup_to`/
   `restore_from: Option<String>` and `Cli.force: bool` are CLI-ONLY triggers — never on `Config`,
   never read from TOML/env (a one-shot operation is not persistent server configuration).
-- `Config.behind_tls_proxy` (default `false`, CLI/env-settable, never inferred) declares a
-  TLS-terminating reverse proxy fronts `bind` on the same host, making an otherwise-loopback bind
-  internet-reachable. `Config::is_exposed()` is the ONE derived predicate every "is this deployment
-  exposed" security decision reads — `setup_token_policy`'s `"auto"` arm, `AppState::
-  resolve_setup_token`'s warning, and the session cookie's secure-attribute flag (`auth::session::
-  session_layer`, [[shadowcat-codebase-realtime-sync]])
-  all call `is_exposed()` rather than `is_loopback_bind()` directly, so those three cannot drift
-  out of agreement on this input (a dedicated anti-drift test asserts all three flip together).
-  The `Strict-Transport-Security` response header is a NARROWER decision that reads
-  `behind_tls_proxy` directly, never through `is_exposed()`: a plain non-loopback bind with no TLS
-  anywhere in the path is "exposed" by `is_exposed()` but must never receive HSTS.
+- `Config.behind_proxy` (default `false`, CLI/env-settable, never inferred) declares a reverse
+  proxy fronts `bind` on the same host, making an otherwise-loopback bind internet-reachable.
+  `Config::is_exposed()` is the ONE derived predicate every "is this deployment exposed"
+  security-POLICY decision reads — `setup_token_policy`'s `"auto"` arm and
+  `AppState::resolve_setup_token`'s warning call it rather than `is_loopback_bind()` directly, so
+  those cannot drift out of agreement on this input. **Whether a request arrived over HTTPS is a
+  different question, answered per request and only by `http::scheme::request_scheme`** (native TLS
+  via `ConnMeta`, or `X-Forwarded-Proto` from a peer listed in `Config.trusted_proxies`): the
+  session cookie's secure attribute (`auth::session::session_layer`,
+  [[shadowcat-codebase-realtime-sync]]) and the `Strict-Transport-Security` response header
+  (`http::scheme::hsts_max_age`, applied by `http::router`) both read it, never `is_exposed()` and
+  never the bind address. A plain-HTTP request, loopback or LAN, gets neither: a browser refuses to
+  store a secure-attribute cookie set from a non-secure, non-loopback origin, which would make LAN
+  login impossible, and ignores HSTS over plain HTTP. `Config::startup_warnings` warns when
+  `behind_proxy` is set with an empty `trusted_proxies` (every request would then read as plain
+  HTTP). See [[shadowcat-codebase-tls]] for the scheme decider.
 - `db::database_file(url: &str) -> Result<Option<PathBuf>, sqlx::Error>` is the ONE decider for
   which file on disk a `Config.db` connection string names — the sole function every sibling-
   directory resolver and one-shot backup/restore path is required to route through rather than
@@ -89,7 +94,7 @@ and restore as a deployment-operator tool, not an in-app feature.
   set-header layer (`X_FRAME_OPTIONS: DENY`, `X_CONTENT_TYPE_OPTIONS: nosniff`,
   `REFERRER_POLICY: same-origin`, unconditional on every route) plus a conditional
   `Strict-Transport-Security` layer (tower's optional-layer helper, only when
-  `Config.behind_tls_proxy`) — a Content-Security-Policy is deliberately NOT set here. Both sit
+  `scheme::hsts_max_age` returns a max-age) — a Content-Security-Policy is deliberately NOT set here. Both sit
   INSIDE the request-id/trace layers, which wrap them (not the reverse), so a request-id is
   stamped and the trace span opened before these headers run, and both still land on error
   responses, not just successful ones. The override mode unconditionally replaces any existing
@@ -101,24 +106,30 @@ and restore as a deployment-operator tool, not an in-app feature.
   `Some`, `anyhow::bail!` before `Config::load` even runs. The three fields are cloned OUT of
   `main::cli` before `Config::load(cli)` consumes it by value. Either flag alone short-circuits to
   `run_backup`/`run_restore` and `return Ok(())` — `SqliteRepository::connect` (the long-lived
-  pool) and `axum::serve` are structurally unreachable on that path, not just conditionally
+  pool) and `http::serve_with` are structurally unreachable on that path, not just conditionally
   skipped.
 - `serve(listener, state, shutdown_fut)` (`http::serve`) is the testable core of normal server
-  startup: wraps `axum::serve(..).with_graceful_shutdown(serve::shutdown_fut)` with a
-  POST-shutdown `WsState::wait_for_drain` call bounded by `http::SHUTDOWN_DRAIN_TIMEOUT` (5s) —
-  because axum's WebSocket-upgrade callback spawns as a task DETACHED from the hyper
-  connection future that produced the 101 handshake, `axum::serve`'s own graceful shutdown
-  resolves once ordinary HTTP connections drain and does NOT wait for a live WebSocket session's
-  task to exit; without the drain step, `main` could return (dropping the tokio runtime) while a
-  `ws::conn::egress_loop` task is still mid-`send` on its Close frame. See
+  startup; `http::serve_with` is the same with explicit `conn_serve::ConnLimits`. Both run
+  `conn_serve::serve_router` (NOT `axum::serve`: see [[shadowcat-codebase-tls]] for why the
+  serve loop is owned here) with `WsState::trigger_shutdown` as its `serve_router::on_drain` hook, which runs
+  once before the connection drain for both a shutdown request and a source that ended. After
+  `serve_router` returns, `serve_with` calls `WsState::wait_for_drain` bounded by `http::session_wait`
+  (what remains of the drain deadline, never under `http::SESSION_GRACE`) — because an HTTP/1.1
+  WebSocket-upgrade callback spawns as a task DETACHED from the hyper connection that produced the
+  101 handshake, so the connection drain does NOT wait for a live session's task to exit; without
+  the drain step, `main` could return (dropping the tokio runtime) while a `ws::conn::egress_loop`
+  task is still mid-`send` on its Close frame. A source that ended without a shutdown request makes
+  `serve_with` return an error so a supervisor restarts the process. See
   [[shadowcat-codebase-realtime-sync]] for the `WsState.live_connections`/`ConnectionGuard`/
   `wait_for_drain` mechanism this drains and for `egress_loop`'s own shutdown-select arm. `main`'s
-  `shutdown_signal(ws)` is the `serve::shutdown_fut` passed in: it resolves on Ctrl+C
+  `shutdown_signal()` is the `serve::shutdown_fut` passed in: it resolves on Ctrl+C
   (`tokio::signal::ctrl_c`) or, under a Unix build, SIGTERM (`tokio::signal::unix::SignalKind::
   terminate` — Windows has no SIGTERM, so the pending-forever future substituted there never
   resolves and the `select!` reduces to Ctrl+C alone with no extra conditional compilation at the
-  call site; macOS and Linux both take the real branch), then calls `WsState::trigger_shutdown()`
-  before returning.
+  call site; macOS and Linux both take the real branch). `main` builds the listener stack before
+  serving: `fd_budget::raise_and_fit` fits both connection caps to the descriptor budget, then
+  `tls::listener::SniffListener::new` wraps the bound `tokio::net::TcpListener` (see
+  [[shadowcat-codebase-tls]]).
 - `create_world` (`http::routes::create_world`) is throttled per-account via `AppState.
   auth_throttle` (the same sliding-window limiter the login/invite endpoints share), budget
   `state.config.world_create_per_min_per_account.unwrap_or(throttle::

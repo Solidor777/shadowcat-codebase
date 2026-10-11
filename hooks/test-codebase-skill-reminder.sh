@@ -155,4 +155,18 @@ check au10 "/srv/checkouts/shadowcat/src/modules/sheet-playlist/src/PlaylistShee
 check am1 "C:/Dev/Shadowcat/src/server/src/audio_monitor/server.rs" "shadowcat-codebase-server-ops"
 check am2 "C:/Dev/Shadowcat/src/modules/ducking/src/keySource.ts" "shadowcat-codebase-audio"
 
+# `tls` precedes `realtime-sync` (shared `http/` and `ws/` globs) and `server-ops` — absolute paths
+# per the real Edit/Write payload shape.
+check tl1 "C:/Dev/Shadowcat/src/server/src/http/conn_serve/egress/table.rs" "shadowcat-codebase-tls"
+check tl2 "/srv/checkouts/shadowcat/src/server/src/tls/listener.rs"         "shadowcat-codebase-tls"
+check tl3 "C:/Dev/Shadowcat/src/server/src/http/conn_serve.rs"              "shadowcat-codebase-tls"
+check tl4 "/srv/checkouts/shadowcat/src/server/src/ws/tunnel_gate.rs"       "shadowcat-codebase-tls"
+check tl5 "C:/Dev/Shadowcat/vendor/h2/src/server.rs"                        "shadowcat-codebase-tls"
+check tl6 "C:/Dev/Shadowcat/src/server/test-support/src/throughput.rs"      "shadowcat-codebase-tls"
+check tl7 "/srv/checkouts/shadowcat/src/server/src/fd_budget.rs"            "shadowcat-codebase-tls"
+check tl8 "C:/Dev/Shadowcat/src/server/src/http/peer_slots.rs"              "shadowcat-codebase-tls"
+# Neighbours of the `tls` globs stay with their own skills.
+check tl9 "C:/Dev/Shadowcat/src/server/src/ws/room.rs"                      "shadowcat-codebase-realtime-sync"
+check tl10 "C:/Dev/Shadowcat/src/server/src/http/routes.rs"                 "shadowcat-codebase-realtime-sync"
+
 echo "ALL HOOK TESTS PASS"
