@@ -237,6 +237,15 @@ pipeline-derived tags.
   file there gets a brand-new URL; every other embedded path (`index.html`, `popout.html`,
   favicons, the stably-named `runtime/*.js` import-map chunks) stays `no-cache` because its URL
   never changes when its content does.
+- **Every handler that opens an asset file to stream it to a client takes a
+  `StreamedFilePermits` permit (`acquire`) BEFORE the open and before any response header; an
+  exhausted pool is a 503 with `Retry-After` (`AppError::Unavailable`).** The two streaming paths
+  are `file_response::serve_file`'s GET arms (reached by `serve` and `mutate::original`, both
+  passing `AppState.file_permits`) and the `http::world_bundle::export_world` handler, which holds
+  its permit until its producing task ends. A HEAD with a version-derived validator opens nothing
+  and takes no permit; a new streaming handler takes one the same way.
+  `shadowcat-codebase-tls` owns the pool (its capacity, wait and the descriptor budget it is
+  derived from); this skill owns only the obligation on the handlers.
 - **`http::compression::AssetAndWsSafePredicate`** is the response predicate
   `http::router` installs globally on its compression layer — the tower-http default (excludes
   `image/*`, gRPC, SSE, bodies under 32 bytes) PLUS the Opus/WebM audio-derivative content types
