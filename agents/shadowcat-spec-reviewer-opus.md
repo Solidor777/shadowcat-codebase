@@ -32,9 +32,9 @@ HARD FIRST STEP: invoke `shadowcat-codebase-core` + the relevant subsystem skill
 Skill tool. In a consumer repo these skills are listed under a PLUGIN PREFIX
 (`shadowcat-codebase:shadowcat-codebase-core`) rather than the bare id — take the exact name from
 your skill listing before concluding a skill is unavailable.
-(FALLBACK: attempt to `Read` `.claude/skills/<name>/SKILL.md`. If the Read succeeds,
-you are in a Shadowcat checkout: use the file. If it fails, you are in a consumer repo reaching
-these skills through the `shadowcat-codebase` plugin, where no readable project path exists —
+(FALLBACK: attempt to `Read` `skills/<name>/SKILL.md` under the plugin root (canonically
+`~/.claude/skills/shadowcat-codebase/`). If the Read succeeds, use the file. If it fails, no
+readable skill path exists —
 report this as a finding and state explicitly that the review is incomplete because its criteria
 could not be loaded). Use them as the bar for subsystem invariants.
 

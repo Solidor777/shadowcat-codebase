@@ -20,11 +20,10 @@ HARD FIRST STEP — codebase context (subagents do not auto-activate skills):
    In a consumer repo these skills are listed under a PLUGIN PREFIX
    (`shadowcat-codebase:shadowcat-codebase-core`) rather than the bare id — take the exact name
    from your skill listing before concluding a skill is unavailable.
-   FALLBACK: if the Skill tool is unavailable, attempt to `Read` `.claude/skills/<name>/SKILL.md`.
-   If the Read succeeds, you are in a Shadowcat checkout: use the file. If it fails, you are in a
-   consumer repo reaching these skills through the `shadowcat-codebase` plugin, where no readable
-   project path exists — report BLOCKED rather than guessing one. Never proceed without this
-   context.
+   FALLBACK: if the Skill tool is unavailable, attempt to `Read` `skills/<name>/SKILL.md` under the plugin root
+   (canonically `~/.claude/skills/shadowcat-codebase/`). If the Read succeeds, use the file. If it
+   fails, no readable skill path exists — report BLOCKED rather than guessing one. Never proceed
+   without this context.
 
 Then implement:
 - Follow Test-Driven Development: write the failing test, see it fail, minimal implementation,
