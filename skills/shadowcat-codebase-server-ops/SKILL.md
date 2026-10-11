@@ -48,6 +48,9 @@ and restore as a deployment-operator tool, not an in-app feature.
   CLI (the `retired_behind_tls_proxy_*` tests) rather than being ignored. `Config::startup_warnings` warns when
   `behind_proxy` is set with an empty `trusted_proxies` (every request would then read as plain
   HTTP). See [[shadowcat-codebase-tls]] for the scheme decider and the two session cookies.
+- `Config.egress_window_secs` (`Config::egress_window` is its `Duration`; 1 to 3600 s, checked
+  against `EGRESS_WINDOW_SECS_MIN`/`EGRESS_WINDOW_SECS_MAX` at config resolution) is the one
+  no-progress window every stalled-peer bound uses; [[shadowcat-codebase-tls]] owns what it bounds.
 - `db::database_file(url: &str) -> Result<Option<PathBuf>, sqlx::Error>` is the ONE decider for
   which file on disk a `Config.db` connection string names — the sole function every sibling-
   directory resolver and one-shot backup/restore path is required to route through rather than

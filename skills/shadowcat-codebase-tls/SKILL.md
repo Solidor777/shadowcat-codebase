@@ -266,22 +266,33 @@ is the form tests and doc examples use).
   runtime workers, while the gate's records read the production server 4.9 to 6.2 percent slower
   than the bare 64 KiB server at 4 workers. The owner ruled THAT difference noise, so do not reopen
   it or schedule a rerun. The buffer ratio (the default-buffer download-time median divided by the
-  64 KiB median, so a value below 1 means the default buffer was faster) reads 0.954 to 0.958 in the
-  gate's three fast-regime records (per run) and 0.995 in the fast-regime ladder record (the
-  `bare-64k` rung against the default-buffer root, over five runs; the different rung
-  `bare-64k+full-router` prints 0.996); the
-  ruling does not reach this gap, which is unexplained. It has at least two uncontrolled factors:
-  worker count (`layers` defaults to `DEFAULT_WORKERS`, 2, and takes a worker argument; the gate
-  runs 4) and host regime (next entry), which alone moves the 2-worker `layers` reading from 0.995
-  in the fast regime to 1.102 to 1.252 across three slow-regime files (per file: the ratio of the
-  two rungs' medians over three run medians, with each file's first run reading fast). The
-  instruments also differ in downloads per run (the gate 100, the fast-regime ladder record 150). Equal-worker (4) `layers` readings exist only
-  from the slow regime, where run medians sit far above the roughly 11.6 ms a fast 2-worker run
-  reads: 1.210, 1.210 and 1.296 per file (1.020 to 1.412 across the nine runs), against 0.946 to
-  1.309 across the nine slow-regime gate runs (per run). No fast-regime equal-worker comparison
-  exists. Whether to measure it is the owner's decision. Treat any single `layers` or gate run as
-  one sample; do not quote either as
-  "the cost of the stall machinery".
+  64 KiB median, so a value below 1 means the default buffer was faster) differs between the two
+  instruments, and the ruling does not reach that gap, which is unexplained. Its readings:
+  - Gate, 4 workers, 100 downloads, fast regime: 0.954 to 0.958 per run (three runs).
+  - Ladder (`layers`), 2 workers, fast regime, 150 downloads, full ladder: 0.995 per file, over five
+    runs (per run 0.994 to 0.997), for the `bare-64k` rung against the default-buffer root; the
+    different rung `bare-64k+full-router` prints 0.996.
+  - Ladder, 2 workers, 100 downloads, three slow-regime subset records: 1.10 to 1.25 per file. Within
+    each file, run 1 reads 0.991 to 0.997 and runs 2 and 3 read 1.06 to 1.27, at identical workers,
+    downloads and rungs.
+  - Ladder, 4 workers, 100 downloads, slow regime: 1.21, 1.21 and 1.30 per file (1.020 to 1.412 per
+    run, nine runs). The gate in the same state reads 0.946 to 1.309 per run across nine runs.
+  - No fast-regime reading of the ladder at 4 workers exists; the gate gives the fast 4-worker
+    buffer ratio, 0.954 to 0.958.
+
+  The regimes are defined by the measured download medians. Fast: default-buffer medians of about
+  11.6 to 12.1 ms across the fast-regime ladder and gate records (about 11.6 ms at 2 workers).
+  Slow: 20.7 to 54.9 ms across all rungs of the 4-worker slow-regime ladder records, and 33.9 to
+  42.9 ms at 2 workers (runs 2 and 3 of the 2-worker subset records, whose run 1 is fast).
+
+  The uncontrolled factors behind the gap:
+  - Worker count: `layers` defaults to `DEFAULT_WORKERS` (2) and takes a worker argument; the gate
+    runs 4.
+  - Host regime (next entry), which moves the 2-worker `layers` reading from 0.995 to 1.10 to 1.25 per file.
+  - Downloads per run: the gate 100, the fast-regime ladder record 150.
+
+  Whether to measure the gap is the owner's decision. Treat any single `layers` or gate run as one
+  sample; do not quote either as "the cost of the stall machinery".
 - **The host can change regime within one process, which makes multi-run results unreliable.** One
   process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
   while single-rung probes spaced minutes apart read 11.3 to 11.7 ms; the cause is not diagnosed
