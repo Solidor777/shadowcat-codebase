@@ -168,7 +168,15 @@ check tl8 "C:/Dev/Shadowcat/src/server/src/http/peer_slots.rs"              "sha
 check tl11 "C:/Dev/Shadowcat/src/server/test-support/src/bin/egress_measure.rs" "shadowcat-codebase-tls"
 check tl12 "/srv/checkouts/shadowcat/src/server/tests/h2_ws_tunnel_memory.rs"  "shadowcat-codebase-tls"
 check tl13 "C:/Dev/Shadowcat/src/server/tests/graceful_shutdown.rs"            "shadowcat-codebase-tls"
+# `ws/bounded_sink` and `http/assets/permits` belong to `tls`; the `permits` entry sits before
+# `assets` (first match wins), so these two absolute-path cases fail if that order flips.
+check tl14 "C:/Dev/Shadowcat/src/server/src/ws/bounded_sink.rs"                       "shadowcat-codebase-tls"
+check tl15 "/srv/checkouts/shadowcat/src/server/src/ws/bounded_sink/tests.rs"         "shadowcat-codebase-tls"
+check tl16 "C:/Dev/Shadowcat/src/server/src/http/assets/permits.rs"                   "shadowcat-codebase-tls"
+check tl17 "/srv/checkouts/shadowcat/src/server/src/http/assets/permits/tests.rs"     "shadowcat-codebase-tls"
 # Neighbours of the `tls` globs stay with their own skills.
+check tl18 "C:/Dev/Shadowcat/src/server/src/http/assets/file_response.rs"             "shadowcat-codebase-assets"
+check tl19 "/srv/checkouts/shadowcat/src/server/src/auth/session.rs"                  "shadowcat-codebase-realtime-sync"
 check tl9 "C:/Dev/Shadowcat/src/server/src/ws/room.rs"                      "shadowcat-codebase-realtime-sync"
 check tl10 "C:/Dev/Shadowcat/src/server/src/http/routes.rs"                 "shadowcat-codebase-realtime-sync"
 

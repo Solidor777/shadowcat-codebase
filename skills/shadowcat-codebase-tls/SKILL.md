@@ -33,8 +33,10 @@ is the form tests and doc examples use).
   `CertResolver::update` is the hot-swap seam and is live: `TlsRuntime::maintenance_tick` reloads
   the operator PEM when its `tls::pem::PemStamp` changes (a failed reload keeps the previous
   certificate and records the error) and replaces the self-signed certificate when
-  `selfsigned::regen_reason` says so; `TlsRuntime::spawn_maintenance` runs it once a minute and
-  `main` calls it. An ACME task would use the same seam; `TlsSource::Acme` is status vocabulary
+  `selfsigned::regen_reason` says so. `main` calls `TlsRuntime::spawn_maintenance`, which runs the
+  tick once a minute; the PEM stamp is compared on every tick, while the self-signed expiry and SAN
+  re-check (`regen_reason`) runs only once `SELFSIGNED_CHECK_SECS` (24 hours) has elapsed since the
+  last one. An ACME task would use the same seam; `TlsSource::Acme` is status vocabulary
   only. Rationale: `docs/design/built-in-https.md` §2 (invariants) and §8 (listener).
 - `tls::keyfile` / `tls::selfsigned` / `tls::pem` — the certificate material. `keyfile::write_private`
   restricts the still-empty temporary file BEFORE any secret byte is written and returns the error
@@ -52,8 +54,8 @@ is the form tests and doc examples use).
   (`Plain` | `Tls`); its `ServeIo::is_h2` is true only when ALPN negotiated `h2`.
   `tls::listener::TcpAccept` is the raw-accept seam tests substitute.
 - `http::conn_serve::ConnLease` — a handler that detaches long-lived work takes it from the request
-  extensions (`ws::conn::ws_handler` does and moves it into the session task). It holds the
-  connection's live-cap slot and its h2 idle count, so `ConnLimits::max_live` counts a connection
+  extensions (`ws::conn::ws_handler` does and moves it into the session task). It keeps one
+  stream counted as in flight and the cap slot held, so `ConnLimits::max_live` counts a connection
   until the connection task AND every lease have ended. It is absent when the router is not served
   through `serve_router`.
 - `http::conn_serve::ConnSource` / `ServeIo` — the source/IO traits `serve_router` is generic over.
@@ -106,8 +108,10 @@ is the form tests and doc examples use).
   `ws::tunnel_gate::TunnelGate` and that in `ws::bounded_sink::BoundedSink`, whose per-send stall
   bound is `Config::egress_window`. Once shutdown is signalled a pending send gets at most
   `CLOSE_SEND_TIMEOUT`, and `http::SESSION_GRACE` is `CLOSE_SEND_TIMEOUT` plus one second.
-- `fd_budget::STREAMED_FILE_PERMITS` sizes the semaphore `http::assets::permits::StreamedFilePermits::production` creates; the asset file-serve paths (`acquire`) take a permit before opening the file,
-  and an exhausted pool answers 503 with `Retry-After` before any header is written. The same
+- `fd_budget::STREAMED_FILE_PERMITS` sizes the semaphore `http::assets::permits::StreamedFilePermits::production` creates; the asset file-serve paths and the world-bundle export
+  (`http::world_bundle::export_world`) take a permit (`acquire`) before opening a file, waiting up
+  to `PERMIT_WAIT` (2 seconds) for one; a pool still exhausted after the wait answers 503 with
+  `Retry-After` before any header is written. The same
   constant is subtracted in `descriptors_reserved`.
 - The egress units (all under `http::conn_serve`, driven from `drive`'s sampler tick):
   - connection unit — `WriteCounter` sits in the connection IO and feeds `Egress`; `Sampler` cuts a
@@ -152,11 +156,12 @@ is the form tests and doc examples use).
 - Measurement harness (`shadowcat-test-support`): `throughput::BareApp` (variants `Chunks`,
   `OneBuffer`, `Router`; build the single-buffer one with `BareApp::one_buffer`, which owns its
   `BODY_BYTES` buffer so the other variants allocate none), `bare_server`, `served`, `download`;
-  `throughput::Rung` (`name`, `baseline`, `addr`; `Rung::over` names the rung it is compared with)
-  and `baseline_index` (panics on an unknown or non-preceding baseline); `parse_worker_count` /
-  `DEFAULT_WORKERS`; `select_rungs`. The ladder is `throughput::ladder`, a list of lazy
+  `throughput::Rung` (`name`, `baseline`, `addr`; `baseline` names the rung it is compared with)
+  and `baseline_index` (the lookup of that rung in a built ladder); `parse_worker_count` /
+  `DEFAULT_WORKERS`. The ladder is `throughput::ladder`, a list of lazy
   `RungSpec`s (name, baseline, async constructor returning a `RungServer`); `build_ladder`
-  validates the selection against the ladder before any constructor runs and starts only the
+  validates before any constructor runs that every declared baseline names an EARLIER rung and
+  that every selected name is a rung (a violation panics with a message naming it), then starts only the
   selected rungs, so an unselected rung allocates and binds nothing. The `egress_measure` binary's signature is
   `layers [downloads [runs [workers [rungs]]]]` (its other subcommands are
   `grid`, `mixed-serial`, `h1-progress` and `socket-grants`): `workers` sets the runtime's worker count,
@@ -253,14 +258,21 @@ is the form tests and doc examples use).
   for the production server with the observed source, 17.00 ms for `serve_router+full-router`, 16.93
   ms for `bare-64k`). New test-support sources must call the helper, not an inline socket-option
   call.
-- **The ladder-versus-gate throughput difference is owner-ruled noise; no reconciliation is open.**
-  On the same servers the ladder (`layers`) reads production (`serve_router+full-router`, and the
-  gate's own production server, the `serve_router+full-router+observed-source` rung) about 3.1
-  percent slower than `bare-64k` at 2 runtime workers, while the gate's records read the production
-  server 4.9 to 6.2 percent slower than the bare 64 KiB server at 4 workers, and the gate's
-  buffer-ratio records read 0.954 to 0.958. The owner ruled the difference noise, so do not
-  reopen it or schedule a rerun. Treat any single `layers` or gate run as one sample; do not quote
-  either as "the cost of the stall machinery".
+- **The ladder-versus-gate PRODUCTION-PATH throughput difference is owner-ruled noise; the
+  buffer-ratio gap is not covered by that ruling.** On the same servers the ladder (`layers`) reads
+  production (`serve_router+full-router`, and the gate's own production server, the
+  `serve_router+full-router+observed-source` rung) about 3.1 percent slower than `bare-64k` at 2
+  runtime workers, while the gate's records read the production server 4.9 to 6.2 percent slower
+  than the bare 64 KiB server at 4 workers. The owner ruled THAT difference noise, so do not reopen
+  it or schedule a rerun. The buffer ratio (bare hyper at the default send buffer over bare hyper
+  at 64 KiB) reads 0.954 to 0.958 in the gate's three records and 0.995 in the ladder
+  (the `bare-64k` rung against the default-buffer root); the ruling does not reach this gap, which is
+  unexplained. The two instruments differ in worker count (`layers` defaults to `DEFAULT_WORKERS`,
+  2, and takes a worker argument; the gate runs 4), a confound that has not been removed, and the
+  gap has not been measured on this host at equal workers: in its slow regime the gate's
+  buffer-ratio readings spread 0.946 to 1.309 across nine runs. Whether to measure it is the
+  owner's decision. Treat any single `layers` or gate run as one sample; do not quote either as
+  "the cost of the stall machinery".
 - **The host can change regime within one process, which makes multi-run results unreliable.** One
   process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
   while single-rung probes spaced minutes apart read 11.3 to 11.7 ms; the cause is not diagnosed

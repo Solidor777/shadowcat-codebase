@@ -296,7 +296,7 @@ source of truth. The ones agents break most:
   the SYMBOL (RULE 15) and points inward, so closing it cannot rot a comment.
   Stronger than RULE 15 and wins where they touch: RULE 15 says how to cite, this says what may be
   referred to at all. Ordinary Markdown docs and `.superpowers/` artifacts remain exempt — they may
-  cite documents by path + section anchor. **This skill family (`.claude/skills/**/*.md`) is now
+  cite documents by path + section anchor. **This skill family (the plugin checkout's `skills/**/*.md`) is now
   IN SCOPE for a narrower subset** (owner ruling): a skill may still cite a durable document by
   path + section anchor, but may not carry a milestone/task id (`M13-0`, `M10e-4`), a phase/  <!-- EXAMPLE: RULE 16 specimen -->
   workstream/invariant id (`D9`, `D16`), a sweep/round/review marker (`sweep 12`, `fix-round`,  <!-- EXAMPLE: RULE 16 specimen -->
@@ -618,7 +618,7 @@ When adding one:
    and keep it orientation+index: point INTO graphify, `docs/design/`, and memory; never duplicate
    them. Cite each invariant's memory slug or design-doc section.
 2. Add it to the **Subsystem skills** list above, and add its path globs to the activation hook
-   (`.claude/hooks/codebase-skill-reminder.py` `SUBSYSTEMS` map). Every hook entry is an
+   (the plugin checkout's `hooks/codebase-skill-reminder.py`, its `SUBSYSTEMS` map). Every hook entry is an
    UNANCHORED substring match, because the Edit/Write payload's `file_path` is always absolute; a
    `^`-anchored pattern is inert while still passing repo-relative test fixtures. Pair each new
    entry with at least one absolute-path assertion in the hook's self-test.
@@ -627,40 +627,12 @@ When adding one:
 
 ### Keeping the plugin current
 
-Shadowcat's `.claude/` directory is also a Claude Code plugin source (`.claude-plugin/
-marketplace.json` at the Shadowcat repo root points at `./.claude`; `.claude/.claude-plugin/
-plugin.json` names and versions the plugin). A consuming repo reaches these skills, agents and
-the routing hook through that plugin rather than through a second copy.
-
-**A directory-sourced plugin is COPIED into the consumer's plugin cache rather than read live.**
-Structurally verified, not yet empirically confirmed: an install lands under
-`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` as real copied files, and every
-directory-sourced entry observed so far records a `lastUpdated` equal to its `installedAt`. The
-consequence still awaiting confirmation is the one that matters — that editing a skill, an agent
-body, or the hook in the Shadowcat engine repo reaches nobody else until the plugin is refreshed,
-because the consumer keeps serving the snapshot it installed and the two disagree with no error
-anywhere. The confirming test: edit one line of a skill here, then diff the copy under that cache
-path. Until it runs, work as if the snapshot semantics hold — the cheap assumption is the safe
-one, since assuming a live read is what ships stale skills silently.
-
-So the skill-update gate has a third obligation alongside updating the skill and getting the diff
-reviewed: **bump the `version` key in `.claude/.claude-plugin/plugin.json`** — that file's
-`version`, NOT `marketplace.json`'s `metadata.version`, which versions the marketplace listing and
-does not identify a cached plugin copy — **then refresh the plugin in each consuming repo**, from a
-shell run inside that repo: `claude plugin marketplace update shadowcat`, then
-`claude plugin update shadowcat-codebase@shadowcat --scope project` (a restart applies it). The
-version bump is what makes the staleness detectable — an unversioned plugin caches under a single
-unchanging placeholder version, where a refreshed copy and a stale one are indistinguishable.
-
-**The update subcommand needs the FULLY-QUALIFIED name and the scope, or it fails.** Bare
-`claude plugin update shadowcat-codebase` reports `Plugin "shadowcat-codebase" not found` at both
-user and project scope, even while `claude plugin list` displays that plugin as installed and
-enabled — the failure names the plugin rather than the resolution, so it reads as "not installed"
-when the install is fine. Verified against a consumer that had drifted to a version predating the
-skills it was serving; the qualified form updated it in one call. `claude plugin list` is the check
-that settles which version a consumer actually holds — the cache directory under
-`~/.claude/plugins/cache/` names its versions too, and a directory holding only an old version is
-proof the refresh never landed.
+This skill family is the standalone `shadowcat-codebase` plugin repository, checked out at
+`~/.claude/skills/shadowcat-codebase/` and addressed as `shadowcat-codebase@skills-dir`. A
+`skills-dir` plugin is read live from the checkout: an edit there is visible in the next session,
+with no version bump, marketplace refresh or `claude plugin update` step. Shadowcat's own `.claude/`
+directory holds repo settings and hooks, not this plugin. Skill edits are committed and pushed from
+inside the checkout, whose git history is separate from Shadowcat's.
 
 Consumers also see these skills under a plugin prefix (`shadowcat-codebase:shadowcat-codebase-core`)
 rather than the bare id. Take the exact name from the skill listing.

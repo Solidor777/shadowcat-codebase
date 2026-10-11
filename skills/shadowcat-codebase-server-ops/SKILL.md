@@ -175,7 +175,8 @@ and restore as a deployment-operator tool, not an in-app feature.
   is the same origin-allowlist + `hello`/`levels`/`watch` frame-serialization loop factored out
   behind an injected `SessionMonitor`, so it is testable against a scripted `FakeMonitor`
   (`#[cfg(test)]`-only, never compiled into the release binary) without a real OS audio API on
-  the test runner.
+  the test runner. Its server runs `axum::serve` over `http::conn_serve::NodelayListener` (see
+  `shadowcat-codebase-tls`).
   - **`linux.rs`'s `CaptureStream { _listener, stream }` field order is load-bearing**: with no
     explicit Drop impl of its own, Rust drops struct fields in DECLARATION order, and the
     pipewire crate's stream listener handle must tear down (unregister the `process` callback
