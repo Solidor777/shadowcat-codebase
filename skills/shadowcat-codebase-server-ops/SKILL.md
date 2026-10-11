@@ -34,16 +34,20 @@ and restore as a deployment-operator tool, not an in-app feature.
   security-POLICY decision reads — `setup_token_policy`'s `"auto"` arm and
   `AppState::resolve_setup_token`'s warning call it rather than `is_loopback_bind()` directly, so
   those cannot drift out of agreement on this input. **Whether a request arrived over HTTPS is a
-  different question, answered per request and only by `http::scheme::request_scheme`** (native TLS
+  different question, answered per request and only by `http::scheme::classify`** (native TLS
   via `ConnMeta`, or `X-Forwarded-Proto` from a peer listed in `Config.trusted_proxies`): the
-  session cookie's secure attribute (`auth::session::session_layer`,
-  [[shadowcat-codebase-realtime-sync]]) and the `Strict-Transport-Security` response header
-  (`http::scheme::hsts_max_age`, applied by `http::router`) both read it, never `is_exposed()` and
-  never the bind address. A plain-HTTP request, loopback or LAN, gets neither: a browser refuses to
-  store a secure-attribute cookie set from a non-secure, non-loopback origin, which would make LAN
-  login impossible, and ignores HSTS over plain HTTP. `Config::startup_warnings` warns when
+  session cookie flavour (`auth::session::SchemeSessionLayer` dispatches on `request_scheme`, which
+  reads `classify`) and the `Strict-Transport-Security` response header (`http::scheme::hsts_max_age`,
+  which reads `classify` too, applied by `http::router`) both follow it, never `is_exposed()` and
+  never the bind address. HSTS is opt-in: nothing is sent unless `Config.hsts_max_age_secs` is
+  `Some`, and then only for a trusted-proxy HTTPS request or a native TLS connection on the primary
+  certificate. A plain-HTTP request, loopback or LAN, gets neither a secure cookie nor HSTS: a
+  browser refuses to store a secure-attribute cookie set from a non-secure, non-loopback origin,
+  which would make LAN login impossible, and ignores HSTS over plain HTTP. The retired
+  pre-`behind_proxy` key (`RETIRED_BEHIND_TLS_PROXY_KEY`) fails boot from the environment, TOML and the
+  CLI (the `retired_behind_tls_proxy_*` tests) rather than being ignored. `Config::startup_warnings` warns when
   `behind_proxy` is set with an empty `trusted_proxies` (every request would then read as plain
-  HTTP). See [[shadowcat-codebase-tls]] for the scheme decider.
+  HTTP). See [[shadowcat-codebase-tls]] for the scheme decider and the two session cookies.
 - `db::database_file(url: &str) -> Result<Option<PathBuf>, sqlx::Error>` is the ONE decider for
   which file on disk a `Config.db` connection string names — the sole function every sibling-
   directory resolver and one-shot backup/restore path is required to route through rather than
@@ -93,8 +97,9 @@ and restore as a deployment-operator tool, not an in-app feature.
 - `http::router` installs a global response-header layer via tower-http's overriding
   set-header layer (`X_FRAME_OPTIONS: DENY`, `X_CONTENT_TYPE_OPTIONS: nosniff`,
   `REFERRER_POLICY: same-origin`, unconditional on every route) plus a conditional
-  `Strict-Transport-Security` layer (tower's optional-layer helper, only when
-  `scheme::hsts_max_age` returns a max-age) — a Content-Security-Policy is deliberately NOT set here. Both sit
+  `Strict-Transport-Security` header, set by a per-request middleware closure
+  (`router::hsts_header`) that calls `scheme::hsts_max_age(req.extensions(), req.headers(), &config)` and
+  inserts the header when it returns `Some` — a Content-Security-Policy is deliberately NOT set here. Both sit
   INSIDE the request-id/trace layers, which wrap them (not the reverse), so a request-id is
   stamped and the trace span opened before these headers run, and both still land on error
   responses, not just successful ones. The override mode unconditionally replaces any existing

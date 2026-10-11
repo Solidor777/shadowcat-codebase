@@ -165,6 +165,9 @@ check tl5 "C:/Dev/Shadowcat/vendor/h2/src/server.rs"                        "sha
 check tl6 "C:/Dev/Shadowcat/src/server/test-support/src/throughput.rs"      "shadowcat-codebase-tls"
 check tl7 "/srv/checkouts/shadowcat/src/server/src/fd_budget.rs"            "shadowcat-codebase-tls"
 check tl8 "C:/Dev/Shadowcat/src/server/src/http/peer_slots.rs"              "shadowcat-codebase-tls"
+check tl11 "C:/Dev/Shadowcat/src/server/test-support/src/bin/egress_measure.rs" "shadowcat-codebase-tls"
+check tl12 "/srv/checkouts/shadowcat/src/server/tests/h2_ws_tunnel_memory.rs"  "shadowcat-codebase-tls"
+check tl13 "C:/Dev/Shadowcat/src/server/tests/graceful_shutdown.rs"            "shadowcat-codebase-tls"
 # Neighbours of the `tls` globs stay with their own skills.
 check tl9 "C:/Dev/Shadowcat/src/server/src/ws/room.rs"                      "shadowcat-codebase-realtime-sync"
 check tl10 "C:/Dev/Shadowcat/src/server/src/http/routes.rs"                 "shadowcat-codebase-realtime-sync"
