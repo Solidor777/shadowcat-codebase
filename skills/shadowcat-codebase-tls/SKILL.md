@@ -60,12 +60,15 @@ is the form tests and doc examples use).
   `impl ConnSource for TcpListener` is the bare-listener source `http::serve` accepts in doc
   examples and tests. `accept_error_pause` is the one accept-error policy.
 - `http::conn_serve::set_accepted_nodelay` — decides what the server configures on an accepted TCP
-  socket (the TCP no-delay option), called by `impl ConnSource for TcpListener` and by `SniffListener`'s
-  acceptor task. The test-support sources that model the listener (`ObservedSource`, `H2cSource`)
-  call it when their `nodelay` flag is on. `bare_server` in the throughput harness sets the option
+  socket (the TCP no-delay option), called by `impl ConnSource for TcpListener`, by `SniffListener`'s
+  acceptor task and by `NodelayListener` (the `axum::serve` listener the audio-monitor server uses:
+  axum's tap-IO listener hook passes only the stream, no peer address, so the helper cannot be called from it). The
+  test-support sources that model the listener (`ObservedSource`, `H2cSource`) call it when their
+  `nodelay` flag is on. `bare_server` in the throughput harness sets the option
   directly on purpose: it is the bare-hyper control, not production code. The obligation is stated
-  in `ConnSource::accept`'s contract: a source that hands out a plain TCP socket configures it
-  through this function.
+  in `ConnSource::accept`'s contract: a production source that hands out a plain TCP socket, and
+  a source that models the listener's throughput path, configure it through this function; a
+  source that only carries test traffic needs no socket policy.
 - `http::conn_serve::serve_router` + `ConnLimits` / `ServeOutcome` / `ServeEnd` / `DrainReport` /
   `StallCuts` — the loop, its bounds and its closing report. `ConnLimits::for_config` is the
   derivation `http::serve` uses (it sets `egress_window` from `Config::egress_window`). Drain
@@ -151,7 +154,10 @@ is the form tests and doc examples use).
   `BODY_BYTES` buffer so the other variants allocate none), `bare_server`, `served`, `download`;
   `throughput::Rung` (`name`, `baseline`, `addr`; `Rung::over` names the rung it is compared with)
   and `baseline_index` (panics on an unknown or non-preceding baseline); `parse_worker_count` /
-  `DEFAULT_WORKERS`; `select_rungs`. The `egress_measure` binary's signature is
+  `DEFAULT_WORKERS`; `select_rungs`. The ladder is `throughput::ladder`, a list of lazy
+  `RungSpec`s (name, baseline, async constructor returning a `RungServer`); `build_ladder`
+  validates the selection against the ladder before any constructor runs and starts only the
+  selected rungs, so an unselected rung allocates and binds nothing. The `egress_measure` binary's signature is
   `layers [downloads [runs [workers [rungs]]]]` (its other subcommands are
   `grid`, `mixed-serial`, `h1-progress` and `socket-grants`): `workers` sets the runtime's worker count,
   the last argument is a comma-separated rung subset (a rung whose baseline is unlisted is compared with its
@@ -179,8 +185,9 @@ is the form tests and doc examples use).
   by `Config::is_cap_exempt` in the acceptor task, and travels with the connection so the live caps
   apply the identical rule. `ConnMeta::plain` and `ConnMeta::tls` default it to `false`; only
   `SniffListener`'s acceptor sets it, so a new `ConnSource` must set it too.
-- **The accepted-socket option is decided once, in `set_accepted_nodelay`.** Every production accept
-  path calls it; a new `ConnSource` that yields a plain TCP socket must too (and must set
+- **The accepted-socket option is decided once, in `set_accepted_nodelay`.** Its callers are
+  `impl ConnSource for TcpListener`, `SniffListener`'s acceptor task and `NodelayListener`; a new
+  production accept path that yields a plain TCP socket must call it too (and must set
   `ConnMeta::cap_exempt`, below). Measured effect (Windows
   loopback, release build, 24 MiB over HTTP/2 against a bare hyper server with a 64 KiB send buffer,
   `egress_measure layers 150 5`, rungs `bare-64k` and `bare-64k-no-nodelay`, median of five run
@@ -213,8 +220,10 @@ is the form tests and doc examples use).
   would outgrow it cuts the connection and counts `StallCuts::tracker_overflow`; the lag test floods
   minimum frames after a full-size frame header and asserts the premises (read size, frame size)
   before the peak.
-- **`ConnLimits::egress_window` must give a nonzero sampler period.** `egress_tick` is a quarter of
-  the window, so a window under four nanoseconds makes `serve_router` panic (the configuration
+- **`ConnLimits::egress_window` must give a nonzero sampler period.** `egress_tick` is the window
+  divided by `EGRESS_TICKS_PER_WINDOW` (the one definition; tests read the period through
+  `egress_tick`, never a copy of the quotient), so a window under that many nanoseconds makes
+  `serve_router` panic (the configuration
   admits 1 to 3600 s). `Sampler` keeps `window / tick + 1` timestamped samples; its span is read
   from timestamps so a bunched runtime cannot fire early; exactly `floor` bytes is progress.
 - **Both connection caps derive from one descriptor budget** (`fd_budget` invariants): the budget is
@@ -255,7 +264,10 @@ is the form tests and doc examples use).
   0.958, ladder 0.996) is reproduced by neither configuration and is unattributed; worker count is
   not a candidate for it (the 4-worker fresh-process runs read the buffer effect with the
   opposite sign). Treat any single `layers` or gate run as one sample; do not quote either as "the
-  cost of the stall machinery".
+  cost of the stall machinery". A later back-to-back run (three gate processes and three
+  `layers 100 3 4` processes alternating, release, one host) did not reproduce the 12 ms regime
+  either: medians read 25.8 to 49.6 ms and both instruments read the 64 KiB buffer faster than the
+  default, so the gate's 0.954 to 0.958 records stay unreconciled.
 - **The host can change regime within one process, which makes multi-run results unreliable.** One
   process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
   while single-rung probes spaced minutes apart read 11.3 to 11.7 ms. Read the per-run RECORD lines
@@ -268,8 +280,8 @@ is the form tests and doc examples use).
   (`egress_stall_h2`) runs at `PARTIAL_TAIL_WINDOW`, releases the reader at five eighths of the
   window and asserts its premises before the discriminating bound, so each side keeps a three
   eighths-of-window margin; the refresh rule itself is pinned by injected-clock unit tests on
-  `StreamTable::scan`. The test restates the sampler's quarter-window period (a named coupling to
-  the private `egress_tick`).
+  `StreamTable::scan`. The test reads the sampler period through `egress_tick` and asserts
+  `EGRESS_TICKS_PER_WINDOW` is the count its margins assume.
 - **Debug-only vendor reproducer.** The slot-release assertion that motivates the connection-end
   arms exists only in debug builds, so its reproducer proves nothing in a release build.
 - **The vendored read-pause stores no waker.** A caller that polls the vendored h2 connection

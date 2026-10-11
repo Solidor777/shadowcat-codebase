@@ -190,6 +190,17 @@ source of truth. The ones agents break most:
   to an existing file" precondition. Production delete call sites (e.g. `backup`, `data::asset`,
   `data::sqlite::export_import`, `world_bundle`, `http::assets`, `http::routes`,
   `http::world_bundle`) are untouched by this convention — it governs test fixtures only.
+- **A Rust `mod` item never carries an outer doc; the module is documented by the `//!` block
+  inside its own file (or inside the braces of an inline `mod x { }`).** Rustdoc merges an outer
+  `///` on the declaration with the module's inner docs and resolves the merged text in the PARENT's
+  scope, so a relative intra-doc link that is correct inside the module (a bare link naming a child
+  module) fails with "no item named … in scope" once the declaration also carries an outer doc, and
+  the module ends up documented in two places that can disagree. The first `//!` paragraph is the
+  one-sentence summary the parent's module index shows. `pnpm lint:module-docs` (the `scanModuleDocs`
+  scan, run by `runGate`) fails any `mod` item with `///`, `/** */` or `#[doc]` attached, file-backed
+  or inline, in `src/**/*.rs`; it is in `scripts/gates.toml`'s commit tier and CI-wired. A `cargo
+  doc` run does not see `#[cfg(test)]` or other-OS modules, so the scan, not rustdoc, is what covers
+  those declarations.
 - **NEVER work around a rule — follow its INTENT; if unsure, ASK (user directive).**
   Verbatim: *"we do not try to work around rules, ever. we accept the intent of the rule and follow
   it. if we are unsure of the intent, ask the user."* Reworking text or code until a rule stops
