@@ -444,7 +444,7 @@ source of truth. The ones agents break most:
 - **`.claude/CLAUDE.md` is TRACKED and shared** — edits there reach other contributors and the
   open-source repo. `.gitignore`'s `/CLAUDE.md` rule is root-anchored and matches no file (no
   root-level `CLAUDE.md` exists); the genuinely-ignored entries under `.claude/` are
-  `settings.json`, `settings.local.json`, `skills/graphify/`, and `kimi.plugin.json`.
+  `settings.local.json`, `skills/graphify/`, and `kimi.plugin.json`; `settings.json` is tracked.
   `docs/design/ARCHITECTURE.md` §2 remains the invariant source of truth, but not
   because `CLAUDE.md` is unshared.
   [[claude-md-is-git-ignored]]
@@ -632,7 +632,10 @@ This skill family is the standalone `shadowcat-codebase` plugin repository, chec
 `skills-dir` plugin is read live from the checkout: an edit there is visible in the next session,
 with no version bump, marketplace refresh or `claude plugin update` step. Shadowcat's own `.claude/`
 directory holds repo settings and hooks, not this plugin. Skill edits are committed and pushed from
-inside the checkout, whose git history is separate from Shadowcat's.
+inside the checkout, whose git history is separate from Shadowcat's. The plugin is disabled by
+default and each repo enables it for itself with
+`claude plugin enable shadowcat-codebase@skills-dir --scope local`; a consumer updates the skills
+by running `git pull` in the checkout.
 
 Consumers also see these skills under a plugin prefix (`shadowcat-codebase:shadowcat-codebase-core`)
 rather than the bare id. Take the exact name from the skill listing.

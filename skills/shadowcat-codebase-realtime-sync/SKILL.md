@@ -197,7 +197,9 @@ optimistically and roll back on divergence.
   survives a while post-expiry for audit/support lookup before GC actually removes it; same timer
   as session sweep, no dedicated invite timer),
   `SessionUser`/`AuthUser`/`AdminUser`; `auth::password`, `auth::role`. `SchemeSessionLayer` and
-  the cookie names (`SESSION_COOKIE_PLAIN`, `SESSION_COOKIE_TLS`) are in `shadowcat-codebase-tls`.
+  the cookie names (`SESSION_COOKIE_PLAIN`, `SESSION_COOKIE_TLS`) are in `shadowcat-codebase-tls`,
+  as are `WsState::bounded_sink` / `BoundedSink` (the session sink) and the `Config::egress_window`
+  bound.
 - `http::throttle` — `AuthThrottle` (`check(key, now_ms, per_min) ->
   bool`, sliding 60s window, `Mutex<HashMap<String, Vec<i64>>>`), shared by the two
   Argon2-verifying endpoints (`/api/login`, `POST /api/invites/accept`). **INVARIANT (no

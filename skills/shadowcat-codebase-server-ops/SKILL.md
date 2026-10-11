@@ -291,8 +291,10 @@ and restore as a deployment-operator tool, not an in-app feature.
   `apply_intent` call, so nothing else in the insert loop would otherwise catch this.
   `http::world_bundle::export_world`/`import_world` are the two routes, both server-admin-only
   (`AdminUser`) and both participating in `AppState.write_barrier` alongside `assets`
-  `upload`/`replace` and `POST /api/admin/backup`: `export_world` holds the read side across its
-  row read + `write_bundle`'s chunk-production phase, `import_world` holds it across the upload +
+  `upload`/`replace` and `POST /api/admin/backup`: `export_world` takes one
+  `StreamedFilePermits` permit before any header (`shadowcat-codebase-tls` owns the pool) and holds
+  it, with the read side, across its row read + `write_bundle`'s chunk-production phase,
+  `import_world` holds the read side across the upload +
   extraction + `SqliteRepository::import_world`'s asset-finalization rename step — so neither can
   interleave with a concurrent in-server backup snapshot.
 

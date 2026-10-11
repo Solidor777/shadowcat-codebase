@@ -21,9 +21,9 @@ HARD FIRST STEP — codebase context (subagents do not auto-activate skills):
    (`shadowcat-codebase:shadowcat-codebase-core`) rather than the bare id — take the exact name
    from your skill listing before concluding a skill is unavailable.
    FALLBACK: if the Skill tool is unavailable, attempt to `Read` `skills/<name>/SKILL.md` under the plugin root
-   (canonically `~/.claude/skills/shadowcat-codebase/`). If the Read succeeds, use the file. If it
-   fails, no readable skill path exists — report BLOCKED rather than guessing one. Never proceed
-   without this context.
+   (canonically `<home>/.claude/skills/shadowcat-codebase/`; expand the home directory to an
+   absolute path). If the Read succeeds, use the file. If it fails, no readable skill path
+   exists — report BLOCKED rather than guessing one. Never proceed without this context.
 
 Then implement:
 - Follow Test-Driven Development: write the failing test, see it fail, minimal implementation,

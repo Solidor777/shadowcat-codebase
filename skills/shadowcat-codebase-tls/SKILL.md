@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-tls
-description: "Use when touching Shadowcat's connection lifecycle from accept to drain: built-in HTTPS (`tls::TlsRuntime` degradation ladder, `tls::resolver` SNI/ALPN selection, `tls::selfsigned`, `tls::pem`, `tls::keyfile`), the sniffing accept path (`tls::listener::SniffListener`, `http::conn_serve::set_accepted_nodelay`), the serve loop that replaces `axum::serve` (`http::conn_serve::serve_router`, `ConnSource`/`ServeIo`, `ConnLimits`, `DrainReport`, `ServeOutcome`), the admission/live caps and descriptor budget (`http::peer_slots`, `fd_budget`), the per-request scheme decider (`http::scheme`), the three egress no-progress units and their wire-fed stream table (`StreamExec`, `Sampler`, `FrameParser`, `StreamTable`, `LeasedBody`, `TunnelProbe`, `ws::tunnel_gate::TunnelGate`), the patched `vendor/h2` and its `lint:vendor` gate, or the measurement harness that exercises them (`shadowcat-test-support`'s `throughput`/`egress`/`observed`/`h2c` modules, the `egress_measure` binary, `h2_send_buf_gate`). Covers src/server/src/{tls,fd_budget.rs,http/{conn_serve*,peer_slots*,scheme*},ws/tunnel_gate.rs}, vendor/h2, scripts/check-vendor.mjs. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat's connection lifecycle from accept to drain: built-in HTTPS (`tls::TlsRuntime` degradation ladder, `tls::resolver` SNI/ALPN selection, `tls::selfsigned`, `tls::pem`, `tls::keyfile`), the sniffing accept path (`tls::listener::SniffListener`, `http::conn_serve::set_accepted_nodelay`), the serve loop that replaces `axum::serve` (`http::conn_serve::serve_router`, `ConnSource`/`ServeIo`, `ConnLimits`, `DrainReport`, `ServeOutcome`), the admission/live caps and descriptor budget (`http::peer_slots`, `fd_budget`), the per-request scheme decider (`http::scheme`), the three egress no-progress units and their wire-fed stream table (`StreamExec`, `Sampler`, `FrameParser`, `StreamTable`, `LeasedBody`, `TunnelProbe`, `ws::tunnel_gate::TunnelGate`), the session egress sink (`ws::bounded_sink::BoundedSink`), the streamed-file permit pool (`http::assets::permits::StreamedFilePermits`), the patched `vendor/h2` and its `lint:vendor` gate, or the measurement harness that exercises them (`shadowcat-test-support`'s `throughput`/`egress`/`observed`/`h2c` modules, the `egress_measure` binary, `h2_send_buf_gate`). Covers src/server/src/{tls,fd_budget.rs,http/{conn_serve*,peer_slots*,scheme*},ws/{tunnel_gate.rs,bounded_sink*},http/assets/permits*}, vendor/h2, scripts/check-vendor.mjs. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — TLS, the serve loop, and the egress bounds
@@ -108,10 +108,11 @@ is the form tests and doc examples use).
   `ws::tunnel_gate::TunnelGate` and that in `ws::bounded_sink::BoundedSink`, whose per-send stall
   bound is `Config::egress_window`. Once shutdown is signalled a pending send gets at most
   `CLOSE_SEND_TIMEOUT`, and `http::SESSION_GRACE` is `CLOSE_SEND_TIMEOUT` plus one second.
-- `fd_budget::STREAMED_FILE_PERMITS` sizes the semaphore `http::assets::permits::StreamedFilePermits::production` creates; the asset file-serve paths and the world-bundle export
-  (`http::world_bundle::export_world`) take a permit (`acquire`) before opening a file, waiting up
-  to `PERMIT_WAIT` (2 seconds) for one; a pool still exhausted after the wait answers 503 with
-  `Retry-After` before any header is written. The same
+- `fd_budget::STREAMED_FILE_PERMITS` sizes the semaphore `http::assets::permits::StreamedFilePermits::production` creates. The asset file-serve paths take a permit
+  (`acquire`) before opening a file; `http::world_bundle::export_world` takes ONE permit before any
+  header is written and holds it until its producing task ends, so a single permit covers the whole
+  export, not each file it reads. `acquire` waits up to `PERMIT_WAIT` (2 seconds); a pool still
+  exhausted after the wait answers 503 with `Retry-After` before any header is written. The same
   constant is subtracted in `descriptors_reserved`.
 - The egress units (all under `http::conn_serve`, driven from `drive`'s sampler tick):
   - connection unit — `WriteCounter` sits in the connection IO and feeds `Egress`; `Sampler` cuts a
@@ -264,14 +265,22 @@ is the form tests and doc examples use).
   `serve_router+full-router+observed-source` rung) about 3.1 percent slower than `bare-64k` at 2
   runtime workers, while the gate's records read the production server 4.9 to 6.2 percent slower
   than the bare 64 KiB server at 4 workers. The owner ruled THAT difference noise, so do not reopen
-  it or schedule a rerun. The buffer ratio (bare hyper at the default send buffer over bare hyper
-  at 64 KiB) reads 0.954 to 0.958 in the gate's three records and 0.995 in the ladder
-  (the `bare-64k` rung against the default-buffer root); the ruling does not reach this gap, which is
-  unexplained. The two instruments differ in worker count (`layers` defaults to `DEFAULT_WORKERS`,
-  2, and takes a worker argument; the gate runs 4), a confound that has not been removed, and the
-  gap has not been measured on this host at equal workers: in its slow regime the gate's
-  buffer-ratio readings spread 0.946 to 1.309 across nine runs. Whether to measure it is the
-  owner's decision. Treat any single `layers` or gate run as one sample; do not quote either as
+  it or schedule a rerun. The buffer ratio (the default-buffer download-time median divided by the
+  64 KiB median, so a value below 1 means the default buffer was faster) reads 0.954 to 0.958 in the
+  gate's three fast-regime records (per run) and 0.995 in the fast-regime ladder record (the
+  `bare-64k` rung against the default-buffer root, over five runs; the different rung
+  `bare-64k+full-router` prints 0.996); the
+  ruling does not reach this gap, which is unexplained. It has at least two uncontrolled factors:
+  worker count (`layers` defaults to `DEFAULT_WORKERS`, 2, and takes a worker argument; the gate
+  runs 4) and host regime (next entry), which alone moves the 2-worker `layers` reading from 0.995
+  in the fast regime to 1.102 to 1.252 across three slow-regime files (per file: the ratio of the
+  two rungs' medians over three run medians, with each file's first run reading fast). The
+  instruments also differ in downloads per run (the gate 100, the fast-regime ladder record 150). Equal-worker (4) `layers` readings exist only
+  from the slow regime, where run medians sit far above the roughly 11.6 ms a fast 2-worker run
+  reads: 1.210, 1.210 and 1.296 per file (1.020 to 1.412 across the nine runs), against 0.946 to
+  1.309 across the nine slow-regime gate runs (per run). No fast-regime equal-worker comparison
+  exists. Whether to measure it is the owner's decision. Treat any single `layers` or gate run as
+  one sample; do not quote either as
   "the cost of the stall machinery".
 - **The host can change regime within one process, which makes multi-run results unreliable.** One
   process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
@@ -295,8 +304,10 @@ is the form tests and doc examples use).
   with its closed-poll alone and accepts nowhere never resumes it; hyper's server path accepts in the task
   that polls.
 - **Add a hook glob when you add a file here.** Every `SUBSYSTEMS` entry is an unanchored substring
-  match on an absolute path, and this skill's entry must stay ordered before `realtime-sync`
-  (which claims `src/server/src/http/` and `src/server/src/ws/`) and `server-ops`.
+  match on an absolute path, and this skill has two entries. The main one must stay ordered before
+  `realtime-sync` (which claims `src/server/src/http/` and `src/server/src/ws/`) and `server-ops`.
+  The narrow `src/server/src/http/assets/permits` entry must precede `assets` (which claims the rest
+  of `src/server/src/http/assets/`); the hook self-test cases tl16 and tl17 fail if it does not.
 
 ## Pointers
 

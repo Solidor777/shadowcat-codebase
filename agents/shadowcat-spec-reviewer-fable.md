@@ -33,8 +33,8 @@ Skill tool. In a consumer repo these skills are listed under a PLUGIN PREFIX
 (`shadowcat-codebase:shadowcat-codebase-core`) rather than the bare id — take the exact name from
 your skill listing before concluding a skill is unavailable.
 (FALLBACK: attempt to `Read` `skills/<name>/SKILL.md` under the plugin root (canonically
-`~/.claude/skills/shadowcat-codebase/`). If the Read succeeds, use the file. If it fails, no
-readable skill path exists —
+`<home>/.claude/skills/shadowcat-codebase/`; expand the home directory to an absolute path). If
+the Read succeeds, use the file. If it fails, no readable skill path exists —
 report this as a finding and state explicitly that the review is incomplete because its criteria
 could not be loaded). Use them as the bar for subsystem invariants.
 
