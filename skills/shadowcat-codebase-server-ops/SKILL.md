@@ -193,8 +193,8 @@ and restore as a deployment-operator tool, not an in-app feature.
     `#[link(name = "CoreAudio", kind = "framework")]` directly above it** — omitting this
     compiles cleanly (extern declarations don't need their symbols to resolve until link time)
     and fails ONLY at the final link step with "undefined symbols for architecture arm64", which
-    is easy to miss if an earlier, unrelated compile error in the same file (e.g. the
-    `objc_msgSend` note below) already stops the build before link and hides it.
+    is easy to miss if an earlier, unrelated compile error in the same file already stops the
+    build before link and hides it.
   - **`macos.rs` hand-rolls Objective-C `objc_msgSend` calls (no third-party Objective-C-bridge
     crate)** — since
     `objc_msgSend`'s real signature varies by the receiver method's arity, declare the symbol
@@ -202,16 +202,21 @@ and restore as a deployment-operator tool, not an in-app feature.
     function pointer to whatever specific `unsafe extern "C" fn(...)` type each call site needs.
     Declaring the same `#[link_name = "objc_msgSend"]` symbol twice with different Rust
     signatures trips rustc's clashing-extern-declarations lint (warn by default, an error only under `-D warnings`).
-  - **`macos.rs`'s process-tap seam is keyed on Core Audio process object ids, not pids.**
+  - **`macos.rs`'s process-tap seam pairs each pid with its Core Audio process object id.**
     Enumeration reads `'prs#'` (the process object list) and each object's `'ppid'` (its pid), and
-    yields (pid, process object id) pairs; `initStereoMixdownOfProcesses:` takes the object ids,
-    and a live pid enumerating under a changed object id has its tap torn down and recreated.
-    The tap description carries its own UUID (an NSUUID set through `setUUID:`), reused as the
-    aggregate description's sub-tap `uid` (`aggregate_description`). The output device is read
-    from `'sOut'`. `verify_tap_format` reads the tap's `'tfmt'` and fails closed unless it is
-    packed little-endian 32-bit float linear PCM; `buffer_list_peak` takes the maximum over all
-    `number_buffers` entries. A failed tap creation is retried per (pid, object id) after
-    `TAP_RETRY_DELAY` (`TapRetryBackoff`).
+    yields (pid, process object id) pairs. Taps are created from the object ids
+    (`initStereoMixdownOfProcesses:` takes them), and a tap's identity is the (pid, object id)
+    pair; the live-tap and peak maps stay pid-keyed. A live pid enumerating under a changed object
+    id has its tap torn down and recreated. The tap description carries its own UUID (an NSUUID set
+    through `setUUID:`), reused as the aggregate description's sub-tap `uid`
+    (`aggregate_description`). The output device is the default system-output device (`'sOut'`);
+    its UID, read via `'uid '` in `read_default_system_output_uid`, is the aggregate's main
+    sub-device and time source. `read_tap_format` reads the tap's `'tfmt'`; `verify_tap_format` is
+    a pure check that the format is packed little-endian 32-bit float linear PCM with at least one
+    channel, counting one channel per frame for a non-interleaved description. `create_tap_for_pid`
+    destroys the tap before any aggregate device exists when the read fails or the check refuses.
+    `buffer_list_peak` takes the maximum over all `number_buffers` entries. A failed tap creation
+    is retried per (pid, object id) after `TAP_RETRY_DELAY` (`TapRetryBackoff`).
   - **The vendored PipeWire crate's stream-flags bitflags do NOT include a passive-mode flag** — verified against the
     vendored crate source; the real set is `AUTOCONNECT, INACTIVE, MAP_BUFFERS, DRIVER,
     RT_PROCESS, NO_CONVERT, EXCLUSIVE, DONT_RECONNECT, ALLOC_BUFFERS, TRIGGER`. For a

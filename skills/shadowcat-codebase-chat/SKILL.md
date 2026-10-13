@@ -81,9 +81,10 @@ guarded, per `validate_url` below).
   `chat::body::compose_message` above for why.
 - **`LinkPreviewCache`** (in-memory, on `WsState`): (world, candidate URL)→`(Instant,
   Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
-  fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. A memory
-  hit whose preview has no asset id reads the persisted row's. This
-  is the FIRST (request-lifetime) tier of a two-tier cache — see `link_preview_cache` below for
+  fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. `cached_or_fetch`
+  gives a memory hit with a preview its asset id from the persisted row (none when the row is
+  absent; a failed row read leaves the hit as cached). This
+  is the FIRST tier of a two-tier cache — see `link_preview_cache` below for
   the persisted second tier the post-publish image pipeline reads/writes.
 - **`ChatContentPolicy.link_previews: Option<bool>`** — tri-state (absent/`None` = default-on;
   `Some(false)`/`Some(true)` = GM override), authored in `module-game-settings`' new chat-settings
@@ -131,20 +132,22 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   instances ever existing for the same key at once.
 - **`resolve_preview_image`** — reads, under the locks of all its rows, the persisted
   `link_preview_cache` rows of the job's `cache_urls` and of its `preview_url` (the landed
-  address) in the job's world. The first existing `image_asset_id` is reused verbatim (never
-  re-fetching/re-creating an asset for a link any message already imaged) and recorded on the rows
-  that lack one. On a miss it fetches the image via `fetch_image_bytes` (the same SSRF-guarded
+  address) in the job's world. The first existing `image_asset_id` is reused verbatim (no fetch)
+  and recorded on the rows that lack one. On a miss it fetches the image via `fetch_image_bytes` (the same SSRF-guarded
   client `fetch_preview` uses) and asset-ifies it via `data::asset::create_asset_from_bytes` with
   `created_by: None` — see `shadowcat-codebase-assets` for that shared commit path and the
   `created_by: None` convention. `record_preview_image` writes the id through
-  `set_link_preview_cache_image`, which is `WHERE image_asset_id IS NULL`, so the first writer's
-  id on a row wins. A landed-address row that does not exist is created only once the job has an
+  `set_link_preview_cache_image`, which writes only a row that has no id and an asset that exists
+  in the row's world, so the first recorded id on a row stays. A landed-address row that does not exist is created only once the job has an
   asset (`create_landed_row`, from the job's `title`/`description`, `fetched_at` = the earliest
   candidate row's), so a later post of that address reuses the asset.
-  `link_preview::enrich` queues ONE `PreviewImage` job per distinct `preview_url` (candidates whose
+- **`PreviewImage` job sharing in `link_preview::enrich`** — `enrich` queues ONE `PreviewImage` job per distinct `preview_url` (candidates whose
   previews end on the same address share it, `cache_urls` in message order), and queues none for a
   candidate whose address already has an asset id among the message's previews: that id is recorded
-  on the candidate's row and carried on its segment.
+  on the candidate's row and carried on its segment. That reuse write does not take
+  `PreviewFetchLocks`, which would make the send wait on a background fetch, and relies on the
+  `IS NULL` guard of `set_link_preview_cache_image`. The job's patch sets `image_asset_id` to the
+  job's asset even when that write recorded a different id on a row first; that row keeps its id.
 - **`resolve_inline_image`** — the `PendingEnrichment::InlineImage` resolver, structurally a
   mirror of `resolve_preview_image` with ONE difference: it keys on the image's own URL, which has
   no prior row, so `record_image_url_row` inserts a text-less row with
@@ -185,16 +188,22 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   storing `image_asset_id` once a background job resolves one. INVARIANT: the cache is
   world-scoped, so an asset id (preview image, inline image or oEmbed thumbnail) is reused only
   within the world whose row holds it; the in-memory tier and `PreviewFetchLocks` carry the same
-  world scope. `resolve_preview_image`/`resolve_thumbnail_asset`/`resolve_inline_image` all check
-  this table before any network fetch, so an image URL fetched once in a world is never re-fetched
-  or re-asset-ified for a later message of that world.
+  world scope. `resolve_preview_image` keys on page
+  addresses (`cache_urls`, `preview_url`): a page address whose row carries an asset id is not
+  re-imaged. `resolve_inline_image` and `resolve_thumbnail_asset` key on the image URL: an inline
+  or oEmbed-thumbnail image URL whose row carries an id is not re-fetched. Both hold only while the
+  row keeps the id (deleting the asset nulls the column). `set_link_preview_cache_image` writes
+  only a row that has no id and an asset that exists in the row's world.
+  `sweep_expired_link_previews`, run from `spawn_session_sweep`, deletes rows with no asset id
+  whose `fetched_at` is more than `POSITIVE_TTL` old; a row holding an id stays.
 - **`Segment::LinkPreview.image_asset_id: Option<Uuid>`** — `#[serde(default)]` (every
   `LinkPreview` segment persisted before this field existed has no such key on disk). `enrich` sets
   it at send time when the candidate's persisted row, or another candidate's row at the same
   landed address, carries an asset id; otherwise it is `None` until a
   `WriteOrigin::ServerMessageRevision` republish (`run_pending_enrichments`) patches it.
   `Segment::LinkPreview.url` is the normalized post-redirect address after a fresh fetch and the
-  candidate URL after a persisted-row hit; a job patches the segment whose `url` equals its
+  candidate URL after a persisted-row hit, and an in-memory hit carries whichever of the two built
+  the entry for the candidate URL; a job patches the segment whose `url` equals its
   `preview_url`.
 
 ## Dice wire — `chat::rolls` + the ingest roll stage
