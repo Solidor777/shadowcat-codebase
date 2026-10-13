@@ -442,7 +442,7 @@ separately enforces a per-turn movement budget against the same documents this s
   `rebuild_order`'s full filter-append-then-sort) may decide to admit an arrival — never the
   unconditional per-transition heal.
 - **At most one `active: true` combat per scene, decided ONCE per batch through a single running
-  map, not two independently-consulted sets.** `SqliteRepository::apply_intent`'s Phase 1 first
+  map, not two independently-consulted sets.** `SqliteRepository::apply_intent`'s the validation pass first
   pre-scans the WHOLE batch (before any per-op validation runs) to compute the local set of every
   scene a same-batch `Update`/`Delete` genuinely frees (a true→false transition, or an active
   combat moving off the scene, via `merged_combat_engine`, the in-memory field-change replay that

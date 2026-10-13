@@ -136,7 +136,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `changes`, so the returned `Command`, `world_events`, and the broadcast carry it. In
   `apply_intent`, for every origin that does not `skips_capability_gates`, the derived paths are
   capability-gated BEFORE any write:
-  Phase 1 records one resolved `Access` per Update op, Phase 2 consumes them in op order and
+  the validation pass records one resolved `Access` per Update op, the apply pass consumes them in op order and
   checks `declared_caps_for_path` for each derived path (fail-closed `Forbidden`); the trusted
   `apply_command` arm skips that check exactly as it skips every capability gate.
 - **Token ownership is EFFECTIVE, and it lives in THIS subsystem's files.** `data::permission::effective_owner`
@@ -211,7 +211,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `remove`/`set` branch.** One function, one statement of the rule, repo-wide (client mirror: the
   `store` module's `applyOperation`, shared by `DocumentStore` and `OptimisticClient`). Callers
   split only on error handling, and the split is meaningful: the two AUTHORITATIVE loops
-  (`data::sqlite`'s `apply_command` and `apply_intent` Phase 2) propagate with `?` so a bad change
+  (`data::sqlite`'s `apply_command` and `apply_intent`'s apply pass) propagate with `?` so a bad change
   aborts before commit; the DERIVED mirrors in the `scene` module go through `mirror_field_change`
   (logs) / `reapply_changes` (adds the `Document` round-trip), because `apply_op` runs on the
   already-committed broadcast/replay path where the ECS has no authority to reject. **Why this is a
@@ -370,7 +370,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   a v4 (random) or v7 (timestamp+random) UUID (format-only, via the `uuid` crate's own version
   query); `validate_document_id_tree(doc)` recurses it over `doc` and every
   embedded descendant, run at FOUR ingress points, not one. At BOTH authoritative Create paths
-  (`data::sqlite::apply_command`'s Create arm and `apply_intent` Phase 1's Create-op validation
+  (`data::sqlite::apply_command`'s Create arm and `apply_intent`'s validation pass's Create-op validation
   block) it is wired immediately BEFORE `validate_property_overrides`. **An Update DOES revisit
   ids** — `apply_intent`'s `Operation::Update` arm re-runs it over the MERGED post-image, in
   lockstep just before `validate_engine_tree` (after `validate_system_size`/
@@ -412,10 +412,10 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   which is what makes the gate the seed path's race backstop) + a tx-scoped
   `singleton_doc_exists` DB check reject a second `Create` of a singleton type. That DB check alone
   closes only the CROSS-CALL race (relies on the single-writer `max_connections(1)` pool + a
-  tx-scoped executor). A `claimed_singletons: HashSet<String>` seeded before Phase 1's per-op loop
+  tx-scoped executor). A `claimed_singletons: HashSet<String>` seeded before the validation pass's per-op loop
   and checked alongside the DB read closes the separate INTRA-BATCH race: two same-doc_type
   singleton `Create`s inside ONE `apply_intent` call's `ops` both read the DB as empty during
-  Phase-1 validation (validated before any Phase-2 insert), so the DB check alone lets both pass; the
+  the validation pass (validated before any apply-pass insert), so the DB check alone lets both pass; the
   `HashSet` is populated only after both checks pass, so the second op in the same batch is rejected
   regardless of N or ordering. A rejection unwinds the WHOLE `apply_intent` call (no partial insert of
   the batch's other ops) — this is the same whole-batch-rollback semantics every other
@@ -465,7 +465,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   entering token (same-scene when `target.scene: None`, cross-scene otherwise), gated to ONE hop
   per move (`allow_teleport: false` on the recursive re-fire that processes the destination cells'
   own `Enter` triggers — a chained portal is refused with a GM-only notice rather than looping).
-- `data::sqlite::apply_intent` — Phase-1 OCC pre-image comparison
+- `data::sqlite::apply_intent` — validation-pass OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never
   touches `f64`, so two distinct large integers past 2^53 never alias into a false match. Only a
@@ -475,8 +475,8 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   `serde_json::Value::Object`/`serde_json::Value::Array` structure; any non-Number mismatch falls
   back to serde's derived `PartialEq`.
   `apply_intent` is also the tier-2 enforcement chokepoint: `validate_system_schema_tree` runs
-  immediately after `validate_engine_tree`, at BOTH call sites — Create (Phase-1, against the
-  new document) and Update (Phase-2, against the merged post-image: existing row + applied
+  immediately after `validate_engine_tree`, at BOTH call sites — Create (validation pass, against the
+  new document) and Update (apply pass, against the merged post-image: existing row + applied
   `FieldChange`s, never the pre-image) — recursing through embedded children by their own
   `doc_type` exactly as `validate_engine_tree` does. A violation returns `Err` before the
   transaction commits, so the per-world seq counter is NOT consumed on rejection, and surfaces
@@ -489,9 +489,9 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   boundary shape: whole-map, whole-collection, or whole-child rewrites classify as
   system-band writes because they replace children's `system` bands wholesale), BEFORE the
   write transaction opens.
-  Per op, the pass runs `check_command_scope` followed by Phase 1's OWN authorization functions
+  Per op, the pass runs `check_command_scope` followed by the validation pass's OWN authorization functions
   (`authorize_create_intent`/`authorize_update_access`/`authorize_update_change` — the same
-  symbols Phase 1's arms call inside the transaction, so the screen and Phase 1 cannot
+  symbols the validation pass's arms call inside the transaction, so the screen and the validation pass cannot
   diverge on who is `Forbidden`, and a bare-id Update can never feed another world's
   document through this world's validators), then `sandbox::validate_document`, whose
   `validate_document::prior_permitted` parameter withholds the pre-image band unless the
@@ -502,8 +502,8 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   never `Conflict`. `import_world` is the only other call site (inside its own
   already-exclusive transaction; it persists the bundle's enablement record with
   `validators_enabled` forced `false`); `apply_command` never runs one. Both chokepoints call
-  the same `sandbox::validate_document`, which first re-runs Phase 1's own pure structural
-  chain on the document — a structurally-invalid write surfaces Phase 1's own error before
+  the same `sandbox::validate_document`, which first re-runs the validation pass's own pure structural
+  chain on the document — a structurally-invalid write surfaces the validation pass's own error before
   any validator is consulted or faulted. A refusal maps to
   `DataError::OpFailed("validator <module>: <reason>")`, a technical fault to
   `DataError::Validator(ValidatorFault)`. The whole mechanism (guest ABI, runtime, registry,
@@ -832,7 +832,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 - **The singleton create-gate must close BOTH cross-call and intra-batch duplicate-`Create` races,
   via two independent mechanisms.** A tx-scoped DB existence check alone is sufficient for
   cross-call races (serialized by the single-writer pool) but NOT for two same-doc_type Creates
-  inside one `apply_intent` batch, since Phase 1 validates every op before Phase 2 inserts any of
+  inside one `apply_intent` batch, since the validation pass validates every op before the apply pass inserts any of
   them — both same-batch DB reads see an empty table. The in-memory `apply_intent::claimed_singletons` HashSet
   closes that second gap; do not remove either mechanism assuming the other already covers it.
 - **Check-then-act across two queries needs one transaction** — TOCTOU-racy even at
@@ -890,8 +890,12 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 
 ## Gotchas
 
+- **`data::migrate::migrate` has no production caller.** Schema versioning is `CURRENT_SCHEMA_VERSION`
+  alone (read by `combat::history`); the SQL schema migrates through `sqlx::migrate!` in
+  `SqliteRepository::connect`.
+
 - **OCC pre-images in one `apply_intent` batch are checked against the PRE-BATCH stored value,
-  never against a sibling op's `new`.** Phase 1 loads each op's current document with its own
+  never against a sibling op's `new`.** The validation pass loads each op's current document with its own
   `load_document` read of the not-yet-written tx and applies no intra-batch simulation of an
   earlier op's changes (the only intra-batch state it tracks is the one-active-combat-per-scene
   and singleton bookkeeping), so a second `Operation::Update` to the same document whose `old` names the
@@ -933,7 +937,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   type/helper names, not only the literal field. Same family as scoping a search to the shape you
   imagined rather than the shape that exists.
 - **A naive raw-equality assumption about OCC pre-images is wrong.** Any code (or reviewer)
-  reasoning about `apply_intent`'s Phase-1 conflict check must account for
+  reasoning about `apply_intent`'s validation-pass conflict check must account for
   `values_semantically_eq`'s numeric-variant awareness — see the Hard Invariants entry above and
   the `data::sqlite` seam. Treating pre-image comparison as plain `serde_json::Value` `==` will
   misdiagnose both false-conflict and false-pass scenarios.

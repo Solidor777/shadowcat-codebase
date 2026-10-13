@@ -79,7 +79,8 @@ float division and `%` is JS TRUNCATED remainder, so `-7 % 2` is `-1`, not the f
 implicitly rounds, so a value requiring an integer needs an explicit `FnName.floor`/`FnName.round`,
 and `FnName.round` is JS-native, meaning ties go toward positive infinity rather than away from
 zero — a real difference for negative operands. Both `x / 0` and `x % 0` are a `"div-zero"` error,
-never `Infinity`/`NaN`; every arithmetic result is gated through `finite`, so an overflow surfaces
+never `Infinity`/`NaN`; every numeric literal, arithmetic result and resolved reference is gated
+through `finite` in both evaluators, so no successful result is non-finite for any `Expr` and an overflow surfaces
 as `"non-finite"` instead of leaking downstream. **A leading-dot decimal is not a numeric
 literal** — `tokenize` requires a leading digit and emits a bare `.` operator instead, so `.5` is a
 parse error; write `0.5`. And `checkArity` runs at PARSE time only, so an `Expr` hand-constructed
@@ -119,7 +120,7 @@ which no prose can do.
   both directions are machine-checked and neither rests on a habit. The
   callback half is [[injected-callback-boundary-must-validate-every-site]]; the no-throw half is
   pinned by `property.test`'s never-throws and never-NaN properties over random input.
-- **DoS caps, exact values:** `MAX_FORMULA_LENGTH` 512, `MAX_AST_NODES` 256, `MAX_PARSE_DEPTH` 32
+- **DoS caps, exact values:** `MAX_FORMULA_LENGTH` 512 (UTF-16 code units), `MAX_AST_NODES` 256, `MAX_PARSE_DEPTH` 32
   (true structural-nesting boundaries — parens, call arguments, unary minus — NOT
   grammar-production depth, so a flat `a+b+c` chain never trips it), `MAX_GRAPH_VISITS` 2048
   (charged once per newly discovered key in `resolveAll`). No external record fixes any of them, so
@@ -129,7 +130,10 @@ which no prose can do.
   deriving it from the constant: `parser.test` for `MAX_AST_NODES` and for `MAX_PARSE_DEPTH` (the
   exact size parses, one more caps — three constructs for the depth cap), and `graph.test` for
   `MAX_GRAPH_VISITS` (a chain of exactly that many distinct keys resolves, one key more caps, which
-  also pins the bound as EXCEEDS rather than reaches). A LOOSE bracket pins nothing however it is
+  also pins the bound as EXCEEDS rather than reaches). The deepest nesting that fits
+`MAX_FORMULA_LENGTH` returns a cap error in both twins (`parser.test` and, on a default-stack
+thread, the Rust `parser` tests), and the Rust twin also parses and evaluates a left-deep chain at
+`MAX_AST_NODES` on a default-stack thread. A LOOSE bracket pins nothing however it is
   spelled: `graph.test`'s cap-trip case and its long-chain smoke case admit every value between
   them. Name those two by what they do rather than by how many chains the file holds — a count goes
   stale the moment a case is added.

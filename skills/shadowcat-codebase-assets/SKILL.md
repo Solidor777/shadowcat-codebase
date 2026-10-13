@@ -208,8 +208,12 @@ pipeline-derived tags.
 - **`GET /api/worlds/{world}/assets` has two shapes**: no query parameter ⇒ bare `Asset[]`
   (the contract `listAssets`, `Assets.svelte`, `AssetPicker` and the e2e rely on); any parameter
   ⇒ `AssetPage`. `queryAssets` always sends `limit` so it never hits the bare form. The regex is
-  applied AFTER the SQL filters over at most 10 SQL pages per call; `next_cursor` is the last row
-  EXAMINED, so following cursors never skips a row.
+  applied AFTER the SQL filters over at most `MAX_REGEX_PAGES` SQL pages per call. Without a regex
+  `next_cursor` is the last row of a page that has a row after it. With `name_regex` it is the last
+  row TESTED against the pattern, so following cursors visit every matching row: an exactly
+  filled page with nothing after it has no cursor, and a filled page followed only by a
+  non-matching row gets a cursor whose next page is empty with none. `AssetSort::Name`'s key is the
+  ASCII-lowercased name (`sort_key_of`), the same fold as SQLite's lower function that orders the SQL.
 - **Chunk protocol:** fixed `CHUNK_SIZE`; `PUT …/{offset}` accepts exactly `received` (409
   otherwise — a retry of a LOST chunk carries that offset, a duplicate does not), a concurrent
   PUT on the same session is 409 (busy), overflow aborts the session (413), `complete_session`

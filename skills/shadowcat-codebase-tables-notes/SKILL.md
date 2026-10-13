@@ -22,7 +22,7 @@ write frame).
 ## Purpose
 
 **Tables** deliver one engine doc type (`table`) and one action (`draw_table`) that turns it into a
-chat message. A table's `TableEngine` is either `DrawRule::Weighted` (rolls `1d<sum-of-row-weights>`,
+chat message. A table's `TableEngine` is either `DrawRule::Weighted` (rolls `1d<sum-of-row-weights>`, the sum taken in u64,
 matches the row whose cumulative weight reaches the total — always has a match by construction)
 or `DrawRule::Formula` (rolls the table's own dice notation, matches the row whose inclusive
 `RowRange` contains the total — may match nothing). A matched row's `results` resolve into plain

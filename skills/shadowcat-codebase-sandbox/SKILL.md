@@ -19,7 +19,7 @@ consecutive faults auto-disable the module for the world. Never the default path
 ## Key files & seams
 
 - `src/server/src/sandbox/mod.rs` — `ValidatorVerdict`, `ValidatorFault`, `FaultKind`,
-  `ValidatorInput`, `VALIDATOR_FAULT_LIMIT`, `validate_structural` (Phase 1's own pure
+  `ValidatorInput`, `VALIDATOR_FAULT_LIMIT`, `validate_structural` (the validation pass's own pure
   structural chain, re-run here before any validator), `validate_document` (the embedded-tree
   walk AND the fault counter's own increment/reset calls; the walk mirrors
   `validation::validate_system_schema_tree`'s recursion).
@@ -39,12 +39,12 @@ consecutive faults auto-disable the module for the world. Never the default path
   row, reading every id as `validators_enabled: false`).
 - `src/server/src/data/sqlite.rs` — `SqliteRepository::apply_intent`'s pre-transaction
   validator pass (BEFORE the write transaction opens, against a read-only pool pre-image),
-  which consults, per op and in this order: the authorization screen (Phase 1's own
+  which consults, per op and in this order: the authorization screen (the validation pass's own
   `authorize_create_intent`/`authorize_update_access`/`authorize_update_change` —
-  the SAME functions Phase 1's arms call inside the transaction, never a re-spelled copy),
+  the SAME functions the validation pass's arms call inside the transaction, never a re-spelled copy),
   then `sandbox::validate_document`, then captures `apply_intent::validated_pre_images` for
-  the in-transaction re-validation Phase 2's Update arm runs when its pre-image diverges
-  from the capture. `merge_update_document` is shared by Phase 2's real merge and the
+  the in-transaction re-validation the apply pass's Update arm runs when its pre-image diverges
+  from the capture. `merge_update_document` is shared by the apply pass's real merge and the
   validator pre-image build; `reset_validator_fault_streak` delegates to
   `ValidatorRegistryCache::reset_faults`; `SqliteRepository::validator_registry` derives the
   directory from the repository's own `modules_dir` field (one source, never a caller-passed
@@ -81,15 +81,15 @@ consecutive faults auto-disable the module for the world. Never the default path
   would otherwise throttle every hosted world on a slow validator); `import_world`'s does not
   need to, since that function already holds the writer exclusively for its whole duration.
 - **Authorization always precedes any validator.** The pre-transaction pass screens every op
-  through `check_command_scope` followed by Phase 1's OWN authorization functions
+  through `check_command_scope` followed by the validation pass's OWN authorization functions
   (`authorize_create_intent`, `authorize_update_access`, `authorize_update_change` —
-  extracted so the screen and Phase 1 share one statement of the capability floor; a
-  re-spelled screen would be the never-fork defect class applied to authz). An op Phase 1
+  extracted so the screen and the validation pass share one statement of the capability floor; a
+  re-spelled screen would be the never-fork defect class applied to authz). An op the validation pass
   would refuse gets `Forbidden` before any validator runs: its error text never discloses a
   validator's rules to an unauthorized writer, unauthorized intents never burn fuel or a
   fault streak, and a bare-id Update can never feed another world's document through this
   world's validators as a cross-world oracle.
-- `sandbox::validate_document` always re-runs Phase 1's own pure structural validators
+- `sandbox::validate_document` always re-runs the validation pass's own pure structural validators
   (`validate_system_size`/`validate_property_overrides`/`validate_engine_tree`/
   `validate_containment`/`validate_system_schema_tree`) against the document BEFORE consulting
   any validator, returning that error untouched on failure — a malformed submission never
@@ -102,10 +102,10 @@ consecutive faults auto-disable the module for the world. Never the default path
   exfiltrate the stored band through the validator's input, or through a crafted refusal
   reason reflected back to the writer. Withheld means every node validates as a Create.
 - **The validated post-image is the committed post-image.** The pre-transaction pass validates
-  a merge of a read-only pre-image, and Phase 1's OCC covers only each change's own pointer —
+  a merge of a read-only pre-image, and the validation pass's OCC covers only each change's own pointer —
   a concurrent write to any OTHER path of the same document would otherwise commit a
   post-image no validator saw. `apply_intent::validated_pre_images` captures the pre-image
-  per Update, and Phase 2's Update arm re-runs `sandbox::validate_document` against the
+  per Update, and the apply pass's Update arm re-runs `sandbox::validate_document` against the
   in-transaction merge when the pre-images diverge — re-validation, NEVER `Conflict` (a
   Conflict on any concurrent write would let two writers livelock a protected document).
 - The consecutive-fault counter is COUNTED entirely inside `sandbox::validate_document`

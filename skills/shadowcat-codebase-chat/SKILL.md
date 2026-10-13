@@ -83,8 +83,9 @@ guarded, per `validate_url` below).
   Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
   fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. `cached_or_fetch`
   gives a memory hit with a preview its asset id from the persisted row; a memory hit whose row
-  is absent counts as a miss, so the fetch rewrites the row; a failed row read leaves the hit as
-  cached. This
+  is absent counts as a miss, and a miss passes the `PreviewRateLimiter` gate before its fetch
+  rewrites the row, so a rate-limited miss yields no card and rewrites nothing; a failed row read
+  leaves a memory hit as cached and, with no memory hit (a cold start), counts as a miss. This
   is the FIRST tier of a two-tier cache — see `link_preview_cache` below for
   the persisted second tier the post-publish image pipeline reads/writes.
 - **`ChatContentPolicy.link_previews: Option<bool>`** — tri-state (absent/`None` = default-on;
@@ -140,8 +141,9 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   `created_by: None` convention. `record_preview_image` writes the id through
   `set_link_preview_cache_image`, which writes only a row that has no id and an asset that exists
   in the row's world, so the first recorded id on a row stays. A landed-address row that does not exist is created only once the job has an
-  asset (`create_landed_row`, from the job's `title`/`description`, `fetched_at` = the earliest
-  candidate row's), so a later post of that address reuses the asset.
+  asset (`create_landed_row`, from the job's `title`/`description`; its `fetched_at` is the earliest
+  scraped time among the candidate rows (`create_landed_row::scraped_at`), and a job with none creates no row), so a later
+  post of that address reuses the asset.
 - **`PreviewImage` job sharing in `link_preview::enrich`** — `enrich` queues ONE `PreviewImage` job per distinct `preview_url` (candidates whose
   previews end on the same address share it, `cache_urls` in message order), and queues none for a
   candidate whose address already has an asset id among the message's previews: that id is recorded

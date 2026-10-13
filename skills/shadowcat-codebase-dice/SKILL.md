@@ -22,9 +22,10 @@ caller; this crate carries matching hardening — `#[serde(default)]` on every o
 `eval::sum::fold` (per-group sum AND every `Expr::Bin` Add/Sub/Mul arm — unbounded `Const`
 terms/`*` chains are otherwise deterministically overflowable with zero dice),
 and player-presentable `Display` for `ParseError`/`Token` (surfaced via chat System notices).
-The recursive-descent parser has NO depth counter — callers rely on their input-length cap
-(documented on `struct P`; chat's `MAX_MESSAGE_CHARS=4096` ≈ 2k nesting levels, safe on all
-three target OSes' default stacks). Ambient `ParseContext` for chat rolls comes from the
+The recursive-descent parser counts `factor` recursion and refuses nesting past
+`MAX_NESTING_DEPTH` (parentheses, unary `-`, function-call arguments) with
+`ParseError::TooDeeplyNested`, so its stack use is bounded independently of the input length.
+Ambient `ParseContext` for chat rolls comes from the
 world's `dice-settings` config doc (`chat::settings::resolve_dice_context`, channel-scoped: a
 `DiceSettingsEngine.channel_overrides` entry for the sending channel wins over the doc's own
 `mode`/`direction`; fail-closed to Total/HighWins on any query error, absent doc, or malformed
@@ -45,9 +46,9 @@ sense against a single total, never a success count).
 ## Purpose
 
 A roll is a canonical `RollSpec` (an `Expr` AST of dice groups + arithmetic, a `direction`, and a
-`Mode` carrying its own config). `roll(spec, rng) -> RawRoll` is the **only** randomness step;
-`evaluate(spec, raws) -> RollOutcome` is deterministic; `recalculate` applies targeted die ops then
-re-derives. Randomness is a stateless noise function keyed by `(seed, index)`, so results are
+`Mode` carrying its own config). `roll(spec, rng) -> RawRoll` draws the initial dice; `evaluate(spec, raws) -> RollOutcome` draws
+nothing and is deterministic; `recalculate` applies targeted die ops then re-derives, drawing
+from its `rng` for `RecalcOp::RerollDice` and for any explode/reroll modifier tail. Randomness is a stateless noise function keyed by `(seed, index)`, so results are
 reproducible by construction without persisting the seed — only the resulting `RawRoll` (natural
 faces) needs to be stored. String notation (`4d6kh3+2`, `5d10cs>=7`, `1d20t15`) is one parser
 front-end producing a `RollSpec`; the canonical struct form is what every other function operates
@@ -164,7 +165,7 @@ on.
   }` — an unordered `Faces` group (any face with `value: None`) skips reroll/explode/
   keep/drop entirely for every modifier, fail-closed. A shared `resolve_group::redraw` closure dispatches the RNG
   draw per `DieKind` (a numeric face for `Numeric`, a face INDEX via `roll_uniform(rng, 0,
-  faces.len()-1)` for `Faces`). Explode's `Compound`/`Penetrate` arms are guarded by `matches!
+  faces.len()-1)` for `Faces`). A Compound explosion adds the extra draw by saturating addition. Explode's `Compound`/`Penetrate` arms are guarded by `matches!
   (group.kind, DieKind::Numeric { .. })` — restricted to `Numeric` only; an ordered `Faces` die
   falls through to the shared push-new-die path (Standard-style) instead, since "add"/"−1" have no
   defined meaning over an arbitrary face-list. The Explode chain's retrigger check tests the
@@ -177,13 +178,13 @@ on.
   `!ordered { continue }`-gated modifier loop, so always `true` too) constructs its own `DieRecord`
   directly. `CHAIN_CAP = 100` bounds chained explosions/rerolls per die.
 - `dice::eval` — `roll(spec, rng) -> RawRoll` (walks `Expr` left-to-right,
-  the ONLY randomness entry point) and `evaluate(spec, raws) -> RollOutcome` (dispatches
+  drawing every die and every explode/reroll tail die from `rng`) and `evaluate(spec, raws) -> RollOutcome` (dispatches
   `Mode::Total(cfg)` → `sum::evaluate_total`, `Mode::SuccessCount(cfg)` →
   `success::evaluate_success`).
 - `dice::eval::classify` — the shared classification layer used by BOTH modes.
   `oriented_margin(direction, scalar, reference) -> i64` flips a margin so "better" is always more
   positive (`HighWins: scalar - reference`; `LowWins: reference - scalar`) — used ONLY by Total
-  mode. `classify(margin: i64, tiers: &[Tier]) -> Classification{pass, tier_label, tier_value}`:
+  mode; the subtraction saturates at the i64 bounds. `classify(margin: i64, tiers: &[Tier]) -> Classification{pass, tier_label, tier_value}`:
   empty `tiers` => default 2-rung pass/fail at `margin >= 0`; non-empty => the highest rung with
   `margin_offset <= margin`, fail-closed to the lowest rung if below every offset (order-
   independent, no sorted precondition).
@@ -198,9 +199,9 @@ on.
   `is_fail` CAN be `true` on the same die under an overlapping-threshold OR overlapping-symbol
   config — intentional, tested (`overlapping_thresholds_fire_both_crit_success_and_crit_fail`,
   `overlapping_symbol_triggers_on_same_symbol_fire_both_crit_success_and_crit_fail`), not a bug.
-  `DieScore{base_success: bool, crit: DieCrit}` + `.net() -> i32` (`eval::crit::
+  `DieScore{base_success: bool, crit: DieCrit}` + `.net() -> i64` (`eval::crit::
   score_die_net`) is the CENTRALIZED per-die net-success formula (`base + extra_successes −
-  lost`): `score_die_net(direction, cfg, value, symbols) -> DieScore` computes both `cfg.success`'s
+  lost`, summed in i64): `score_die_net(direction, cfg, value, symbols) -> DieScore` computes both `cfg.success`'s
   base-success test AND `score_die`'s crit result together — shared by `eval::success`'s main pooling
   loop, `eval::expertise::allocate` (the `allocate::fixed` term, see below), and `eval::expertise`'s test-only
   `score_pool` helper. `eval::expertise`'s `die_values` deliberately still inlines its own narrower
@@ -210,13 +211,13 @@ on.
   cfg: &SuccessConfig, raws: &RawRoll, records: &mut [DieRecord])`, called by
   `eval::success::evaluate_success` only when `cfg.expertise > 0`, BEFORE base-success counting
   (b-1's counting logic itself is unmodified/sealed). `adjust(direction, value, min, max, k)`
-  moves a face up to `k` steps toward "better," stopping at the die's better-end bound
+  moves a face up to `k` steps toward "better" (arithmetic in i64, result back in i32), stopping at the die's better-end bound
   (`max`/`min`) — provably preserves `adjust(_, v, _, _, 0) == v` for every `v`, INCLUDING values
   outside `[min,max]` (a Compound die's `value > max`, a Penetrate child's `value < min`), so an
   out-of-range face is never dragged back across a bound even at zero spend. `die_values(...) ->
-  Vec<(i32,i32)>` builds the per-die `v_i(k)` table for `k in 0..=e`: each entry is
-  `(net_i, counter_i)` from moving the face `k` steps then re-scoring via `crit::score_die` +
-  `cfg.success`. `run_dp(dies, e, better) -> (Vec<u32>, (i32,i32))` is a bounded-knapsack DP,
+  Vec<(i64,i64)>` builds the per-die `v_i(k)` table for `k in 0..=e`: each entry is
+  `(net_i, counter_i)` in i64 from moving the face `k` steps then re-scoring via `crit::score_die` +
+  `cfg.success`. `run_dp(dies, e, better) -> (Vec<u32>, (i64,i64))` is a bounded-knapsack DP,
   `O(N·E²)`, over an injected `run_dp::better` ordering; ties break toward the SMALLEST `k` at each die,
   and backtracking runs from the LAST die outward so points concentrate on the earliest dice
   whenever spending is actually needed. `allocate` runs `run_dp` up to
@@ -228,7 +229,7 @@ on.
   (min,max)`) is built via `filter_map` over `raws.dice`, mapping only `DieKind::Numeric` entries;
   a kept `Faces` die (ordered or not) is excluded, since `adjust`'s "+1 toward better within
   [min,max]" has no defined meaning over an arbitrary face-list. A kept-but-excluded `Faces` die's
-  own (unchangeable) success/crit contribution is folded in as a constant `fixed: i32` term (via
+  own (unchangeable) success/crit contribution is folded in as a constant `fixed: i64` term (via
   `crit::score_die_net`) — the two-pass
   clamp-decision branch checks `allow_neg || net + fixed >= 1`, not just the DP's own Numeric-only
   `net`, because the pool's TRUE clamped net includes any fixed contribution from an excluded
@@ -249,7 +250,8 @@ on.
   arithmetic entirely — the defining difference from Total mode), counts base successes against
   `cfg.success` (via the shared `crit::score_die_net`), then folds each kept die's crit
   result into net successes and the positive/negative counters (counters are a SEPARATE output,
-  never folded into `successes`). The same per-die loop also tallies `symbol_counts`
+  never folded into `successes`). The net and both counters accumulate in i64 and clamp to
+  i32 once, via `clamp_i32`, so the result does not depend on summation order. The same per-die loop also tallies `symbol_counts`
   UNCONDITIONALLY over every kept die's `symbols` — independent of which `SuccessRule` variant is
   active, so a Numeric-rule roll on symbolic dice still populates `symbol_counts`. Net
   = `base + extra_successes - lost`, clamped at 0 unless `cfg.crit_fail.allow_negative` opts out.
@@ -350,9 +352,10 @@ on.
 
 ## Hard invariants
 
-- **`roll` is the ONLY randomness step; `evaluate` is pure/deterministic.** Given the same
-  `(spec, raws)`, `evaluate` MUST return an identical `RollOutcome`. This is what makes a stored
-  `RawRoll` (natural faces only, no seed) fully reproducible.
+- **`evaluate` draws nothing and is pure/deterministic; randomness enters only through an
+  `RngSource` passed to `roll` and `recalculate`.** Given the same `(spec, raws)`, `evaluate` MUST
+  return an identical `RollOutcome`. This is what makes a stored `RawRoll` (natural faces only, no
+  seed) reproducible by `evaluate`.
 - **`oriented_margin` applies to Total mode ONLY; SuccessCount's margin is a plain subtraction,
   NEVER direction-flipped.** SuccessCount's per-die direction sensitivity is already baked in by
   `crit::score_die`/the success-rule comparator resolved at parse time; flipping the pooled margin
