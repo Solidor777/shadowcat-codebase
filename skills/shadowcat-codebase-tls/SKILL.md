@@ -293,8 +293,9 @@ is the form tests and doc examples use).
     quoted above read 27.5 to 54.9.
   - Ladder, 4 workers, `bare-64k`: 16.4 to 41.7 over the same six files; the three files quoted
     above read 20.7 to 41.7.
-  - Gate, 4 workers, default-buffer leg: fast 11.94 to 12.07; slow 26.9 to 49.6 (nine runs). The
-    64 KiB leg: fast 12.52 to 12.59; slow 26.1 to 41.8.
+  - Gate, 4 workers, default-buffer leg: fast 11.94 to 12.07; slow 26.9 to 49.6 (nine runs).
+    Buffer leg (the bare server at the production send buffer): fast 12.52 to 12.59; slow 26.1 to
+    41.8.
 
   Differences between the two instruments, none isolated; candidates, not causes. The instruments
   differ in at least:
