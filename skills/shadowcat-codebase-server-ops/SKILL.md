@@ -180,24 +180,14 @@ and restore as a deployment-operator tool, not an in-app feature.
   (`#[cfg(test)]`-only, never compiled into the release binary) without a real OS audio API on
   the test runner. Its server runs `axum::serve` over `http::conn_serve::NodelayListener` (see
   `shadowcat-codebase-tls`).
-  - **`linux.rs`'s `CaptureStream { _listener, stream }` field order is load-bearing**: with no
-    explicit Drop impl of its own, Rust drops struct fields in DECLARATION order, and the
+  - **`linux.rs`'s `CaptureStream` unregisters its listener before the stream frees**: the
     pipewire crate's stream listener handle must tear down (unregister the `process` callback
     from the stream's internal listener list) before the stream handle frees the memory that
-    listener pointed into — reorder these fields and you get a use-after-free the compiler will
-    not catch. `stream` is read via a real
-    `is_connected()` accessor (backed by the pipewire crate's own stream-state query) that the capture loop's
-    shutdown-poll timer calls to sweep dead streams. `_listener`'s type (the pipewire crate's
-    stream-listener handle, generic over `D`)
-    exposes NO other public API beyond its own drop/unregister-on-consume (verified against the
-    vendored `pipewire-0.8.0` source — its fields are a private opaque hook/callback bundle) — a
-    genuine accessor is not possible here, so the leading underscore is the correct fix: rustc's
-    own recognized idiom for "held only for a drop-order side effect," verified empirically
-    (a `-D dead-code` build of an isolated repro) to exempt the field from the dead-code lint
-    without an `#[allow]`/`#[expect]` annotation. Reach for a genuine accessor first (as
-    `is_connected` does for `stream`) whenever the held type actually exposes one; fall back to
-    `_`-prefixing only when it structurally cannot, as verified here for the pipewire crate's
-    stream-listener handle.
+    listener pointed into. `CaptureStream.listener` is an `Option<StreamListener<()>>` that its
+    explicit `Drop` takes and `unregister()`s ahead of the field drops, so the order does not
+    depend on field declaration order. `stream` is read via a real `is_connected()` accessor
+    (backed by the pipewire crate's own stream-state query) that the capture loop's shutdown-poll
+    timer calls to sweep dead streams.
   - **`macos.rs` calls raw Core Audio HAL functions (`AudioObjectGetPropertyData`,
     `AudioHardwareCreateProcessTap`, etc.) via a hand-written `extern "C"` block that needs
     `#[link(name = "CoreAudio", kind = "framework")]` directly above it** — omitting this
@@ -211,7 +201,17 @@ and restore as a deployment-operator tool, not an in-app feature.
     exactly ONCE via `extern "C"` (minimal/generic signature) and transmute its
     function pointer to whatever specific `unsafe extern "C" fn(...)` type each call site needs.
     Declaring the same `#[link_name = "objc_msgSend"]` symbol twice with different Rust
-    signatures is a clashing-extern-declarations hard compile error, not a lint.
+    signatures trips rustc's clashing-extern-declarations lint (warn by default, an error only under `-D warnings`).
+  - **`macos.rs`'s process-tap seam is keyed on Core Audio process object ids, not pids.**
+    Enumeration reads `'prs#'` (the process object list) and each object's `'ppid'` (its pid), and
+    yields (pid, process object id) pairs; `initStereoMixdownOfProcesses:` takes the object ids,
+    and a live pid enumerating under a changed object id has its tap torn down and recreated.
+    The tap description carries its own UUID (an NSUUID set through `setUUID:`), reused as the
+    aggregate description's sub-tap `uid` (`aggregate_description`). The output device is read
+    from `'sOut'`. `verify_tap_format` reads the tap's `'tfmt'` and fails closed unless it is
+    packed little-endian 32-bit float linear PCM; `buffer_list_peak` takes the maximum over all
+    `number_buffers` entries. A failed tap creation is retried per (pid, object id) after
+    `TAP_RETRY_DELAY` (`TapRetryBackoff`).
   - **The vendored PipeWire crate's stream-flags bitflags do NOT include a passive-mode flag** — verified against the
     vendored crate source; the real set is `AUTOCONNECT, INACTIVE, MAP_BUFFERS, DRIVER,
     RT_PROCESS, NO_CONVERT, EXCLUSIVE, DONT_RECONNECT, ALLOC_BUFFERS, TRIGGER`. For a

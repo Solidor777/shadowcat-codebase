@@ -51,8 +51,9 @@ guarded, per `validate_url` below).
   gate; a bounded `<title>`/OpenGraph extractor (title≤200, desc≤400). Production
   `build_client()` takes NO flag (`allow_loopback` false); `build_client_allow_loopback`/
   `build_client_with_resolve_fn` are `#[cfg(test)]`-only — production literally cannot build a
-  loopback-permitting client. **No preview image in v1** (an `<img src>` would make the client
-  fetch → leak the viewer's IP; title+desc only).
+  loopback-permitting client. The segment never carries the external image URL (an `<img src>`
+  naming it would make the client fetch → leak the viewer's IP); the image is fetched server-side
+  and referenced by asset id (see the post-publish section).
 - **Ingest (`chat::link_preview::enrich`, called from `handle_send_message`/`handle_edit_message`):**
   extracts hrefs from GENUINE `<a>` tags in the sanitized `Segment::Html` runs (NOT a raw
   `href=` substring scan — inert body text `see href="http://x"` would otherwise trigger a real
@@ -60,13 +61,14 @@ guarded, per `validate_url` below).
   `cached_or_fetch` (checks the in-memory `LinkPreviewCache` tier first, then the persisted
   `link_preview_cache` row on a miss, before ever attempting a network fetch), fetches remaining
   cache-misses concurrently (`JoinSet`), appends one `Segment::LinkPreview` per success at the
-  END. SYNCHRONOUS before publish (no spawned task/post-hoc revision). Gated on
+  END, in the candidates' message order. SYNCHRONOUS before publish (no spawned task/post-hoc revision). Gated on
   `ChatContentPolicy::previews_enabled()` (= `hyperlinks && link_previews.unwrap_or(true)` —
   default-ON only when hyperlinks on) AND an EXPLICIT `kind != MessageKind::Roll` guard. Holds NO
   lock across the fetch await (only the sending connection's own loop blocks, bounded by the 5s
   deadline). Every failure degrades silently (no card, cached negative). `enrich`'s own signature
-  takes an `EnrichDeps<'a> { repo, fetch: LinkPreviewDeps<'a> }` bundle rather than a flat
-  parameter list — the repository handle a persisted-cache lookup needs, grouped in with the
+  takes an `EnrichDeps<'a> { world_id, repo, fetch: LinkPreviewDeps<'a> }` bundle rather than a flat
+  parameter list — the message's world (the scope of every cache read and write) and the
+  repository handle a persisted-cache lookup needs, grouped in with the
   existing `client`/`cache`/`rate` fetch bundle to stay under clippy's too-many-arguments limit,
   same restructuring pattern as `PostPublishDeps`/`data::asset::NewAssetBytes`. `enrich` ALSO
   takes `image_urls: &[sanitize::ImageSource]` (`chat::body::compose_message`'s second return
@@ -77,9 +79,10 @@ guarded, per `validate_url` below).
   and inline images up to their own separate caps). The call site's gate is
   `previews_enabled() || !image_urls.is_empty()`, not `previews_enabled()` alone — see
   `chat::body::compose_message` above for why.
-- **`LinkPreviewCache`** (in-memory, on `WsState`): URL→`(Instant, Option<LinkPreview>)`,
-  positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
-  fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. This
+- **`LinkPreviewCache`** (in-memory, on `WsState`): (world, candidate URL)→`(Instant,
+  Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
+  fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. A memory
+  hit whose preview has no asset id reads the persisted row's. This
   is the FIRST (request-lifetime) tier of a two-tier cache — see `link_preview_cache` below for
   the persisted second tier the post-publish image pipeline reads/writes.
 - **`ChatContentPolicy.link_previews: Option<bool>`** — tri-state (absent/`None` = default-on;
@@ -99,8 +102,8 @@ guarded, per `validate_url` below).
 The image/embed half of link previews, deliberately split from the synchronous scrape above:
 fetching and asset-ifying an image is unbounded-enough latency that it must never sit on the
 `SendMessage`/`EditMessage` request path. `link_preview::enrich` queues zero-to-many
-`PendingEnrichment` jobs (`PreviewImage{preview_url, image_url}` when its synchronous scrape found
-an `og:image` candidate; `OEmbed{post_url, provider}` when `chat::oembed::match_provider` matches
+`PendingEnrichment` jobs (`PreviewImage{cache_urls, preview_url, title, description, image_url}` when its synchronous scrape
+found an `og:image` candidate; `OEmbed{post_url, provider}` when `chat::oembed::match_provider` matches
 an allowlisted host) for the caller to run via `post_publish::run_pending_enrichments` AFTER
 `Room::publish`'s synchronous send/edit already returned.
 
@@ -113,27 +116,40 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   `preview_fetch_locks` — the same `AppState.write_barrier` `http::assets::upload`/`replace`/
   `delete` hold, since this is the first asset-commit path reachable from outside a direct HTTP
   request.
-- **`PreviewFetchLocks`** (`AppState.preview_fetch_locks`, `Arc<DashMap<String,
-  Arc<tokio::sync::Mutex<()>>>>`) — a process-wide per-URL fetch lock, same keyed-registry shape as
-  `ws::room::RoomRegistry.rooms`, closing the race where two concurrent post-publish jobs resolving
-  the identical URL both observe a `link_preview_cache` miss and each create their own orphaned
-  `Asset`. `with_preview_url_lock` runs a resolver's WHOLE check-cache-then-fetch-then-set sequence
-  under the per-URL lock (a second caller for the same URL observes a cache HIT and skips the
-  fetch entirely), then reclaims the map entry once no concurrent caller still holds a clone —
-  the strong-count check and the removal happen inside one continuous keyed-entry lookup so no
-  waiter can observe or clone the `Arc` in between, ruling out two different `Mutex` instances ever
-  existing for the same URL at once.
-- **`resolve_preview_image`** — checks the persisted `link_preview_cache` row for the preview's
-  URL FIRST and reuses an existing `image_asset_id` verbatim on a hit (never re-fetching/
-  re-creating an asset for a link any message already imaged); on a miss, fetches the image via
-  `fetch_image_bytes` (the same SSRF-guarded client `fetch_preview` uses) and asset-ifies it via
-  `data::asset::create_asset_from_bytes` with `created_by: None` — see `shadowcat-codebase-assets`
-  for that shared commit path and the `created_by: None` convention.
+- **`PreviewFetchLocks`** (`AppState.preview_fetch_locks`, `Arc<DashMap<PreviewLockKey,
+  Arc<tokio::sync::Mutex<()>>>>`) — a process-wide per-key fetch lock, same keyed-registry shape as
+  `ws::room::RoomRegistry.rooms`, closing the race where two concurrent post-publish jobs of one
+  world resolving a shared URL both observe a `link_preview_cache` miss and each create their own
+  orphaned `Asset`. A `PreviewLockKey` is `(world_id, url)`, so jobs of different worlds never
+  share a lock. `with_preview_url_locks` runs a resolver's WHOLE check-cache-then-fetch-then-set
+  sequence under the locks of a slice of keys, sorted and deduped so two callers with overlapping
+  key sets acquire the shared keys in the same order (a second caller for a shared key observes a
+  cache HIT and skips the fetch). `HeldPreviewLocks` releases from `Drop` (also when the future is
+  dropped mid-await) through `release_preview_lock`, which drops the caller's `Arc` and removes the
+  map entry when the strong count is then 1; the count check and the removal happen inside one
+  keyed-entry lookup so no waiter can clone the `Arc` in between, ruling out two different `Mutex`
+  instances ever existing for the same key at once.
+- **`resolve_preview_image`** — reads, under the locks of all its rows, the persisted
+  `link_preview_cache` rows of the job's `cache_urls` and of its `preview_url` (the landed
+  address) in the job's world. The first existing `image_asset_id` is reused verbatim (never
+  re-fetching/re-creating an asset for a link any message already imaged) and recorded on the rows
+  that lack one. On a miss it fetches the image via `fetch_image_bytes` (the same SSRF-guarded
+  client `fetch_preview` uses) and asset-ifies it via `data::asset::create_asset_from_bytes` with
+  `created_by: None` — see `shadowcat-codebase-assets` for that shared commit path and the
+  `created_by: None` convention. `record_preview_image` writes the id through
+  `set_link_preview_cache_image`, which is `WHERE image_asset_id IS NULL`, so the first writer's
+  id on a row wins. A landed-address row that does not exist is created only once the job has an
+  asset (`create_landed_row`, from the job's `title`/`description`, `fetched_at` = the earliest
+  candidate row's), so a later post of that address reuses the asset.
+  `link_preview::enrich` queues ONE `PreviewImage` job per distinct `preview_url` (candidates whose
+  previews end on the same address share it, `cache_urls` in message order), and queues none for a
+  candidate whose address already has an asset id among the message's previews: that id is recorded
+  on the candidate's row and carried on its segment.
 - **`resolve_inline_image`** — the `PendingEnrichment::InlineImage` resolver, structurally a
-  mirror of `resolve_preview_image` with ONE difference: a preview target's `link_preview_cache`
-  row already exists (the synchronous scrape wrote it), so `resolve_preview_image` only ever
-  `set`s the image column; an inline image's URL has no such prior row, so `resolve_inline_image`
-  `upsert_link_preview_cache`s a fresh one before `set_link_preview_cache_image`. Cache hit ⇒
+  mirror of `resolve_preview_image` with ONE difference: it keys on the image's own URL, which has
+  no prior row, so `record_image_url_row` inserts a text-less row with
+  `insert_link_preview_cache_if_absent` before `set_link_preview_cache_image` (`resolve_thumbnail_asset`
+  records its thumbnail the same way). Cache hit ⇒
   reuses the stored `image_asset_id` verbatim (`ResolvedEnrichment::NewImageSegment(Segment::
   Image{asset_id, alt})`, no re-fetch); cache miss ⇒ `fetch_image_bytes(client, url,
   Duration::from_secs(5), MAX_INLINE_IMAGE_BYTES)` (the inline-image byte cap, independent of
@@ -165,14 +181,21 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   provider's self-reported `provider_name` JSON field.
 - **`link_preview_cache` (persisted, SQLite)** — the second, durable tier beneath the in-memory
   `LinkPreviewCache`: `Repository::get_link_preview_cache`/`upsert_link_preview_cache`/
-  `set_link_preview_cache_image`, keyed by URL, storing `image_asset_id` once a background job
-  resolves one. `resolve_preview_image`/`resolve_thumbnail_asset` both check this table before any
-  network fetch, so a link imaged once by any message is never re-fetched or re-asset-ified for a
-  later message reusing the same URL.
+  `insert_link_preview_cache_if_absent`/`set_link_preview_cache_image`, keyed by (world, URL),
+  storing `image_asset_id` once a background job resolves one. INVARIANT: the cache is
+  world-scoped, so an asset id (preview image, inline image or oEmbed thumbnail) is reused only
+  within the world whose row holds it; the in-memory tier and `PreviewFetchLocks` carry the same
+  world scope. `resolve_preview_image`/`resolve_thumbnail_asset`/`resolve_inline_image` all check
+  this table before any network fetch, so an image URL fetched once in a world is never re-fetched
+  or re-asset-ified for a later message of that world.
 - **`Segment::LinkPreview.image_asset_id: Option<Uuid>`** — `#[serde(default)]` (every
-  `LinkPreview` segment persisted before this field existed has no such key on disk), `None` when
-  `enrich`'s synchronous scrape first appends the segment, set later ONLY via a
-  `WriteOrigin::ServerMessageRevision` republish (`run_pending_enrichments`).
+  `LinkPreview` segment persisted before this field existed has no such key on disk). `enrich` sets
+  it at send time when the candidate's persisted row, or another candidate's row at the same
+  landed address, carries an asset id; otherwise it is `None` until a
+  `WriteOrigin::ServerMessageRevision` republish (`run_pending_enrichments`) patches it.
+  `Segment::LinkPreview.url` is the normalized post-redirect address after a fresh fetch and the
+  candidate URL after a persisted-row hit; a job patches the segment whose `url` equals its
+  `preview_url`.
 
 ## Dice wire — `chat::rolls` + the ingest roll stage
 

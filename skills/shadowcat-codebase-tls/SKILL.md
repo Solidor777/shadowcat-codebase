@@ -311,7 +311,7 @@ is the form tests and doc examples use).
   - Binary: in the fast regime the gate's 64 KiB leg reads 12.52 to 12.59 against the ladder's
     `bare-64k` 11.64 to 11.74.
 
-  Whether to measure the gap is the owner's decision. Treat any single `layers` or gate run as one
+  Owner ruled: measure the gap later. Treat any single `layers` or gate run as one
   sample; do not quote either as "the cost of the stall machinery".
 - **The host can change regime within one process, which makes multi-run results unreliable.**
   Within one ladder process on the `bare-64k` rung (workers 2, 8 runs, 100 downloads), runs 1 and 2
