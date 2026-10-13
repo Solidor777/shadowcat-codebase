@@ -280,18 +280,21 @@ is the form tests and doc examples use).
   - No fast-regime reading of the ladder at 4 workers exists; the gate gives the fast 4-worker
     buffer ratio, 0.954 to 0.958.
 
-  Download medians per run, each range named by instrument, workers and rung (ms). Fast regime:
-  - Ladder, 2 workers, `bare-default-buf`: 11.47 to 11.71 (11.58 to 11.71 over the five runs of the
-    full-ladder record; 11.47 to 11.66 in run 1 of each three-rung subset file).
-  - Ladder, 2 workers, `bare-64k`: 11.57 to 11.74 (11.64 to 11.74 in the full-ladder record; 11.57
-    to 11.71 in run 1 of each subset file).
-  - Gate, 4 workers, default-buffer leg: 11.94 to 12.07; 64 KiB leg: 12.52 to 12.59.
-
-  Slow regime, like-for-like by rung:
-  - Ladder, 4 workers, `bare-default-buf`: 27.5 to 54.9 (nine runs); `bare-64k`: 20.7 to 41.7.
-  - Ladder, 2 workers, `bare-default-buf`: 38.3 to 42.9 (runs 2 and 3 of the three subset files, six
-    runs); `bare-64k`: 33.9 to 36.7 (the same six runs).
-  - Gate, 4 workers, default-buffer leg: 26.9 to 49.6 (nine runs); 64 KiB leg: 26.1 to 41.8.
+  Download medians per run (ms), each range named by instrument, workers and rung:
+  - Ladder, 2 workers, `bare-default-buf`: fast 11.47 to 11.71 (11.58 to 11.71 over the five runs of
+    the 150-download full-ladder record; 11.47 to 11.66 in run 1 of each three-rung subset file);
+    slow 38.3 to 42.9 (runs 2 and 3 of the subset files).
+  - Ladder, 2 workers, `bare-64k`: fast 11.57 to 11.74 (11.64 to 11.74 in the full-ladder record;
+    11.57 to 11.71 in subset run 1); slow 29.2 to 36.7 (subset runs 2 and 3, and a separate 8-run
+    `bare-64k`-only record whose first two runs read 11.73 and 11.79 and the other six 29.24 to
+    36.62).
+  - Ladder, 4 workers, `bare-default-buf`: 25.0 to 54.9 over six 3-run, 100-download files, all in
+    the slow regime (no fast-regime record exists at 4 workers); the three files whose ratios are
+    quoted above read 27.5 to 54.9.
+  - Ladder, 4 workers, `bare-64k`: 16.4 to 41.7 over the same six files; the three files quoted
+    above read 20.7 to 41.7.
+  - Gate, 4 workers, default-buffer leg: fast 11.94 to 12.07; slow 26.9 to 49.6 (nine runs). The
+    64 KiB leg: fast 12.52 to 12.59; slow 26.1 to 41.8.
 
   Differences between the two instruments, none isolated; candidates, not causes. The instruments
   differ in at least:
