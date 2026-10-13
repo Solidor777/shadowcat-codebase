@@ -243,7 +243,10 @@ pipeline-derived tags.
   are `file_response::serve_file`'s GET arms (reached by `serve` and `mutate::original`, both
   passing `AppState.file_permits`) and the `http::world_bundle::export_world` handler, which holds
   its permit until its producing task ends. A HEAD with a version-derived validator opens nothing
-  and takes no permit; a new streaming handler takes one the same way.
+  and takes no permit. A byte-derived validator (`Validator::OfFile`, used by the Opus derivative
+  variants) exists only after the open, so it cannot answer a validator hit before it: its GET takes
+  the permit first and holds it through the 304, and its HEAD opens the file for the head read only,
+  with no permit. A new streaming handler takes one the same way.
   `shadowcat-codebase-tls` owns the pool (its capacity, wait and the descriptor budget it is
   derived from); this skill owns only the obligation on the handlers.
 - **`http::compression::AssetAndWsSafePredicate`** is the response predicate

@@ -272,7 +272,7 @@ is the form tests and doc examples use).
   - Ladder (`layers`), 2 workers, fast regime, 150 downloads, full ladder: 0.995 per file, over five
     runs (per run 0.994 to 0.997), for the `bare-64k` rung against the default-buffer root; the
     different rung `bare-64k+full-router` prints 0.996.
-  - Ladder, 2 workers, 100 downloads, three slow-regime subset records: 1.10 to 1.25 per file. Within
+  - Ladder, 2 workers, 100 downloads, three slow-regime subset files: 1.10 to 1.25 per file. Within
     each file, run 1 reads 0.991 to 0.997 and runs 2 and 3 read 1.06 to 1.27, at identical workers,
     downloads and rungs.
   - Ladder, 4 workers, 100 downloads, slow regime: 1.21, 1.21 and 1.30 per file (1.020 to 1.412 per
@@ -280,24 +280,40 @@ is the form tests and doc examples use).
   - No fast-regime reading of the ladder at 4 workers exists; the gate gives the fast 4-worker
     buffer ratio, 0.954 to 0.958.
 
-  The regimes are defined by the measured download medians. Fast: default-buffer medians of about
-  11.6 to 12.1 ms across the fast-regime ladder and gate records (about 11.6 ms at 2 workers).
-  Slow: 20.7 to 54.9 ms across all rungs of the 4-worker slow-regime ladder records, and 33.9 to
-  42.9 ms at 2 workers (runs 2 and 3 of the 2-worker subset records, whose run 1 is fast).
+  Download medians per run, each range named by instrument, workers and rung (ms). Fast regime:
+  - Ladder, 2 workers, `bare-default-buf`: 11.47 to 11.71 (11.58 to 11.71 over the five runs of the
+    full-ladder record; 11.47 to 11.66 in run 1 of each three-rung subset file).
+  - Ladder, 2 workers, `bare-64k`: 11.57 to 11.74 (11.64 to 11.74 in the full-ladder record; 11.57
+    to 11.71 in run 1 of each subset file).
+  - Gate, 4 workers, default-buffer leg: 11.94 to 12.07; 64 KiB leg: 12.52 to 12.59.
 
-  The uncontrolled factors behind the gap:
+  Slow regime, like-for-like by rung:
+  - Ladder, 4 workers, `bare-default-buf`: 27.5 to 54.9 (nine runs); `bare-64k`: 20.7 to 41.7.
+  - Ladder, 2 workers, `bare-default-buf`: 38.3 to 42.9 (runs 2 and 3 of the three subset files, six
+    runs); `bare-64k`: 33.9 to 36.7 (the same six runs).
+  - Gate, 4 workers, default-buffer leg: 26.9 to 49.6 (nine runs); 64 KiB leg: 26.1 to 41.8.
+
+  Differences between the two instruments, none isolated; candidates, not causes. The instruments
+  differ in at least:
   - Worker count: `layers` defaults to `DEFAULT_WORKERS` (2) and takes a worker argument; the gate
     runs 4.
-  - Host regime (next entry), which moves the 2-worker `layers` reading from 0.995 to 1.10 to 1.25 per file.
-  - Downloads per run: the gate 100, the fast-regime ladder record 150.
+  - Host regime, which co-occurs with the shift in the 2-worker `layers` reading from 0.995 to 1.10
+    to 1.25 per file. The one controlled observation is within each slow subset file (run 1 reads
+    0.991 to 0.997, runs 2 and 3 read 1.06 to 1.27, at identical workers, downloads and rungs), but
+    regime is confounded with run position: run 1 is fast in all three files.
+  - Downloads per run: the gate 100, the fast-regime ladder record 150, the slow subset files 100.
+  - Rung set: the full 11-rung ladder in the fast-regime record; three rungs (`bare-default-buf`,
+    `bare-64k`, `serve_router+full-router+observed-source`) in the slow records.
+  - Binary: in the fast regime the gate's 64 KiB leg reads 12.52 to 12.59 against the ladder's
+    `bare-64k` 11.64 to 11.74.
 
   Whether to measure the gap is the owner's decision. Treat any single `layers` or gate run as one
   sample; do not quote either as "the cost of the stall machinery".
-- **The host can change regime within one process, which makes multi-run results unreliable.** One
-  process with 2 runtime workers read 11.4 to 11.6 ms on its first two runs and 29 to 39 ms on every later run,
-  while single-rung probes spaced minutes apart read 11.3 to 11.7 ms; the cause is not diagnosed
-  and it is not a blocker. Read the per-run RECORD lines
-  and discard a result whose runs straddle two regimes; a median hides the straddle.
+- **The host can change regime within one process, which makes multi-run results unreliable.**
+  Within one ladder process on the `bare-64k` rung (workers 2, 8 runs, 100 downloads), runs 1 and 2
+  read 11.73 and 11.79 ms and runs 3 to 8 read 29.24 to 36.62 ms; the cause is not diagnosed and it
+  is not a blocker. Read the per-run RECORD lines and discard a result whose runs straddle two
+  regimes; a median hides the straddle.
 - **`h2_send_buf_gate` has no ratio assertion.** It records the buffer ratio and the production ratio per
   run and asserts only that every download delivers every byte. A release-only assertion that the buffer ratio is at least
   0.90 is specified in the deferred-work backlog and waits on release-profile records from
