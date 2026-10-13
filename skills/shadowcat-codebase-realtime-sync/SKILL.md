@@ -191,11 +191,11 @@ optimistically and roll back on divergence.
   internals and the other two owner-join sources (`list_documents`'s batched prefetch,
   `effective_owner_of` on single-doc routes/search).
 - `http::routes` (+ the `http` module root) — HTTP routes (login, assets, embed).
-- `auth::session` — `SqlxSqliteStore` (DB-backed sessions), `spawn_session_sweep`
+- `auth::session` — `SqlxSqliteStore` (DB-backed sessions), `spawn_housekeeping_sweep`
   (also GCs `world_invites` rows via `DELETE FROM world_invites WHERE expires_at <= ?`, bound to
   `now_ms - INVITE_GC_GRACE_MS` (30-day grace, not the raw expiry) — an expired-but-recent invite
   survives a while post-expiry for audit/support lookup before GC actually removes it; same timer
-  as session sweep, no dedicated invite timer),
+  as the session and link-preview cache sweeps, no dedicated invite timer),
   `SessionUser`/`AuthUser`/`AdminUser`; `auth::password`, `auth::role`. `SchemeSessionLayer` and
   the cookie names (`SESSION_COOKIE_PLAIN`, `SESSION_COOKIE_TLS`) are in `shadowcat-codebase-tls`,
   as are `WsState::bounded_sink` / `BoundedSink` (the session sink) and the `Config::egress_window`

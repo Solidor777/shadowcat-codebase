@@ -82,8 +82,9 @@ guarded, per `validate_url` below).
 - **`LinkPreviewCache`** (in-memory, on `WsState`): (world, candidate URL)→`(Instant,
   Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
   fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. `cached_or_fetch`
-  gives a memory hit with a preview its asset id from the persisted row (none when the row is
-  absent; a failed row read leaves the hit as cached). This
+  gives a memory hit with a preview its asset id from the persisted row; a memory hit whose row
+  is absent counts as a miss, so the fetch rewrites the row; a failed row read leaves the hit as
+  cached. This
   is the FIRST tier of a two-tier cache — see `link_preview_cache` below for
   the persisted second tier the post-publish image pipeline reads/writes.
 - **`ChatContentPolicy.link_previews: Option<bool>`** — tri-state (absent/`None` = default-on;
@@ -194,7 +195,7 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   or oEmbed-thumbnail image URL whose row carries an id is not re-fetched. Both hold only while the
   row keeps the id (deleting the asset nulls the column). `set_link_preview_cache_image` writes
   only a row that has no id and an asset that exists in the row's world.
-  `sweep_expired_link_previews`, run from `spawn_session_sweep`, deletes rows with no asset id
+  `sweep_expired_link_previews`, run from `spawn_housekeeping_sweep`, deletes rows with no asset id
   whose `fetched_at` is more than `POSITIVE_TTL` old; a row holding an id stays.
 - **`Segment::LinkPreview.image_asset_id: Option<Uuid>`** — `#[serde(default)]` (every
   `LinkPreview` segment persisted before this field existed has no such key on disk). `enrich` sets
