@@ -46,7 +46,7 @@ sense against a single total, never a success count).
 ## Purpose
 
 A roll is a canonical `RollSpec` (an `Expr` AST of dice groups + arithmetic, a `direction`, and a
-`Mode` carrying its own config). `roll(spec, rng) -> RawRoll` draws the initial dice; `evaluate(spec, raws) -> RollOutcome` draws
+`Mode` carrying its own config). `roll(spec, rng) -> RawRoll` draws every die and every explode/reroll tail die; `evaluate(spec, raws) -> RollOutcome` draws
 nothing and is deterministic; `recalculate` applies targeted die ops then re-derives, drawing
 from its `rng` for `RecalcOp::RerollDice` and for any explode/reroll modifier tail. Randomness is a stateless noise function keyed by `(seed, index)`, so results are
 reproducible by construction without persisting the seed — only the resulting `RawRoll` (natural
@@ -353,7 +353,7 @@ on.
 ## Hard invariants
 
 - **`evaluate` draws nothing and is pure/deterministic; randomness enters only through an
-  `RngSource` passed to `roll` and `recalculate`.** Given the same `(spec, raws)`, `evaluate` MUST
+  `RngSource` handed to `roll`, `recalculate` or the `resolve_group` they share.** Given the same `(spec, raws)`, `evaluate` MUST
   return an identical `RollOutcome`. This is what makes a stored `RawRoll` (natural faces only, no
   seed) reproducible by `evaluate`.
 - **`oriented_margin` applies to Total mode ONLY; SuccessCount's margin is a plain subtraction,

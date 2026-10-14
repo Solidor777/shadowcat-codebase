@@ -41,7 +41,7 @@ consecutive faults auto-disable the module for the world. Never the default path
   validator pass (BEFORE the write transaction opens, against a read-only pool pre-image),
   which consults, per op and in this order: the authorization screen (the validation pass's own
   `authorize_create_intent`/`authorize_update_access`/`authorize_update_change` —
-  the SAME functions the validation pass's arms call inside the transaction, never a re-spelled copy),
+  the SAME functions the validation pass calls inside the transaction, never a re-spelled copy),
   then `sandbox::validate_document`, then captures `apply_intent::validated_pre_images` for
   the in-transaction re-validation the apply pass's Update arm runs when its pre-image diverges
   from the capture. `merge_update_document` is shared by the apply pass's real merge and the
@@ -84,7 +84,7 @@ consecutive faults auto-disable the module for the world. Never the default path
   through `check_command_scope` followed by the validation pass's OWN authorization functions
   (`authorize_create_intent`, `authorize_update_access`, `authorize_update_change` —
   extracted so the screen and the validation pass share one statement of the capability floor; a
-  re-spelled screen would be the never-fork defect class applied to authz). An op the validation pass
+  re-spelled screen would be the never-fork defect class applied to authz). An op that the validation pass
   would refuse gets `Forbidden` before any validator runs: its error text never discloses a
   validator's rules to an unauthorized writer, unauthorized intents never burn fuel or a
   fault streak, and a bare-id Update can never feed another world's document through this

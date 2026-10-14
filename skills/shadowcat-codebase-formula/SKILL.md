@@ -131,9 +131,9 @@ which no prose can do.
   exact size parses, one more caps — three constructs for the depth cap), and `graph.test` for
   `MAX_GRAPH_VISITS` (a chain of exactly that many distinct keys resolves, one key more caps, which
   also pins the bound as EXCEEDS rather than reaches). The deepest nesting that fits
-`MAX_FORMULA_LENGTH` returns a cap error in both twins (`parser.test` and, on a default-stack
-thread, the Rust `parser` tests), and the Rust twin also parses and evaluates a left-deep chain at
-`MAX_AST_NODES` on a default-stack thread. A LOOSE bracket pins nothing however it is
+  `MAX_FORMULA_LENGTH` returns a cap error in both twins (`parser.test` and, on a default-stack
+  thread, the Rust `parser` tests), and the Rust twin also parses and evaluates a left-deep chain
+  one node under `MAX_AST_NODES` on a default-stack thread. A LOOSE bracket pins nothing however it is
   spelled: `graph.test`'s cap-trip case and its long-chain smoke case admit every value between
   them. Name those two by what they do rather than by how many chains the file holds — a count goes
   stale the moment a case is added.

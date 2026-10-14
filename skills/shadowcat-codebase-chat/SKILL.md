@@ -82,10 +82,10 @@ guarded, per `validate_url` below).
 - **`LinkPreviewCache`** (in-memory, on `WsState`): (world, candidate URL)→`(Instant,
   Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
   fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. `cached_or_fetch`
-  gives a memory hit with a preview its asset id from the persisted row; a memory hit whose row
+  gives a memory hit with a preview its asset id from the persisted row; a memory hit that carries a preview and whose row
   is absent counts as a miss, and a miss passes the `PreviewRateLimiter` gate before its fetch
   rewrites the row, so a rate-limited miss yields no card and rewrites nothing; a failed row read
-  leaves a memory hit as cached and, with no memory hit (a cold start), counts as a miss. This
+  leaves a memory hit that carries a preview as cached and, with no memory hit (for example after a restart), counts as a miss. This
   is the FIRST tier of a two-tier cache — see `link_preview_cache` below for
   the persisted second tier the post-publish image pipeline reads/writes.
 - **`ChatContentPolicy.link_previews: Option<bool>`** — tri-state (absent/`None` = default-on;

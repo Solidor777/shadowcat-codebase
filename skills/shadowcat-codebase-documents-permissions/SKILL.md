@@ -370,7 +370,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   a v4 (random) or v7 (timestamp+random) UUID (format-only, via the `uuid` crate's own version
   query); `validate_document_id_tree(doc)` recurses it over `doc` and every
   embedded descendant, run at FOUR ingress points, not one. At BOTH authoritative Create paths
-  (`data::sqlite::apply_command`'s Create arm and `apply_intent`'s validation pass's Create-op validation
+  (`data::sqlite::apply_command`'s Create arm and `apply_intent`'s validation pass, in its Create-op
   block) it is wired immediately BEFORE `validate_property_overrides`. **An Update DOES revisit
   ids** — `apply_intent`'s `Operation::Update` arm re-runs it over the MERGED post-image, in
   lockstep just before `validate_engine_tree` (after `validate_system_size`/
@@ -491,7 +491,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
   write transaction opens.
   Per op, the pass runs `check_command_scope` followed by the validation pass's OWN authorization functions
   (`authorize_create_intent`/`authorize_update_access`/`authorize_update_change` — the same
-  symbols the validation pass's arms call inside the transaction, so the screen and the validation pass cannot
+  symbols the validation pass calls inside the transaction, so the screen and that pass cannot
   diverge on who is `Forbidden`, and a bare-id Update can never feed another world's
   document through this world's validators), then `sandbox::validate_document`, whose
   `validate_document::prior_permitted` parameter withholds the pre-image band unless the
@@ -891,9 +891,8 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 ## Gotchas
 
 - **`data::migrate::migrate` has no production caller.** Schema versioning is `CURRENT_SCHEMA_VERSION`
-  alone (read by `combat::history`); the SQL schema migrates through `sqlx::migrate!` in
+  alone (read by `combat::history`); the repository schema migrates through `sqlx::migrate!` in
   `SqliteRepository::connect`.
-
 - **OCC pre-images in one `apply_intent` batch are checked against the PRE-BATCH stored value,
   never against a sibling op's `new`.** The validation pass loads each op's current document with its own
   `load_document` read of the not-yet-written tx and applies no intra-batch simulation of an
