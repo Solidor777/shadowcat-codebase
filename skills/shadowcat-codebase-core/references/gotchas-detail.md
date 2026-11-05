@@ -30,14 +30,14 @@ Part of shadowcat-codebase-core: the full text of the gotchas and rules summariz
   TypeScript parser; and module/package/skill directory names. **A token's shape decides only
   whether it is a citation at all, never whether a citation is CHECKED** — a shape exclusion hides
   the citations it skips AND every index gap behind them, so every code span lands in exactly
-  one printed bucket — verified, acknowledged non-symbol, broken, EXAMPLE-exempt,
-  not citation-shaped, or empty — and each acknowledgement entry is hit-counted, a zero-hit entry
-  failing the gate. **That list is `SPAN_BUCKETS`, and this sentence is pinned to it by a test**:
+  one printed bucket (the list is in SKILL.md) — and each acknowledgement entry is hit-counted, a
+  zero-hit entry failing the gate. **That list is `SPAN_BUCKETS`, and the sentence in SKILL.md is
+  pinned to it by a test**:
   a claim about the code that is neither derived from it nor tested against it drifts the moment a
   bucket joins the list or its label changes. What makes it true rather than
   asserted is `spanAccountingDelta` — every backtick RUN must be one of a bucketed span's two
   delimiters, or must have left before classification by one of the ways out printed beside the
-  buckets: block-blanked, unpaired inside a span, unpaired at top level — of which the last is
+  buckets (listed in SKILL.md), of which the last, unpaired at top level, is
   always a prose defect and fails on its own, since a stray delimiter shifts pairing across its
   whole paragraph while conservation still balances. **That list is `RUN_EXCLUSIONS`, pinned by
   the same test.** The identity is enforced per file and in aggregate, or the gate fails and says

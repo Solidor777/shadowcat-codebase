@@ -94,6 +94,11 @@ source of truth. The ones agents break most:
   all committed prose — doc comments and the live tracking docs. A line number is invalidated by any
   insertion above it; a symbol breaks only on rename, which a grep finds — and for this skill
   family specifically, that grep runs automatically: `node scripts/check-skill-symbol-refs-cli.mjs` (fatal, CI-wired).
+  Every code span lands in exactly one printed bucket — verified, acknowledged non-symbol, broken,
+  EXAMPLE-exempt, not citation-shaped, or empty — and every backtick run that is not a bucketed
+  span's delimiter left before classification by one of the ways out printed beside the buckets:
+  block-blanked, unpaired inside a span, unpaired at top level — the two lists are `SPAN_BUCKETS`
+  and `RUN_EXCLUSIONS`, and a test pins these two sentences to them.
   The remainder of this bullet (the gate's span accounting, bounds, residuals and local-name rules) is in references/gotchas-detail.md; read it before changing citation conventions or the gate.
 - **As far as code is concerned, ephemeral documents, plans, dates, history and tasks DO NOT EXIST**
   (user directive, iron-clad; RULE 16). This is an ontology, not a style preference: the test is
