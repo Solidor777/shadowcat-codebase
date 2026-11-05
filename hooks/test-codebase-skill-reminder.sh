@@ -155,6 +155,10 @@ check au10 "/srv/checkouts/shadowcat/src/modules/sheet-playlist/src/PlaylistShee
 check am1 "C:/Dev/Shadowcat/src/server/src/audio_monitor/server.rs" "shadowcat-codebase-server-ops"
 check am2 "C:/Dev/Shadowcat/src/modules/ducking/src/keySource.ts" "shadowcat-codebase-audio"
 
+check rl1 "C:/Dev/Shadowcat/src/client/core/src/ruler.ts"      "shadowcat-codebase-realtime-sync"
+check rl2 "/srv/checkouts/shadowcat/src/client/core/src/uuid.ts" "shadowcat-codebase-realtime-sync"
+check rl3 "C:/Dev/Shadowcat/src/client/core/src/gesture-notice.ts" "shadowcat-codebase-scene-rendering"
+
 # `tls` precedes `realtime-sync` (shared `http/` and `ws/` globs) and `server-ops` — absolute paths
 # per the real Edit/Write payload shape.
 check tl1 "C:/Dev/Shadowcat/src/server/src/http/conn_serve/egress/table.rs" "shadowcat-codebase-tls"
