@@ -132,7 +132,14 @@ channel's own posture.
   (an AudioWorklet-hosted energy VAD; the raw audio buffer never leaves the worklet — only a
   boolean per frame crosses the MessagePort), and `osMonitor.ts`'s `OsMonitorSource` (the
   browser-side client for `shadowcat audio-monitor`'s localhost WebSocket — see
-  `shadowcat-codebase-server-ops`'s `audio_monitor` bullet for the server side). `keySource.ts`'s
+  `shadowcat-codebase-server-ops`'s `audio_monitor` bullet for the server side). **Of the three,
+  the microphone is the one source that needs secure-context members** (the browser's navigator
+  media-devices member and the audio context's worklet member, both absent on a plain-HTTP LAN
+  origin): `MicVadDeps.isAvailable` feature-checks both BEFORE any access and
+  `MicVadSource.enable` answers the distinct `"unavailable"` `MicVadDenialReason` rather than an
+  opaque permission failure; `DuckingSettings` shows its own message for it and resets the
+  checkbox. `micVad.ts` is the only file `pnpm lint:secure-context` lets name those members
+  (`shadowcat-codebase-core`). `keySource.ts`'s
   `DuckSink` is the shape `AudioApi.duck.addSource(id)` returns. `controller.ts`'s
   `DuckSourcesController` owns the key/OS-monitor sources for the whole world session
   (constructed once in `register(ctx)`, outliving any one settings-panel mount) and carries a

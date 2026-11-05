@@ -12,7 +12,7 @@ without burning a core.
 ## Purpose
 
 The stage's ticker redraws the full canvas every tick whether or not the scene changed (see
-`shadowcat-codebase-core`'s renderer bullet). This subsystem caps that cost: a
+`shadowcat-codebase-core`'s references/invariants-detail.md, renderer bullet). This subsystem caps that cost: a
 `PerformanceSettings` budget resolved from a named preset (or `"auto"` from live device
 signals), persisted per-device in localStorage — never the server `ui_state`, because a
 phone and a desktop on the same account want different budgets — and consumed by the render

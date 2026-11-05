@@ -38,8 +38,9 @@ stall the stage.
   BOTH entry paths (the raw frame and `/fx` — one rate decision per play).
 - `ws::vfx` — `VfxRequest`, `validate_bounds` (finite, inside
   `scene::move_exec::MAX_GATE_WALK_COORD`, scale ∈ (0, 8], duration ≤ 60_000,
-  ids ≤ 128 bytes), `vfx_permitted` (spectator refused BEFORE any repo call;
-  scene must exist, be a scene, be this world's, grant READ) — the ONE
+  ids ≤ 128 bytes), `vfx_permitted` (spectator refused BEFORE any repo call, then
+  `ws::scene_broadcast_permitted` — the admission `ScenePing` and `RulerUpdate` share — for the
+  scene exists, is a scene, is this world's, grants READ) — the ONE
   validation+authz both call sites (`ws::conn`'s `PlayVfx` arm and
   `chat::fx`) share.
 - `chat::fx` — `/fx <asset-id-or-name> @<token name>`: intercepted in
