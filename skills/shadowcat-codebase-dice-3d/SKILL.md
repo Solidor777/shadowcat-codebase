@@ -92,6 +92,10 @@ with 3D dice off never downloads or initializes either.
   length — the seen-set keys on (roll id, recalc count), and `scanForPlays` marks a play
   seen even when the overlay is disabled at the call site, so re-enabling never replays
   history.
+- **A roll with no `outcome` never tumbles and is never marked seen.** A blind roll the server
+  withheld from this reader arrives with its `roll_embed`/`table_draw` outcome absent; the trigger's
+  `rollsIn` skips it in `seedFromSnapshot` and `scanForPlays` alike, so the roll plays if its
+  outcome later arrives (for instance a reveal) rather than being consumed as history.
 - **`MAX_CONCURRENT_ROLLS` / `MAX_DICE_PER_ROLL` are hard caps** — at most three rolls
   tumble at once (the rest queue), and a roll past thirty dice renders thirty plus a "+N"
   badge.
