@@ -42,7 +42,8 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
 - **Commit ordering is per operation, and every file-op moves the whole sibling set.** Create
   (`commit_staged_asset`) is file-first-then-row; byte swaps (`commit_replacement`: replace,
   reconvert) are row-first-then-file [[commit-db-row-before-swapping-file]]; delete is
-  row-first-then-unlink. A sibling absent at the staged stem REMOVES the stale one at the final
+  row-first-then-trash (`discard_asset_files` moves the canonical and every sibling into the
+  server trash; no asset file is ever unlinked). A sibling absent at the staged stem REMOVES the stale one at the final
   stem (a pass-through replace has no `.orig`; an undecodable one has no derivatives).
 - **Every commit+file-op pair holds the read side of `AppState.write_barrier`** — and never
   the network-bound stream or the CPU-bound conversion (`process_staged_blocking`, on the
@@ -137,9 +138,10 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
 - **ETag == `"{id}-{version}"`** for the canonical AND its derivatives (a derivative is
   regenerated whenever the canonical's version changes, so the version keys it).
 - **World deletion removes the whole `<assets_path>/<world_id>/` directory AFTER the row
-  transaction commits** (`http::routes::delete_world` — rows first, files second; a crash
-  orphans files on disk, never a live world missing its files), holding the write barrier's
-  read side across the commit + `remove_dir_all` pair like every other asset file-op. Asset
+  transaction commits**, sent to the server trash with `Trash::discard` rather than deleted
+  (`http::routes::delete_world` — rows first, files second; a crash orphans files on disk, never a
+  live world missing its files), holding the write barrier's read side across the commit + discard
+  pair like every other asset file-op. Asset
   rows, tag rows and folder documents go with the FK cascades; the sweep also collects every
   sibling and any `*.tmp` staging residue.
 - **The world bundle carries the sibling set**: `assets/<id>` canonical plus `assets/<id><suffix>`
@@ -151,6 +153,17 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
   writes `assets_fts` directly — its triggers rebuild it from the imported `assets`/`asset_tags`
   rows, the same never-exported posture the document FTS tables hold (`world_bundle`'s module doc
   and `insert_imported_document`'s doc state it).
+
+- **Every file removal goes through `Trash`.** Functions that remove or replace asset files take a
+  `&Trash` (`discard_asset_files`, the staged-file cleanup in `process`, the audio upgrade swap,
+  `TempFileGuard` holding an `Arc<Trash>`); a Rust test that inspects the trashed files needs the
+  DEFAULT retention (`TrashRetention::Disabled`, which the shared test harness uses, removes the file
+  outright so nothing is left to inspect). A new raw unlink in the crate fails the no-fs-delete scan.
+- **Avatars reuse the bounded decoder.** `check_decodable` (in `data::asset::process`) is the bounded
+  decode a user avatar upload runs before storing; the avatar itself lives on the user row, not in
+  the asset tables.
+- **Token random-art pools search through `asset_query_builder`**, the same builder `query_assets`
+  uses, so tag/folder filters mean the same thing in both.
 
 ## Gotchas
 

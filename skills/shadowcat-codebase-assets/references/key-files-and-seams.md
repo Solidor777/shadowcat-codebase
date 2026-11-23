@@ -123,6 +123,18 @@ Part of the shadowcat-codebase-assets skill; read it when changing or consuming 
   `pickAsset` AppContext seam opens `AssetPickOverlay` (contributed into
   `shadowcat.surface:overlay`, deliberately NOT GM-gated — any member picks; the managing
   panel contribution is `gmOnly`). Replaces the retired `@shadowcat/module-assets`.
+  Browser additions: the grid has no native drag (the shared drag controller drives `FolderTree`
+  and `AssetGrid`, with `ROOT_DROP_ID` clearing the folder; see `shadowcat-codebase-client-shell`);
+  `FolderTree` is a thin wrapper over ui-kit's `DocFolderTree` and carries a context menu that calls
+  the same handlers as its buttons. `AssetList` is the list view (icon, name, `fmtBytes` size, tags;
+  `computeListWindow` virtualizes it), chosen by persisted view-mode buttons; `applySelectionGesture`
+  is the selection rule both views share. Favourites (`getFavorites` / `toggleFavorite`, re-read
+  before each flip) are per user and live under `ui_state.modules['asset-browser']`, the module
+  settings namespace; `FilterState.favoritesOnly` filters CLIENT-SIDE over the loaded pages and
+  keeps paging until the list fills, so it is not an `AssetQuery` field. `UploadQueue` takes a third
+  constructor argument for the progress notification; it reports per-file progress through
+  `AppContext.notifyProgress`, and `PreviewPane` does the same for reconvert. `fmtBytes` lives in
+  `@shadowcat/core` `format`.
   `folderOps.ts`'s `folderChildren(docs, parentId, nameCompare?)` takes an INJECTED name-tie-break
   comparator (defaulting to a plain locale-compare, so the module stays independently
   testable with no `@shadowcat/ui-kit` dependency) — `FolderTree.svelte`, the production caller,
