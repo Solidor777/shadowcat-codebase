@@ -98,12 +98,18 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
   parse that could widen enrichment on malformed input. Every toggle can only WIDEN from that
   safe baseline, so degrading to `default()` is always the safe direction.
 - `chat::commands` — `parse_command(raw: &str) -> ParsedCommand{kind,
-  whisper_to: Option<Vec<String>>, body}`, pure (no repo/async — the async caller resolves
-  `whisper_to` usernames and re-validates). Only a LEADING token counts; the same text mid-message
+  audience_intent: Option<AudienceIntent>, body}`, pure (no repo/async — it only records the
+  intent; the async `resolve_audience_intent` turns it into a concrete `Audience` and the caller
+  re-validates). `AudienceIntent` is `Whisper(names)`, `GmOnly`, `Public`, `Blind`, `SelfOnly`
+  (a whisper with no recipients), `Players` (every current non-GM member except the sender,
+  frozen at send time) or `ReplyToLastWhisper` (`Repository::last_whisper_to`; no prior whisper
+  is `SendMessageError::NoReplyTarget`). Tokens: `/w`, `/gm`, `/gmroll`, `/publicroll`,
+  `/players`, `/reply`, `/blindroll`|`/br`, `/selfroll`|`/sr`, plus the `/ooc` and `/ic` display
+  kinds. Only a LEADING token counts; the same text mid-message
   is literal. `/me `/`/em `/`/emote ` → `MessageKind::Emote`. `/roll `/`/r `, or bare `/NdM`
   shorthand (optionally `+K`/`-K`) → `MessageKind::Roll`, body stored VERBATIM/unexecuted (nothing
   in the parser executes it). `/w @user @user... rest` → `MessageKind::Normal` +
-  `whisper_to: Some(raw_usernames)` — this is chat's SECOND `/w` front-door, independent of the
+  `AudienceIntent::Whisper(raw_usernames)` — this is chat's SECOND `/w` front-door, independent of the
   `SendMessage` wire frame's `audience` field; `handle_send_message` reconciles the two,
   content taking precedence (see key-files-and-seams-03-ws-http-and-invariants.md). **`kind` can never be `MessageKind::System` from any
   parse path** — proven by an exhaustive test over every command token, not just the default

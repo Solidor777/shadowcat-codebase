@@ -115,8 +115,8 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
   - `handle_send_message(room, repo, ctx, rate, channel, content, actor_owner, audience, now,
     budget_per_min) -> Result<Command, SendMessageError>` — validates (empty/`MAX_MESSAGE_CHARS =
     4096`/`MAX_CHANNEL_CHARS = 128`/per-user-per-minute flood budget via `PingRateLimiter`), then
-    runs `parse_command(&content)`. If the parsed command carries `whisper_to` (a content-
-    level `/w @user...`), its RAW name list is cap-checked against `MAX_WHISPER_RECIPIENTS = 128`
+    runs `parse_command(&content)`. If the parsed command carries an `audience_intent` (a content-
+    level `/w @user...`, `/gm`, `/blindroll` ...), a `Whisper` intent's RAW name list is cap-checked against `MAX_WHISPER_RECIPIENTS = 128`
     BEFORE any username is resolved (resolving first would run one sequential
     `member_id_by_username` DB round-trip per `@name` ahead of the cap — the exact resource-
     amplification `MAX_WHISPER_RECIPIENTS` exists to prevent); resolved names build the

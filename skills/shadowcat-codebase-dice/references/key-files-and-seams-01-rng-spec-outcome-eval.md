@@ -82,7 +82,7 @@ Part of the shadowcat-codebase-dice skill; read it when editing dice::rng, spec,
   this field existed still deserialize; `evaluate_success` always sets this to `Vec::new()` since SuccessCount
   ignores all AST arithmetic; display-only — NOT read by `by_label`/`compare_labels`; the
   chat wire mirror (the `chat-docs` module's Zod schema) and `MessageCard` render a labeled const's
-  displayed `value` as collected by `eval::sum::collect_labeled_consts`, which threads
+  displayed `value` as collected by `eval::sum`'s `fold`, which threads
   an effective additive sign through the AST: `Neg` flips it, and `Sub`'s RHS flips it (so
   `-3[dex]` and `1d20 - 3[dex]` both display `-3`); `Mul`/`Div` do NOT scale or flip it — a
   labeled const under multiplication/division still displays its literal value, since the sign

@@ -63,6 +63,17 @@ These hold on every change to chat; the full text of each, with its rationale, i
 - **Messages ride the existing Event/redaction/search machinery with zero message-specific code in those subsystems**
 - **`spec`/`raw` on a `RollEmbed` (and every `RecalcEntry.previous_raw`) are GM-only via `permissions.property_overrides`, populated by `roll_property_overrides` at message-Create time and re-populated on every recalc**
 
+- **`permissions_for_audience` is the ONE decider of a message's readership**: `build_message_doc`
+  (create) and `handle_revise_audience` (revise) both call it. `Audience::Blind` holds the message
+  for the roller and GM always; everyone else only per `BlindReaders`
+  (`resolve_blind_readers` from the world's blind-roll settings, via `readers_for_audience`,
+  stored in the `PermissionSet` so resync, list and search agree). A blind message must hold a roll
+  (`validate_blind_content`, shared by send and revise; else `SendMessageError::BlindNeedsRoll`),
+  and its rolls' spec and result are GM-only through `roll_property_overrides`.
+- **An audience command is an intent, resolved in one place**: `parse_command` only records an
+  `AudienceIntent`; `resolve_audience_intent` is the single resolver, and `validate_audience` runs
+  on its result whichever door (frame field or content command) produced it.
+
 ## Gotchas
 
 - **Docs-ratchet is live on the whole `chat/` tree:** every module file carries
@@ -71,11 +82,12 @@ These hold on every change to chat; the full text of each, with its rationale, i
   (`ActorOwnerRef`, `Audience`) flow into the generated bindings (regenerate + commit with any
   change). SSRF docs state BOTH guard arms (literal-IP in `validate_url`, domain resolution in
   `GuardedResolver`) — keep the arm citations true when touching the preview pipeline.
-- **The four chat frames carry `request_id`, NOT `intent_id`, and correlate to `ChatError`, not
-  `Reject`.** A rejected send/edit/delete/recalc is surfaced to the sender via a `request_id`-
+- **The five chat frames (send, edit, delete, recalc, `ReviseAudience`) carry `request_id`, NOT
+  `intent_id`, and correlate to `ChatError`, not `Reject`.** A rejected send/edit/delete/recalc/
+  revise is surfaced to the sender via a `request_id`-
   correlated `ServerMsg::ChatError` (sender-only, never broadcast). Client
   side: `WsClient.sendChatMessage`/`editChatMessage`/`deleteChatMessage`/`recalcRoll` return
-  `Promise<void>` tracked in a `chatPending` map. Chat correlation is ASYMMETRIC: only a rejection
+  `Promise<void>` tracked in a `chatPending` map (`reviseAudience` joins them). Chat correlation is ASYMMETRIC: only a rejection
   replies, so the promise RESOLVES on a `CHAT_ERROR_WINDOW_MS` (15s) timeout (success-assumed) and
   REJECTS on a `chat_error` frame; `failPending` rejects in-flight ops on disconnect.
   `AppContext.chat.send`/`edit`/`delete`/`recalc` (ui-kit) return `Promise<void>`; the composer

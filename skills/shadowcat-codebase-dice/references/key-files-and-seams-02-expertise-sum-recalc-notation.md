@@ -139,7 +139,7 @@ Continues "Key files & seams" from key-files-and-seams-01-rng-spec-outcome-eval.
   emits `-N[name]` (a unary minus directly before the labeled integer literal), which parses as
   `Expr::Neg` wrapping a labeled `Const` — `factor`'s `Token::Minus` arm applies wherever a factor
   is expected, including immediately after a binary operator, so this parses in every additive
-  context a positive substitution reaches. `collect_labeled_consts` recurses through `Expr::Neg`
+  context a positive substitution reaches. `eval::sum`'s `fold` recurses through `Expr::Neg`
   with a sign flip and emits a `ConstTerm` for any `Const` carrying a label, so a negative
   substitution surfaces a correctly-signed chip in the breakdown, same as a positive one.
   `eval::sum`'s `additive_negative_labeled_constant_surfaces_a_correctly_signed_chip` test pins

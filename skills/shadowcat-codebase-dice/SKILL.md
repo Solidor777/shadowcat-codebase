@@ -178,6 +178,8 @@ Per-module entries for dice::rng, spec, outcome, eval (groups, classify, crit, e
 
 ## Gotchas
 
+- **`GroupModifier::Clamp` is one per group** (a second min or max token is `ParseError::DuplicateClamp`; the clamp sits where its first token appeared), applies to kept dice only, and applies the ceiling after the floor so a hand-built floor above the ceiling cannot panic. `SuccessRule::Parity` tests with Euclidean remainder, so a negative odd value still counts. Every `SuccessRule` match (crit, expertise) must handle each variant.
+
 Docs-ratchet, the notation-level token precedents, the expertise and e<N> mode gotchas, the wire-boundary validation split, and the compare_labels edge cases. Read references/gotchas.md before changing any of those areas or when a dice change behaves unexpectedly.
 
 ## Pointers
