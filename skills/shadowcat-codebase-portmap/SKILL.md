@@ -25,7 +25,7 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
   tests point it at fakes), `Failure` (a machine `reason` key plus a sentence).
 - `portmap::runtime` — `PortMapRuntime` (`AppState.portmap`): `activate` after the listener binds,
   `apply` on a toggle, `status`, `shutdown` after the HTTP drain; `effective_enabled`;
-  `read_stored_toggle`/`write_stored_toggle` over the `port_forward_enabled` setting.
+  `read_stored_toggle`/`write_stored_toggle` over the stored setting named by `STORED_TOGGLE_KEY`.
 - `portmap::status` — `PortMapStatus`, `PortMapState`, `PortMapProtocol`, `is_public_address`.
 - `http::port_forward` — the admin route.
 
@@ -42,7 +42,7 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
   stored toggle) is called by the runtime, the route and the status. A config key locks the toggle
   (`locked_by_config`).
 - **UPnP endpoints are trusted only when they are the device that answered discovery and sit on a
-  LAN address** (`soap::is_lan_address`; failure reason `untrusted_endpoint`). A URL naming another
+  LAN address** (`soap::is_lan_address`; `IgdError::Untrusted` surfaces as the failure reason "untrusted endpoint"). A URL naming another
   host never gets a request.
 - **A permanent lease (`lease_secs` 0, used after the router answers with the permanent-lease-only
   error) is still deleted at shutdown.**
