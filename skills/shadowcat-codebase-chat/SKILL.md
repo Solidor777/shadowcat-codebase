@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-chat
-description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), inline chat images (Segment::Image, chat::body::compose_message, the InlineImage post-publish job, Provenance::ChatImage), the synchronous chat::body::compose_static composer + chat::NOTE_CONTENT_POLICY a note's server-derived body uses (see shadowcat-codebase-tables-notes for the note engine doc type itself), the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card, plus ui-kit's SegmentList — the {@html} boundary + roll/preview/image rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat* + src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat's chat system: the message Document model (incl. source/edited/deleted markers), SendMessage/EditMessage/DeleteMessage ingest, the ops_target_message ingress guard, the WriteOrigin-gated Update exemption, the content sanitizer + shortcode pre-pass, the chat/dice settings policies, the command parser, the roll wire boundary (chat::rolls's caps/entropy/span-scanner, RollEmbed/RollButton segments, System error notices, roll immutability, attribution authz), the SSRF-guarded link-preview fetcher (chat::link_preview's GuardedResolver/IP-blocklist/redirects, chat::preview_cache, the LinkPreview segment + ingest enrich + previews_enabled toggle), inline chat images (Segment::Image, chat::body::compose_message, the InlineImage post-publish job, Provenance::ChatImage), the synchronous chat::body::compose_static composer + chat::NOTE_CONTENT_POLICY a note's server-derived body uses (see shadowcat-codebase-tables-notes for the note engine doc type itself), audience commands and audience revision (handle_revise_audience, the Blind audience and blind rolls, permissions_for_audience), secret spans (Segment::Secret), roll flavor, the opaque `system` payload and chat-card extension contracts, composer history, chat bubbles, present-note, the client body mirror (the chat-docs module), or the chat UI modules (chat, chat-composer, chat-card, plus ui-kit's SegmentList — the {@html} boundary + roll/preview/image rendering). Covers src/server/src/chat/ + src/client/core/src/chat-docs.ts + src/modules/chat* + src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Chat Core
@@ -94,7 +94,9 @@ These hold on every change to chat; the full text of each, with its rationale, i
   surfaces the reason inline (`errorMsg`).
 - **`SendMessageError`'s `Display` is a `[sec]` security boundary — do not widen it.** It is what
   `ChatError.message` carries. Validation-class variants (`Empty`/`TooLong`/`RateLimited`/
-  `UnknownRecipient`/`AudienceLocked`/`RollImmutable`) surface a specific reason; authorization/
+  `UnknownRecipient`/`UnknownChannel`/`AudienceLocked`/`RollImmutable`/`NoReplyTarget`/
+  `BlindNeedsRoll`) surface a specific reason (`Roll(_)` carries `RollError`'s own presentable
+  Display); authorization/
   existence/internal-class (`ActorNotSpeakable`/`Forbidden`/`NotFound`/`Data`) return a FIXED
   generic string that ignores the inner value. `NotFound`==`Forbidden` (existence-oracle close);
   `Data(_)` never echoes the inner `DataError`. Adding a variant means classifying it here.
@@ -171,7 +173,7 @@ Covers the client Zod mirror (`chat-docs`), the chat/chat-composer/chat-card mod
   `resolve_thumbnail_asset` all share.
 - `shadowcat-codebase-client-shell` — `AppContext.pickAsset`/`assets: AssetResolver` (the
   composer's image-insert button and `SegmentList`'s `<img>` rendering both go through it), and
-  `@shadowcat/ui-kit`'s module boundary where `SegmentList.svelte`/`RollTooltip.svelte` now live.
+  `@shadowcat/ui-kit`'s module boundary, where `SegmentList.svelte`/`RollTooltip.svelte` live.
 - `shadowcat-codebase-realtime-sync` — `Room::publish`, WS `Intent`/`SendMessage` dispatch,
   broadcast/resync, and the HTTP `write_ops` mirror guard.
 - graphify: `graphify explain "chat"` / `graphify query "how does SendMessage reach a stored

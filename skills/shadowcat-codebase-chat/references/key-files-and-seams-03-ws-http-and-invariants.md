@@ -54,10 +54,10 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
   2. **Ingress guard** (`ops_target_message`, WS `Intent` + HTTP `write_ops`) — rejects any
      client-authored `message` Create/Delete before it ever reaches chokepoint 1.
   3. **Update blanket rejection**, CONDITIONAL: `if cur.doc_type == MESSAGE_DOC_TYPE &&
-     origin != WriteOrigin::ServerMessageRevision { return Err(DataError::Forbidden); }` — still
+     origin != WriteOrigin::ServerMessageRevision { return Err(DataError::Forbidden); }` —
      rejects every ordinary client `Update` against a stored `message` doc (an owning Player's
      `DocRole::Owner` would otherwise satisfy WRITE_FIELDS and let them forge fields post-hoc), but
-     now EXEMPTS the one write shape `handle_edit_message`/`handle_delete_message` produce.
+     EXEMPTS the one write shape `handle_edit_message`/`handle_delete_message` produce.
   4. **`WriteOrigin::ServerMessageRevision` access grant**: when `cur.doc_type ==
      MESSAGE_DOC_TYPE && origin == WriteOrigin::ServerMessageRevision`, `apply_intent` does NOT
      call `resolve_access_world` (which would independently re-derive GM write authority from the
@@ -123,14 +123,14 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
   this, an unmodified resubmit of a whisper's edit-prefill (itself post-`/w`-strip `source`) could
   silently reparse into a different `kind` or spuriously trip `AudienceLocked` one token deeper.
   `AudienceLocked` therefore fires only for a non-whisper edit. A delete is a pure SOFT tombstone — `content`
-  is cleared and `deleted_at` is set via `Operation::Update` on `/engine` (was
-  `/system`), NOT a hard `Operation::Delete`; the doc stays in the sequenced log at its original
+  is cleared and `deleted_at` is set via `Operation::Update` on `/engine`
+  (not `/system`), NOT a hard `Operation::Delete`; the doc stays in the sequenced log at its original
   seq, so resync and per-recipient redaction keep applying to it unmodified. An edit on an
   already-tombstoned message is rejected (`NotFound`) — content can never be resurrected on a
   soft-deleted doc.
 - **Content model is opaque and NOT ts-rs-exported** (`MessageKind`, `Segment`, `MessageEngine`)
   — only `ActorOwnerRef` and `Audience` (both on the wire `SendMessage` frame) are. The client
-  mirror NOW EXISTS: the `chat-docs` module — Zod schemas +
+  mirror is the `chat-docs` module — Zod schemas +
   `parseMessageEngine(doc) -> ChatMessageEngine | null` (parses `doc.engine` not `doc.system`;
   fail-closed: wrong doc_type or ANY
   malformed body → null, never partial) + `isKnownSegment` (the source of truth for which
@@ -141,7 +141,7 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
   (drift notes at both ends), not a regenerated binding. `MAX_MESSAGE_CHARS` is mirrored there
   for composer pre-validation (JS `.length` counts UTF-16 units vs the server's
   `chars().count()` — divergence is fail-safe: client can only over-block). `PermissionSet`
-  itself IS a generic, already-mirrored envelope type — its new `gm_role` field is picked up by
+  itself IS a generic, already-mirrored envelope type — its `gm_role` field is covered by
   the existing drift guard, not a message-specific mirror.
 - **A whisper hides from the GM by default; only `recipients` membership grants a GM access.**
   There is no automatic GM see-all for `Whisper`/`GmOnly` messages — a GM must be individually
@@ -162,7 +162,11 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
 - **`spec`/`raw` on a `RollEmbed` (and every `RecalcEntry.previous_raw`) are GM-only via
   `permissions.property_overrides`, populated by `roll_property_overrides` at
   message-Create time and re-populated on every recalc — never a chat-specific redaction
-  filter; `outcome`/`recalc_history`/`roll_id` stay visible to every recipient.**
+  filter; `outcome`/`recalc_history`/`roll_id` stay visible to every recipient EXCEPT under
+  `Audience::Blind`, where `roll_property_overrides` also registers each roll's `formula`,
+  `outcome` and every `recalc_history` entry's `previous_outcome` (and a `TableDraw`'s `formula`,
+  `outcome` and matched `row`) as GM-only.** `spec`/`raw` are GM-only under every audience. See
+  references/audiences-secrets-flavor-and-extensions.md for the blind audience.
   `roll_property_overrides` (its name covers both `RollEmbed` and `TableDraw` segments — see the
   `push_draw_overrides` note below) is recomputed from scratch against the CURRENT `content` on
   every call (never incrementally patched), so a message's override set always matches what it

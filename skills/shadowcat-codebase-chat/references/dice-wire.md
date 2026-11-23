@@ -49,7 +49,7 @@ Part of the shadowcat-codebase-chat skill; read it when changing roll execution,
   (an executed inline roll's audit record cannot be erased by editing around it), or when the
   new content parses to kind `Roll` (no editing INTO a roll). The stored-kind check is
   deliberately UNCONDITIONAL because `kind: Roll` + `audience: Whisper` IS reachable via the
-  frame `audience` field (no `/w` token ⇒ `parse_command` still runs). Edits DO now route through
+  frame `audience` field (no `/w` token ⇒ `parse_command` still runs). Edits route through
   `chat::body::compose_message` under `ScanMode::NoExecute` — a `[[doc:]]`/`[[token:]]`/
   `[[asset:]]` span in edited content composes into its typed segment the same as on send, and a
   `[[roll:]]` button span VALIDATES structurally (a malformed formula still fails the edit), but

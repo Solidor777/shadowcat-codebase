@@ -150,3 +150,31 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   Edit prefill = `source ?? textOf`; deleted tombstone suppresses body+actions;
   actions are owner-or-GM, hover/focus-revealed only on hover-capable devices.
 
+### Blind rolls, secrets and the roll-mode picker (client seams)
+
+- **`ChatMessageEngineSchema` fails closed on a withheld roll except on a blind message.**
+  `chatMessageEngineSchemaImpl` carries a `.refine` over `holdsWithheldRoll`: a `roll_embed` or
+  `table_draw` with no `formula` or `outcome`, or a recalc entry with no `previous_outcome`
+  (recursing through `secret` content and a draw's matched row and nested draws), is valid ONLY
+  when `audience.kind === "blind"`; on any other audience the whole message is rejected
+  (`parseMessageEngine` returns `null`). The roll schemas therefore keep `formula`/`outcome`
+  optional. Hidden coupling: making them required again, or adding a roll field the server strips
+  for a blind reader, either breaks the blind card or fails open. The server half is
+  `roll_property_overrides`'s `Audience::Blind` switch (see references/audiences-secrets-flavor-and-extensions.md).
+- **A withheld blind roll renders a compact "rolled blind" card.** `MessageCard.svelte`'s
+  `isWithheldRoll` (audience `blind`, every raw segment a known `roll_embed`/`table_draw` with no
+  outcome) routes to `SegmentList`, which draws the card with no formula and no digits; a public
+  roll with the same shape stays on the pending-shell fallback. A GM sees the `blind-badge` chip
+  on any blind message, and the GM audience editor (`reviseKind`, including a `blind` option)
+  calls `ctx.chat.reviseAudience` -> `WsClient.reviseAudience`.
+- **`Segment::Secret` is `SecretSegment`, a lazy recursive Zod schema** (`secretSegmentSchemaImpl`).
+  A secret the server withheld from this reader arrives with empty `content` and renders nothing
+  (no placeholder); `SegmentList` renders readable secret content under a labelled
+  `secret-segment` span.
+- **The composer roll-mode picker rewrites the draft's leading command.** `Composer.svelte`'s
+  `ROLL_MODES` (`/blindroll `, `/selfroll `) and `REPLACEABLE_ROLL_COMMANDS` (those plus `/br `,
+  `/sr `, `/roll `, `/r `) drive `applyRollMode`, which swaps the leading roll command and leaves
+  the server's `chat::parse_command` the only parser. Hidden coupling: every command in these two
+  lists must be an alias `parse_command` accepts; renaming a server alias silently breaks the
+  picker.
+

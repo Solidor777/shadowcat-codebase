@@ -13,7 +13,7 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
   backtick-run/code-span rule. Table sortedness
   is pinned by a test (`binary_search_by_key` silently breaks on a mis-sorted row).
 - `chat::sanitize` — `sanitize(raw: &str, policy: &ChatContentPolicy) ->
-  Sanitized{segments: Vec<Segment>, image_urls: Vec<ImageSource>}` (was a bare `Vec<Segment>`;
+  Sanitized{segments: Vec<Segment>, image_urls: Vec<ImageSource>}` (the segments travel with the image sources it found;
   `Sanitized` and `ImageSource{url, alt}` are re-exported from `chat::mod` alongside `sanitize`),
   the content-security boundary. `!policy.markdown && !policy.html` short-
   circuits to a single `Segment::Text` + empty `image_urls` (identical to `plain_text_content`,

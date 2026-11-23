@@ -6,12 +6,12 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
   - `MESSAGE_DOC_TYPE = "message"`.
   - `ActorOwnerRef` (`Actor{actor_id}` | `TokenInstance{token_id}`) — the ONLY chat type with
     `#[derive(TS)]` (ts-rs export); carried on the `SendMessage` wire frame.
-  - `MessageKind` (`Normal` default, `Emote`/`Roll` producible by `parse_command`; `System`
+  - `MessageKind` (`Normal` default, `Emote`/`Roll`/`Ooc` producible by `parse_command`; `System`
     reserved for future server-authored notices — NO parse path can ever produce it, proven by an
     exhaustive test) and `Segment` (tagged enum: `Text{text}` — verbatim, client renders as a DOM
     text node; `Html{sanitized_html}` — a run of already-`ammonia`-cleaned HTML, produced ONLY by
-    `sanitize::sanitize`, client renders via `innerHTML`; `Image{asset_id, alt}` — see below) —
-    both serde-only, NO ts-rs; they live
+    `sanitize::sanitize`, client renders via `innerHTML`; `Image{asset_id, alt}` — see below; the full variant list, including `Secret`, is in
+    SKILL.md) — both serde-only, NO ts-rs; they live
     inside the `engine` JSON body, not the wire frame, so the client
     declares its own Zod mirror later. **Design note (revised for `Image`):** inline
     formatting/hyperlink markup does NOT get its own typed `Segment` variant — it stays INSIDE a
@@ -47,8 +47,10 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
   - `chat::search_text::segments_search_text(segments: &[Segment]) -> String` — the ONE
     reader-facing text extraction over a `Segment` list, shared by every caller that needs plain
     searchable text rather than a renderable body: `Text`/`Html` (tags stripped, entities
-    decoded) contribute their text, `RollEmbed` contributes its `formula` only (it carries no
-    label; never `outcome`/`spec`/`raw`/`recalc_history`), `RollButton` its `formula` + `label`,
+    decoded) contribute their text, `RollEmbed` contributes its `formula` and its `flavor` when set
+    (never `outcome`/`spec`/`raw`/`recalc_history`), `RollButton` its `formula`, `label` and `flavor`,
+    `Secret` recurses into its `content` (the document's `property_overrides` then decide whether that text reaches the
+    public index partition, via `index_content_public`'s `filter_properties` pass),
     `LinkPreview` its title, description AND url (never the image asset id), `OEmbed` its title,
     author and provider names (never an id or the url), `DocLink`/`Image` only their label/alt,
     and `TableDraw` recurses through its `table_name` and matched row's label/content, nested
@@ -56,9 +58,9 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
     (`shadowcat-codebase-documents-permissions`) calls it for BOTH `note` (a rendered `body`) and
     `message` (`content`) doc-type projections — the single function keeping those two engines'
     indexed text in sync rather than two ad-hoc leaf sweeps.
-  - `Audience` (`Public`/`Whisper{recipients: Vec<Uuid>}`/`GmOnly`, `#[default] Public`, tagged
-    enum, ts-rs exported same as `ActorOwnerRef`) — the intended readership of a message, carried
-    on the `SendMessage` frame and stored verbatim in `MessageEngine`. This is the ONLY
+  - `Audience` (`Public`/`Whisper{recipients: Vec<Uuid>}`/`GmOnly`/`Blind`, `#[default] Public`,
+    tagged enum, ts-rs exported same as `ActorOwnerRef`) — the intended readership of a message,
+    carried on the `SendMessage` frame and stored verbatim in `MessageEngine`. This is the ONLY
     server-enforced VISIBILITY concept for chat; `channel` never gates document visibility, message audience, or any capability check — that
     boundary is `Audience` alone. `channel` IS validated at ingest: `chat::settings::channel_registered` checks it
     against the world's `channel-registry` singleton (`SendMessageError::UnknownChannel`, validation-class, and
@@ -96,7 +98,10 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
     strings as inert text, never innerHTML (documented at the field — a high-volume instance of
     that pattern, not a new leak class).
   - `build_message_doc(...) -> Document` — constructs the whole `Document`: `owner = Some(user)`;
-    `audience` maps onto `PermissionSet{default, gm_role, users}` (see
+    `audience` maps onto `PermissionSet{default, gm_role, users}` through the one decider
+    `permissions_for_audience` (also called by `handle_revise_audience`;
+    `build_message_doc_with_readers` takes the `BlindReaders` a blind message's world settings
+    grant, and `build_message_doc` passes the empty default) (see
     `shadowcat-codebase-documents-permissions` for what `gm_role` does at `resolve_access` time):
 
     | `Audience` | `default` | `gm_role` | `users` |
@@ -104,6 +109,7 @@ Part of the shadowcat-codebase-chat skill; read it when editing the chat module 
     | `Public` | `Observer` | `None` | `{owner: Owner}` — the original, unrestricted default shape |
     | `Whisper{recipients}` | `None` | `Some(DocRole::None)` | `{owner: Owner, ...recipients: Observer}` |
     | `GmOnly` | `None` | `Some(DocRole::Observer)` | `{owner: Owner}` only |
+    | `Blind` | `Observer` when `BlindReaders.everyone`, else `None` | `None` | `{owner: Owner, ...BlindReaders.also: Observer}` |
 
     `owner` is inserted into `users` LAST in every branch, so a `Whisper` that redundantly names
     the sender as their own recipient can never downgrade them from `Owner` to `Observer` via
