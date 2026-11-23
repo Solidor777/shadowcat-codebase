@@ -185,9 +185,11 @@ the sheet, and opens/focuses the panel. This is the seam mods use to add their o
   evolving) but DOES assume the `sheet:` id prefix and the reverse-parseable `docId`/`embeddedPath`
   shape hold for every panelId a `SheetTarget` ever produces (see the panelId-collision invariant).
 
+- `SheetHost` has no slot or extension point for extra chrome: a sheet that needs a shared control mounts it itself. `ActorSheet` mounts ui-kit's `EffectsList` (an actor's effects with their origin text, mirroring the server's host walk), and `NoteSheet` mounts `PermissionsEditor`. Do not add a second mount path to `SheetHost` for one caller.
+
 ## Notes/tables sheets
 
-Covers the shipped note and table sheet modules: the note body renderer, the draft-base OCC save rule, note visibility and tree, whole-array table row writes, table Draw, and why neither sheet carries a delete control. Read references/notes-tables-sheets.md before changing NoteSheet, TableSheet, RowEditor or EntryEditor.
+Covers the shipped note and table sheet modules: the note body renderer, the draft-base OCC save rule, note sharing and presenting, note pages and table of contents, note visibility and tree, whole-array table row writes, table Draw, and why neither sheet carries a delete control. Read references/notes-tables-sheets.md before changing NoteSheet, TableSheet, RowEditor or EntryEditor.
 
 ## Pointers
 

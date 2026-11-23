@@ -42,6 +42,11 @@ engine through getters read fresh every tick.
   (`@shadowcat/render`'s `TextureCacheManager`) and the backend bookkeeping that feeds it live in
   `shadowcat-codebase-scene-rendering` — this skill owns only the budget NUMBER's shape and
   persistence, not the eviction policy.
+- **`nameplatesAndBars`** — a boolean in `PerformanceSettings` (true in every preset). Off means no
+  nameplate or attribute bar is projected or drawn; it gates DRAWING only and never changes what the
+  server delivers (the bars channel and its secrecy gates are in `shadowcat-codebase-scene-rendering`).
+- **Reduced motion also governs camera moves:** `Camera.panTo` snaps to its target instead of
+  animating when `reducedMotion` is set, the same way `TokenAnimator` snaps.
 - `src/client/ui-kit/src/performance.svelte.ts` — `PerformanceController`, mirroring
   `ThemeController`'s shape exactly (`$state`-backed getters, `subscribe`/`load`/`serialize`,
   a module singleton `performanceController`, and `activePerformance` for reactive component

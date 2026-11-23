@@ -30,6 +30,19 @@ through `setField`/`setFields`, never a hand-derived path shape.
   `ctx.canEdit(doc, "/permissions/default")` — true for the author via `grantAuthor`'s
   `core:edit_permissions` grant (`shadowcat-codebase-documents-permissions`) and for a GM. Sharing
   never demotes the author's own `Owner` entry.
+- **Note sharing and presenting:** the sheet mounts ui-kit's `PermissionsEditor` (default role, per-user
+  overrides through `UserMultiSelect`, an opt-in GM role; it reads the stored permission set raw as the
+  OCC old value and is gated on `canEdit` of `/permissions`). `SheetHost` has no extension point for
+  it, so the sheet mounts it directly. The "Present to players" button shares a private note first
+  with an ordinary visibility Update, then calls `ctx.notes.present`; the server never presents an
+  unshared note, and a refusal surfaces as a notice.
+- **Note pages and TOC:** `NoteEngine.kind` (`NotePageKind` text, image, pdf, video; the media kinds
+  carry an `asset_id`) is read with `parseNotePageKind`, which fails closed to text; the media block
+  renders through `ctx.assets.url` with a placeholder for a deleted or failing asset, and "Change
+  media" uses `pickAsset`. The table of contents comes from `collectHeadings` over the RENDERED
+  h1-h6 (so setext headings and raw HTML headings count) and an in-note `#fragment` click is
+  intercepted to scroll with `findAnchor` instead of navigating; the sanitizer admits fragment-only
+  URLs for exactly this (see `shadowcat-codebase-chat`).
 - **Note tree:** children come from `ctx.documents.query(NOTE_DOC_TYPE)` filtered
   `parent_id === docId`, ordered by `(engine.sort, created_at)`; "New child note" (gated on
   `ctx.canCreate(NOTE_DOC_TYPE)`) calls `buildNoteDoc(ctx.world, t("sheetNote.untitled"), "",

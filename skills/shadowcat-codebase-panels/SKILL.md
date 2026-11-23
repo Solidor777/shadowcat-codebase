@@ -156,6 +156,11 @@ Covers every key file and seam of the panel manager: the layout reducer, engine 
   `#host` is a real page-layout element sized correctly by CSS from first paint, with no
   placeholder-then-correct lifecycle of its own. `#floatingOverlayRect` (in references/gotchas.md) reads `#host` for
   the identical reason. Any future size/origin read this engine adds must do the same.
+- **Escape for a floating panel is a registration with the shared coordinator, never a keydown
+  listener.** `DockviewEngine` registers each floating panel at `ESCAPE_PRIORITY.FLOATING_PANEL`
+  and keeps the unsubscribe in `#floatingEscapeSubs`, torn down with the panel's other floating
+  accessibility state in `#teardownFloatingA11y` and on engine dispose. A new per-panel Escape
+  behaviour registers the same way (see `shadowcat-codebase-client-shell`'s Escape coordinator).
 
 ## Gotchas
 
