@@ -177,6 +177,9 @@ check tl13 "C:/Dev/Shadowcat/src/server/tests/graceful_shutdown.rs"            "
 check tl14 "C:/Dev/Shadowcat/src/server/src/ws/bounded_sink.rs"                       "shadowcat-codebase-tls"
 check tl15 "/srv/checkouts/shadowcat/src/server/src/ws/bounded_sink/tests.rs"         "shadowcat-codebase-tls"
 check tl16 "C:/Dev/Shadowcat/src/server/src/http/assets/permits.rs"                   "shadowcat-codebase-tls"
+# `portmap` precedes `realtime-sync` (shared `http/` glob), so the admin route resolves to it.
+check pm1 "C:/Dev/Shadowcat/src/server/src/portmap/runtime.rs"                       "shadowcat-codebase-portmap"
+check pm2 "/srv/checkouts/shadowcat/src/server/src/http/port_forward.rs"              "shadowcat-codebase-portmap"
 check tl17 "/srv/checkouts/shadowcat/src/server/src/http/assets/permits/tests.rs"     "shadowcat-codebase-tls"
 # Neighbours of the `tls` globs stay with their own skills.
 check tl18 "C:/Dev/Shadowcat/src/server/src/http/assets/file_response.rs"             "shadowcat-codebase-assets"

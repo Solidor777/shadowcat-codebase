@@ -22,6 +22,7 @@ SUBSYSTEMS = [
     ("vfx",                  [r"src/client/render/src/vfx-view", r"src/modules/vfx/", r"src/client/core/src/vfx\.ts", r"src/server/src/ws/vfx", r"src/server/src/chat/fx"]),
     ("chat",                 [r"src/server/src/chat/", r"src/client/core/src/chat-docs\.ts", r"src/modules/chat/", r"src/modules/chat-composer/", r"src/modules/chat-card/"]),
     ("audio",                [r"src/server/src/data/engine/audio\.rs", r"src/server/src/audio/", r"src/server/src/scene/audibility(\.rs|/)", r"src/server/src/data/asset/process/audio\.rs", r"src/client/audio/", r"src/client/core/src/(audio|audibility|playlist-docs)\.ts", r"src/modules/audio/", r"src/modules/sheet-playlist/", r"src/modules/ducking/"]),
+    ("portmap",              [r"src/server/src/portmap/", r"src/server/src/http/port_forward\.rs"]),
     ("tls",                  [r"src/server/src/http/assets/permits"]),
     ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),
