@@ -67,8 +67,9 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing vi
   sample when a next sample is unavailable or more than one sweep is concurrently in flight. No polygon morphing
   — cross-fades rasterized textures only.
 - `lighting` (client/render module) — `Lighting` class (GL-free, unit-tested):
-  resolves gradation band→darkening alpha + tint color, applies `renderHint` (e.g. `"darkvision"`
-  → gray-wash desaturation overlay), and interpolates day/night fades. Called by `PixiBackend`
+  resolves gradation band→darkening alpha + tint color, applies each cell's `RenderHint` through `hintTreatment`
+  (`desaturate` gray wash, `colorWash`, `outline`, `custom` via a registered `VisionTreatmentMeta`; `parseRenderHint`
+  narrows each wire entry and turns a string, unknown kind or malformed entry into `none`), and interpolates day/night fades. Called by `PixiBackend`
   `setLighting` which renders per-cell darkening/tint sprites + a `BlurFilter` for soft band edges.
 - **Performance render budget (client/render; the seam type lives in `@shadowcat/core` — see
   `shadowcat-codebase-performance`).** `RenderEngineOpts.performance` (a getter, the

@@ -30,6 +30,9 @@ The detail for this skill lives in references/. This section is the routing map;
 - The client PixiJS layer (`src/client/render/src/`) and token visual rendering: read references/client-render-engine.md.
 - Client `visionSweeps`/`lightSweeps`, fog blend, `Lighting` and the render performance budget: read references/client-fog-sweeps-lighting-perf.md.
 - `Stage`, `src/modules/scene-tools/`, `scene-docs`, explored-fog client seams, multi-scene viewing and client footprint consumption: read references/stage-and-scene-tools.md.
+- Facing vision (`source_los_poly`), the token rotation gate, cone lights, `RenderHint` and vision treatments, proximity walls, region occluders: read references/vision-facing-proximity-and-occluders.md.
+- Token-attached regions (`anchored_region_parts`), portal offers and `apply_teleport_to`, module placements and their expiry sweep, template-to-region conversion, scene padding, session-pause on tools: read references/regions-portals-placements-and-bounds.md.
+- The `"bars"` channel and nameplates, token overlay/art framing/facing wedge, `Camera.panTo`, snap modes and the one dash mechanism: read references/client-token-bars-art-camera-and-dash.md.
 
 ## Hard invariants
 
@@ -93,6 +96,8 @@ Gotchas are in reference files. Read the matching one before editing the code it
 - Docs ratchet, `footprint_cells` tie-break, scene auto-create, tool-swap cleanup, measure-tool route commit, move-failure notices, the shared live ruler: references/gotchas-tools-and-rulers.md.
 - `resolved_diagonal_rule`, arrest/impassable footprint gating, arrest truncation cost, GmOnly band override, hex lerp, supercover corner crossing, cross-scene stream leak class: references/gotchas-routing-and-geometry.md.
 
+- The file that declares the `scene` module is within 25 lines of the 5,000-line limit: new `SceneEcs` code goes in a sibling submodule (`anchored_regions`, `placed_regions`, `bars` and `elevation` are the pattern), never back into it.
+
 ## Reference files
 
 | File | What it holds | Read it when |
@@ -110,6 +115,9 @@ Gotchas are in reference files. Read the matching one before editing the code it
 | references/client-render-engine.md | PixiJS layer, token visuals | changing src/client/render |
 | references/client-fog-sweeps-lighting-perf.md | vision/light sweeps, fog blend, Lighting, perf budget | changing client fog/lighting playback |
 | references/stage-and-scene-tools.md | Stage, scene-tools, scene-docs, multi-scene viewing, client footprints | changing stage or tools |
+| references/vision-facing-proximity-and-occluders.md | facing vision, rotation gate, cone lights, render hints, proximity walls, region occluders | changing those server rules |
+| references/regions-portals-placements-and-bounds.md | anchored regions, portals, placements, template conversion, padding, pause | changing region features |
+| references/client-token-bars-art-camera-and-dash.md | bars/nameplates, token layers, art framing, camera, snapping, dash | changing token display or camera |
 | references/invariants-secrecy-and-gates.md | secrecy and gate invariants | see Hard invariants |
 | references/invariants-routing-and-execute-move.md | route and execute_move invariants | see Hard invariants |
 | references/invariants-streamed-vision-and-regions.md | streamed vision and region invariants | see Hard invariants |

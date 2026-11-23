@@ -15,7 +15,10 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   on the ordinary engine < system-defaults < world-settings < per-scene fold and captured by
   `SceneEcs::scene_fog_pooling` under the SAME ECS read lock as the grid maps, so one evaluation can
   never mix a stale mode with fresh geometry. `scene::explored::explored_fog_key` maps the mode to
-  either the recipient's own id or the reserved `Uuid::nil()` sentinel, and
+  either the recipient's own id or the reserved `Uuid::nil()` sentinel. There are four callers
+  (`ws::conn::enrich_vision_explored`, the pathfind handler, `Room::publish`'s Create placement gate and
+  `Room::execute_move`); any new reader of explored cells must key through it, never on the user id, or
+  shared pooling breaks silently. And
   `ws::conn::enrich_vision_explored` computes it once per (scene, level) group inside its
   per-group loop and uses that one value for both its `get_explored` read and its `set_explored`
   write — a read/write key that could diverge would let a player write into a bucket nobody reads and

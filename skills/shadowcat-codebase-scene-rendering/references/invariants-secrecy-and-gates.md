@@ -57,8 +57,9 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing an
 - **The server lit mask is the lighting-aware secrecy gate**: `player_lit_mask(user)` =
   `LOS ∩ (lit ∨ darkvision)`, union over the user's vision sources (owned tokens ∪ observer-tier
   tokens when `observerVision`), emitted as per-recipient `lit` cells. Wire format:
-  5-int `[i,j,band,tint,hint_idx]` + a top-level `renderHints:[String]`
-  table (index into the hint name, e.g. `"darkvision"`); `VisionMode` carries `render_hint`;
+  5-int `[i,j,band,tint,hint_idx]` + a top-level `renderHints` table
+  (the cell's last int indexes it; each entry is a tagged `RenderHint` OBJECT such as `{kind:"desaturate"}`, never a
+  string); `VisionMode` carries `render_hint: Option<RenderHint>` and the vision-modes ingress validates it;
   `player_lit_mask` resolves a per-cell hint via the highest-floor admitting vision mode (`None` wins
   ties). Fail-closed (no source / dark scene ⇒ empty; cell scans bounded by
   `explored::MAX_CELLS_PER_POLYGON` with a `saturating_mul` span guard). Egress is ADDITIVE —
