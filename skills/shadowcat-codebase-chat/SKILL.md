@@ -98,7 +98,9 @@ These hold on every change to chat; the full text of each, with its rationale, i
   existence/internal-class (`ActorNotSpeakable`/`Forbidden`/`NotFound`/`Data`) return a FIXED
   generic string that ignores the inner value. `NotFound`==`Forbidden` (existence-oracle close);
   `Data(_)` never echoes the inner `DataError`. Adding a variant means classifying it here.
-- **`Segment` has two variants, `Text` and `Html`; content is not always literal, inert text.**
+- **`Segment` is a wide enum (`Text`, `Html`, `RollEmbed`, `RollButton`, `LinkPreview`, `OEmbed`,
+  `DocLink`, `Image`, `TableDraw`, `Secret`); content is not always literal, inert text.** A
+  `Secret` is hidden per reader by `permissions.property_overrides`, never by a client check.
   `sanitize()` produces `Segment::Html{sanitized_html}`
   whenever the world's `chat-settings` policy has `markdown` or `html` enabled, and the client is
   expected to render that variant via `innerHTML` (it is safe by construction ONLY because it
@@ -133,6 +135,10 @@ These hold on every change to chat; the full text of each, with its rationale, i
   implies "currently privileged" — it marks who authored the message, independent of current
   privilege.
 
+## Audiences, secrets, flavor, extensions
+
+Covers the audience-command tokens and `resolve_audience_intent`, `handle_revise_audience` (the one door that changes readership after send), `[[secret:...]]` spans and their override registration, `/roll formula | flavor`, fragment-only sanitizer links, the opaque `system` payload with `CHAT_CARD_EXTENSION_CONTRACT`, composer history recall, chat bubbles and `handle_present_note`. Read references/audiences-secrets-flavor-and-extensions.md before touching any of them.
+
 ## Client display layer
 
 Covers the client Zod mirror (`chat-docs`), the chat/chat-composer/chat-card modules, SegmentList and the `{@html}` single-sink boundary. Read references/client-display-layer.md before changing chat UI modules or segment rendering.
@@ -145,6 +151,7 @@ Covers the client Zod mirror (`chat-docs`), the chat/chat-composer/chat-card mod
 | references/dice-wire.md | Dice wire: `chat::rolls`, roll segments, error notices, attribution | touching roll execution, roll segments or roll rendering |
 | references/key-files-and-seams.md | Key files and seams of the chat domain | editing server chat code, ingest, sanitizer, settings, commands |
 | references/client-display-layer.md | Client display layer | editing chat-docs, chat UI modules, SegmentList |
+| references/audiences-secrets-flavor-and-extensions.md | Audience commands and revision, secret spans, roll flavor, fragment links, `system` payload and card extensions, composer history, bubbles, present-note | touching any of those |
 
 ## Pointers
 

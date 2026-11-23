@@ -41,9 +41,10 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
 - `data::sqlite::apply_intent` — takes a `WriteOrigin` (`Client` |
   `ServerMessageRevision`, from `data::command`) parameter, threaded from
   `Room::publish` through ~60+ call sites (every existing caller passes `WriteOrigin::Client`;
-  ONLY `handle_edit_message`/`handle_delete_message`/`handle_recalc_roll`/
+  ONLY `handle_edit_message`/`handle_delete_message`/`handle_recalc_roll`/`handle_revise_audience`/
   `post_publish::run_pending_enrichments` ever construct `WriteOrigin::ServerMessageRevision`, and
-  only after either their own owner-or-GM check has already passed (edit/delete/recalc) or, for
+  only after either their own owner-or-GM check has already passed (edit/delete/recalc; revise
+  is GM only) or, for
   `run_pending_enrichments`, after an OCC re-read against the current stored document (see the
   post-publish section in references/link-previews.md — this producer runs unattended, well after the original sender's
   own authorization already gated the message's existence). FOUR coupled chokepoints:
@@ -68,9 +69,13 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
      `Audience` variants, for both the owner and a non-addressed GM —
      `handle_recalc_roll_succeeds_for_public_whisper_and_gmonly_audiences` independently
      test-proves the recalc case. `all: false` (not `all:
-     true`) is deliberate — it authorizes writing `/engine` only,
-     not `/permissions`/`/embedded`, even for this trusted origin. A write scoped to EXACTLY
-     `/engine` or `/permissions/property_overrides` is ALSO exempted from the additive
+     true`) is deliberate — the grant itself covers `/engine` (and the delete tombstone's
+     `/system` clear), not `/permissions`/`/embedded`, even for this trusted origin. The
+     `/permissions` writes are admitted separately, by exact path: `SMR_PERMISSION_PATHS`
+     (`/permissions/default`, `/permissions/gm_role`, `/permissions/users`,
+     `/permissions/property_overrides`), the first three only for a GM author
+     (`SMR_READERSHIP_PATHS`). A write scoped to EXACTLY `/engine`, `/system` or one of
+     `SMR_PERMISSION_PATHS` is ALSO exempted from the additive
      `declared_caps_for_path` world/module-requirement check (`authorize_update_change::is_scoped_smr_write`,
      a three-way conjunction: origin + doc_type + exact
      path) — `CapabilityRequirement` carries no `doc_type`, so its ancestor-overlap rule would
@@ -79,7 +84,7 @@ Continues "Key files & seams" from key-files-and-seams-01-chat-module.md.
      regardless of doc_type, denying a GM's already-vetted moderation edit/delete/recalc. A
      `ServerMessageRevision` write to any OTHER path still goes through the additive check —
      the exemption is scoped by path, not by origin alone, so it cannot silently widen if a
-     future caller of this origin ever targets a path outside those two.
+     future caller of this origin ever targets a path outside that list.
 
 - **`SendMessage` is the SOLE message-authoring path.** A stored `message` doc can only be
   produced by `chat::handle_send_message` → `chat::build_message_doc` → `Room::publish`. No other
