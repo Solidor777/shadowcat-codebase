@@ -178,7 +178,7 @@ Part of shadowcat-codebase-client-shell: the ui_state persistence pipeline, them
   off the stored Welcome projection, exposed as `AppContext.canCreate(docType): boolean`.
   `WorldSession.canDelete(doc)` mirrors the `Operation::Delete` gate (`role === "gm"` ⇒ true; else
   the SAME private `#capsFor(doc)` resolver `canEdit` already uses contains `core:delete` — never
-  a second resolver call, never raw `doc.owner`), exposed as `AppContext.canDelete(doc)`. Both are
+  a second resolver call, never raw `doc.owner`; `resolveCaps` adds `core:delete` for a token's effective owner, so an owner sees Delete on their own token), exposed as `AppContext.canDelete(doc)`. Both are
   ADVISORY (the server re-checks at `apply_intent`) and both are used to HIDE, not gate, an
   affordance the server would refuse — `ActorsPanel`'s whole create form sits under
   `canCreate(ACTOR_DOC_TYPE)` (carried-light/hide-name/ownership stay `role === "gm"`-gated

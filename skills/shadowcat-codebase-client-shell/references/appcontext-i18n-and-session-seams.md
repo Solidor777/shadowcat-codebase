@@ -96,7 +96,7 @@ Part of shadowcat-codebase-client-shell: the system contract, i18n, selection cl
   document is GM-only egress a player's derivation falls back to the combat document's own
   `turn`/`round` endpoints (a different `turn`, or the same `turn` in a later `round` — a lap), so
   a player's list is a subsequence of the GM's; nothing infers a turn from a `lifespan`
-  decrement or a combatant delete (`shadowcat-codebase-combat`'s `combat::history` bullet, in its references/key-files-and-seams.md).
+  decrement or a combatant delete (`shadowcat-codebase-combat`'s `combat::history` bullet, in its references/key-files-and-seams-01-types-snapshot-transitions.md).
   `CombatHookEmitter` emits in strict seq order. `WorldSession.dispatchIntent` returns
   `boolean`: `false` is the guarded drop before `enter()`/after `leave()` (warn + discard, no
   prediction), and `CombatController.dispatch` turns it into a thrown `CombatClientError`

@@ -40,6 +40,8 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   - System contract and server-seeded world-setting defaults, the i18n adapter (translate, plural, compare, fallback locale, module message registration), the actor, token and scene selection classes, serverRole, pathfind, combat, the hook bus fault hook, the component-facing hooks API, the notification cap and the shared sort-key primitive: references/appcontext-i18n-and-session-seams.md.
   - Move request and move stream seams, the shared-ruler seams, cold-start bootstrap from the snapshot, external-module loading and live reload, route-first boot, navigate, bounded boot fetches and the boot deadline, and the WorldSession activation latch and partial teardown: references/world-session-and-boot.md.
   - The ui_state persistence pipeline (leaf-key dirty tracking), theming, the performance mirror, multi-scene and viewed-scene seams, the asset pick seam, where the chat segment renderer lives, the chat and speak-as AppContext seams, canCreate and canDelete with role capabilities, the rejected-intent toast, firstChannel and buildMoveOp, and the single Update-op builder: references/session-state-theming-and-chat-seams.md.
+  - Escape coordinator and dialogs, the drag controller, context menus, notification progress, keybindings, folder trees and shared ui-kit components: references/interaction-primitives.md.
+  - New AppContext members (presence, member profiles, module status, portal, pause, chat-history recall) and their fixture rule, the route-prefix rule for client URLs, the onboarding tour contract and module, and the settings sections (backups, trash, port forwarding, account): references/session-features-onboarding-and-settings.md.
   - Per-package notes for the entry, core-ui, panels, stage, topbar, statusbar, settings, game-settings, scene-browser, chat, combat-tracker, notes and tables modules, including the layout grid growth cap: references/ui-module-packages.md.
 
 **Reference files:**
@@ -49,6 +51,8 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 | references/appcontext-i18n-and-session-seams.md | System contract, i18n, selection classes, serverRole, pathfind, combat, hook bus, hooks API, notifications, sort keys | changing AppContext seams, i18n, or those helpers |
 | references/world-session-and-boot.md | Move seams, shared ruler, cold-start bootstrap, external modules, boot and navigate, activation latch | touching WorldSession, App boot, or the move and ruler seams |
 | references/session-state-theming-and-chat-seams.md | ui_state persistence, theming, performance mirror, multi-scene, asset pick, chat and speak-as seams, canCreate and canDelete, reject toast, op builders | touching persistence, themes, scenes, chat wiring, or write helpers |
+| references/interaction-primitives.md | Escape, dialogs, drag, menus, notifications, keybindings, folder trees | adding any of those interactions |
+| references/session-features-onboarding-and-settings.md | New AppContext members, route prefix, tours, settings sections | adding an AppContext member, a tour, a settings section or a same-origin fetch |
 | references/ui-module-packages.md | Per-package notes for the shell and UI modules, layout grid | changing one of those modules or the layout |
 
 
@@ -63,6 +67,8 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
 - **In-game elements communicate ONLY through seams** (module contracts, `ContributionRegistry`,
   `<Surface>`, AppContext, render-layer API) — never import one another or the shell directly.
 - **Entry views are plain-routed, not contributions; surfaces are in-world only.**
+- **Escape is registered, never listened for:** a component adds a handler to `EscapeCoordinator` instead of its own keydown listener (references/interaction-primitives.md).
+- **No bare same-origin URL literal in client code:** every `/api`, `/modules` and socket URL is built with `apiPath` / `wsUrl` so a route prefix works; `pnpm lint:route-prefix` fails otherwise (references/session-features-onboarding-and-settings.md).
 - **Config docs are server-seeded; a panel never creates one.** Every config singleton
   (world-settings, the faction/condition/channel/resource registries, chat/dice settings,
   system-defaults) exists from world creation/join via the server's `ConfigSeed` path, so a
