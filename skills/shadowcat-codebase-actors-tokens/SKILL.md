@@ -46,8 +46,11 @@ Per-module entries for the scene-docs module, token node specs, conditions and b
     doc_type — an actor's owner cannot edit their own sheet. Deliberate.
   - **`/owner` is Update-writable under `cap::EDIT_PERMISSIONS`** (an immutable `/owner` would make
     GM ownership re-assignment unbuildable). `DocRole::Owner`'s BUILT-IN floor is
-    `{READ, WRITE_FIELDS}` and excludes `EDIT_PERMISSIONS`, so an effective owner cannot steal or
-    hand off ownership — but the floored role also selects additive `by_role[Owner]` grants, so a
+    `{READ, WRITE_FIELDS}` plus `DELETE` of that token (`resolve_access` adds it from
+    `holds_token_owner_floor`, the ONE test `effective_role` also uses, so the role and the
+    delete grant cannot disagree on who owns the token; client mirror: `resolveCaps` adds
+    `core:delete` for an effective owner). It excludes `EDIT_PERMISSIONS` and the embedded-document
+    management caps, so an effective owner cannot steal or hand off ownership — but the floored role also selects additive `by_role[Owner]` grants, so a
     deployment that puts `EDIT_PERMISSIONS` there lets an owner pin `/owner = self` (defeating
     GM re-assignment) and rewrite `/permissions` to lock the GM out. The capability semantics are
     exactly a *stamped* owner's; what differs is the POPULATION — "Owner" is every player with an
@@ -87,6 +90,16 @@ Per-module entries for the scene-docs module, token node specs, conditions and b
   `data::engine::normalize_engine`'s `"token"` arm, so a token can never be CREATED
   outside the range the move gate would later refuse to walk it into. An anti-drift test
   (`ingress_bound_equals_gate_walks_exactly`) pins parity with the gate's own bound test.
+
+- **GM-only token fields** (`/engine/lock_rotation`, `facing_vision` on the token, its overrides and the
+  actor, the carried light and the hidden-identity flag) are one list, `gm_only_field_touched`, enforced
+  on Create, Update and the `TemplateMerge` path. A control that writes one must be GM-only in the UI
+  too (`TokenRotationLockControl`, `TokenFacingVisionControl`, `TokenIdentityHiddenControl`). Detail:
+  references/token-fields-bars-identity-and-editing.md.
+- **Identity and display fields resolve for non-owners without the actor.** A non-owner gets no actor
+  join; `resolveTokenActor` tolerates absent copy identity fields, the generic silhouette stands in
+  for a withheld visual, and a token carries no faction (disposition comes from the actor's faction
+  stance or the token override). Detail: references/token-fields-bars-identity-and-editing.md.
 
 ## Gotchas
 
@@ -157,3 +170,4 @@ Per-module entries for the scene-docs module, token node specs, conditions and b
 | File | Holds | Read it when |
 | --- | --- | --- |
 | references/key-files-and-seams.md | The Key files & seams section: per-module entries for actors and tokens | Editing actor or token code, scene-docs, conditions, vision or face maps |
+| references/token-fields-bars-identity-and-editing.md | Bars, facing vision, rotation lock, disposition, art transform, overlays, quick edit, delete, quick bars | Adding or changing a token or actor field, an override editor or a token control |
