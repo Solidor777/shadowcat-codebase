@@ -225,7 +225,8 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   only lets the client hide a create affordance the server would refuse, never grants anything.
 - **`grantAuthor` (client-side, `@shadowcat/core`'s `scene-docs.ts`) is the one place "what an
   author may do to their own document" is stated** — the `Owner` `DocRole` floor is
-  READ+`WRITE_FIELDS` ONLY by design (an owner must not silently gain the power to reassign
+  READ+`WRITE_FIELDS` ONLY by design, except the token effective owner's DELETE, which is keyed on
+  `holds_token_owner_floor` and not on the role (an owner must not silently gain the power to reassign
   ownership or reshare a document), so a note/table author needs an EXPLICIT per-document grant of
   `core:delete`/`core:edit_permissions` onto `permissions.capabilities.by_role.owner` — the exact
   mechanism the `/owner` and `/permissions/*` path gates already name ("only a GM, or an explicit

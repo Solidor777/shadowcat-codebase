@@ -17,7 +17,7 @@ Part of the shadowcat-codebase-documents-permissions skill; read it before finis
 - **RAW OWNERSHIP IS AN UNSAFE PROXY FOR WRITE CAPABILITY ON EVERY DOC TYPE BUT `TOKEN_DOC_TYPE`,
   and a hand-rolled `permissions.default` test is an unsafe proxy for READ on ALL of them.**
   `doc.owner == Some(user)` (or `Access::is_owner`) answers "who owns this", never "may they write
-  it": `effective_role::owner_floor` is scoped to `TOKEN_DOC_TYPE`, so on any other doc type the
+  it": `holds_token_owner_floor` is scoped to `TOKEN_DOC_TYPE`, so on any other doc type the
   owner gets no role floor and can hold `cap::READ` without `cap::WRITE_FIELDS`. Symmetrically,
   `permissions.default` answers a WORLD-DEFAULT question, and a `permissions.users` entry moves the
   real per-caller answer in BOTH directions — `default: none` + `users[player] = Owner` is readable

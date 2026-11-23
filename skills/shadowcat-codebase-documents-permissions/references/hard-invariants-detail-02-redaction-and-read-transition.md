@@ -16,7 +16,7 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when changin
   The residual-segment rule is NOT shared by symbol — `required_cap_for_path` classifies a
   `FieldChange` path, `redaction_target` classifies a `property_overrides` map key, different
   fields on different structures behind different validators, so they are not required to agree
-  string-for-string in general — but on one input they now agree in effect: `writes_a_content_band`
+  string-for-string in general — but on one input they agree in effect: `writes_a_content_band`
   requires a non-empty segment past the band separator, so `/system/` is unclassifiable at both,
   the same way `redaction_target`'s own `!tail.is_empty()` guard already refused it. `/base/system/`
   agrees with the sibling top-level `/system/` for the same reason (`is_base_content_residual` is
@@ -27,10 +27,14 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when changin
   is what makes the removal provably non-destructive to deserialization), or `None`
   (unclassifiable). `None` covers two distinct populations, and the second one bites at authoring
   time: everything outside the band set — the structural remainder (`id`, `scope`, `doc_type`,
-  `schema_version`, `source`, `owner`, `permissions`, `parent_id`, `embedded`, `created_at`,
-  `updated_at`) — AND any pointer descending into a LEAF band, since `band_has_interior` gives
+  `schema_version`, `source`, `owner`, `permissions`, `parent_id`, `created_at`, `updated_at`,
+  and `embedded` when the pointer names the whole map, a collection or a whole child) — AND any
+  pointer descending into a LEAF band, since `band_has_interior` gives
   `name` no interior. So `/name` classifies `Band` while `/name/first` classifies `None` and is
-  REJECTED at ingress: an override naming a sub-path of `name` is not authorable at all.
+  REJECTED at ingress: an override naming a sub-path of `name` is not authorable at all. A pointer
+  through valid `/embedded/<coll>/<numeric idx>/` hops classifies by what it names inside that
+  child (`/embedded/actor/0/name` is `Band`, `/embedded/actor/0/engine/faction` is `Within`);
+  see references/engine-ingress-and-redaction-additions.md ("Embedded actor copies").
   - **`/base`'s interior does NOT get the ordinary "any residual is `Within`" treatment.**
     `base`'s content is not an arbitrary untyped tree — it is a `merge::bands::MergeBase`/
     `EmbeddedBaseChild`, a shape with its own required structural keys
@@ -90,30 +94,30 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when changin
     [[fog-is-the-secrecy-gate-fail-closed]]: a gate that meets an input it cannot classify
     withholds, it does not guess.
 - **A recipient's whole-document READ transition on an `Update` synthesizes a Create or a stub
-  Delete — this closes a pre-existing gap for EVERY doc type, not just combat.** Before this, a
-  `/owner` or `/permissions/default` write that flipped one recipient's whole-document
-  `cap::READ` (denied→granted, or granted→denied) produced only the ordinary field-delta `Update`
-  redaction — a recipient gaining READ got a diff against a document they never had, which the
-  client silently no-ops on an unknown `doc_id`; a recipient losing READ kept their stale last-seen
-  copy forever. `filter_command`'s `Operation::Update` arm now resolves each op's own
+  Delete, for EVERY doc type, not just combat.** A
+  `/owner` or `/permissions/default` write that flips one recipient's whole-document
+  `cap::READ` (denied→granted, or granted→denied) would otherwise produce only the ordinary field-delta `Update`
+  redaction — a recipient gaining READ would get a diff against a document they never had, which the
+  client silently no-ops on an unknown `doc_id`; a recipient losing READ would keep their stale last-seen
+  copy forever. `filter_command`'s `Operation::Update` arm resolves each op's own
   before→commit transition and, when it grants READ, synthesizes a `Create` of the filtered
   current document (still gated by the ordinary current-time `cap::READ` check, same fail-closed
   posture as every other branch); when it revokes READ, synthesizes a stub `Delete` (`delete_stub`
   — identity/placement fields only, every content band and `permissions` emptied) so nothing
-  hidden rides the retraction. The BEFORE half resolves against two new commit-time snapshot
+  hidden rides the retraction. The BEFORE half resolves against two commit-time snapshot
   fields, `OpSnapshot.permissions_before_commit`/`OpSnapshot.owner_before_commit`
-  (`#[serde(default)]`, so a legacy stored row without them falls through to the pre-existing
+  (`#[serde(default)]`, so a stored row without them falls through to the ordinary
   field-delta path unchanged) — both captured at the same pre-image load point by `apply_command`
   and `apply_intent`'s snapshot-building loops, in lockstep so the two can never desync.
   `owner_before_commit` matters beyond a same-op `/owner` write: `effective_role`'s ownership floor
   grants whole-document READ from ownership alone, so `TOKEN_DOC_TYPE` reassignment is a READ
-  transition too, and using the POST-image owner for the BEFORE half (an earlier, unsound version
-  of this rule) made that class of transition structurally invisible. Multiple `Update`s to the
+  transition too, and the BEFORE half must use the PRE-image owner: the POST-image owner would
+  make that class of transition structurally invisible. Multiple `Update`s to the
   same `doc_id` in one `Command` resolve the identical transition (the snapshot fields are
   captured once per `doc_id`, not per op) but must synthesize exactly once: only the LAST such op
   actually emits; every earlier one is dropped outright, never falling through to the ordinary
   field-delta path (whose assumptions about the recipient's existing access are exactly what a
   genuine transition violates for every op before the one that delivers it). First consumer:
   `shadowcat-codebase-combat` (a hidden combatant's owner needs the reveal/hide to arrive live,
-  not on the next resync), but the fix lives entirely in this subsystem and applies identically to
+  not on the next resync), but the mechanism lives entirely in this subsystem and applies identically to
   every doc type.

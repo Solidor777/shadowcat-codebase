@@ -70,13 +70,13 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when changin
   `/embedded/<coll>/<idx>` hops, refusing a pointer naming the snapshot's own structural keys
   (`embedded`, the recorded policy map, `sourceId`, `owner_standing`) so an override can never
   corrupt the shape egress relies on — and `recorded_overrides` ignores an admitted `/base…` key
-  as a band policy). The SECOND floor is new: the stored value
+  as a band policy). The SECOND floor: the stored value
   is `StoredBase { snapshot, owner_standing }`, where `owner_standing: OwnerStanding`
   (`Stranger`/`Reader`/`Owner`, `permission::owner_standing`) is the instance owner's standing on
   the TEMPLATE at the write that stored the snapshot; a `Stranger` (the owner holds no
   whole-document READ on the template) makes `base_policy` emit the bare `/base` pointer at
-  `GmOnly` before reading a single recorded entry — closing a gap where an instance whose owner
-  cannot read its own template still leaked the template's content through `/base`. Inside a
+  `GmOnly` before reading a single recorded entry, so an instance whose owner
+  cannot read its own template does not receive the template's content through `/base`. Inside a
   non-`Stranger` standing, `base_policy` emits one `/base{pointer}` (or
   `/base/embedded/<coll>/<k>{pointer}`, recursing into records at their SNAPSHOT positions) entry
   per entry of the stored snapshot's `property_overrides` / a record's `propertyOverrides` — the
@@ -105,6 +105,6 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when changin
   `shadowcat-codebase-templates`): it reads the stored base through `normalizeBase`, which reads a
   redaction-stripped content band (`name`/`engine`/`system`) as `null` — matching a nulled hidden
   band on the live template — while treating an absent structural key (`embedded`, the policy map,
-  a record's `sourceId`, never themselves redacted) as malformed rather than coalescing it. Since
-  the recorded policy is now verbatim, `syncState` compares it key for key like every other part of
-  the snapshot rather than excluding it.
+  a record's `sourceId`, never themselves redacted) as malformed rather than coalescing it. The
+  recorded policy is stored verbatim, so `syncState` compares it key for key like every other part of
+  the snapshot and never excludes it.

@@ -84,7 +84,7 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
     parameters; `None` means the unconditional
     GM/admin short-circuit applies (see `gm_role` invariant in references/hard-invariants-detail-01-filter-gm-role-base.md), `Some(role)` means the caller
     must resolve capabilities from that per-document role floor like any other actor.
-    **Its ownership floor (`effective_role::owner_floor`) is scoped to `TOKEN_DOC_TYPE` and NO
+    **Its ownership floor (`holds_token_owner_floor`) is scoped to `TOKEN_DOC_TYPE` and NO
     other doc type.** On every other doc type, being the owner grants no role floor whatsoever — an
     owner can sit at `DocRole::Observer` and hold `cap::READ` without `cap::WRITE_FIELDS`. See the
     ownership-is-not-a-capability-proxy gotcha in references/gotchas.md; this scoping is what makes that a live
@@ -130,7 +130,7 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   a runtime fallback the compiler cannot check, so a new `ENGINE_DOC_TYPES` entry with no
   `search_text` arm panics `search_text_is_registered_for_every_engine_doc_type` rather than
   silently indexing nothing), and — through `collect_leaves`, which recurses objects and arrays —
-  every STRING **and NUMBER** leaf of the `system` body ONLY (the `engine` band is no longer
+  every STRING **and NUMBER** leaf of the `system` body ONLY (the `engine` band is never
   leaf-swept generically; its indexed text is exactly what `search_text` names). `index_content_public`
   re-runs `filter_properties` first (a nulled band contributes nothing) and matches on its `Result`:
   an unclassifiable override makes it write EMPTY public content rather than fail the index write
@@ -160,7 +160,7 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   `data::validation::validate_document_name(name: &Option<String>)` caps `Document.name`'s UTF-8
   byte length at `data::validation::MAX_DOCUMENT_NAME_BYTES` (512) — the ONE envelope field exempt
   from the three-block (`system`/`engine`/`base`) caps above, since it lives outside all of them;
-  folded into `validate_system_size` as its first statement, so it runs at all 4 pre-existing
+  folded into `validate_system_size` as its first statement, so it runs at all 4
   `validate_system_size` call sites (Create and Update post-image, top-level and embedded) with no
   new chokepoint. `data::validation::validate_document_id(id)` rejects a `Document.id` that is not
   a v4 (random) or v7 (timestamp+random) UUID (format-only, via the `uuid` crate's own version
@@ -176,13 +176,13 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   shape as a whole. `SqliteRepository::import_world` also runs it over every imported row (a
   bundle is untrusted input, same posture as a live Create/Update), alongside its own
   `validate_system_size`/`validate_property_overrides`/`validate_engine_tree` calls. Every
-  server-generated id in the tree already uses `Uuid::new_v4()`, so this closes an ingress gap
-  without touching any production id-generation path — it rejects only a CLIENT-supplied
+  server-generated id in the tree already uses `Uuid::new_v4()`, so the check
+  touches no production id-generation path — it rejects only a CLIENT-supplied
   v1/nil/other-version id (or, on Update/import, one introduced via an embedded child). Every
   test fixture that becomes a `Document.id` must therefore be v4-shaped: `crate::test_ids::
   test_uuid(n)` (`#[cfg(test)]`-only, `src/server/src/test_ids.rs`) and
   `shadowcat_test_support::test_doc_id(n)` reproduce `Uuid::from_u128(n)`'s low-order bytes while
-  forcing the version/variant nibbles to v4/RFC4122 — the now-standard replacement for a bare
+  forcing the version/variant nibbles to v4/RFC4122 — the standard replacement for a bare
   `Uuid::from_u128(n)` anywhere the result becomes a `Document.id` (a `request_id`/`message_id`
   correlation id compared against a hardcoded wire-format string literal is NOT a `Document.id`
   and is deliberately left as plain `Uuid::from_u128`).
