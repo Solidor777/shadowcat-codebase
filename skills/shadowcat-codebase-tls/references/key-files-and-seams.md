@@ -24,7 +24,13 @@ Part of the shadowcat-codebase-tls skill. Read it before changing or reviewing T
   when the OS refuses, so the caller (`selfsigned::load_or_generate`'s `persist_error`) degrades to
   an in-memory certificate instead of persisting a key under an inherited ACL; directories the
   operator already had are never re-permissioned (only ones `keyfile::ensure_private_dir` creates
-  are restricted); a failed write leaves no `.tmp` file. `selfsigned` issues ECDSA P-256 leaves valid
+  are restricted). A failed write's `<key>.tmp` is disposed of by `keyfile::discard_failed_temp`:
+  truncated to zero length FIRST, then handed to the trash with `Trash::discard_sync` (best effort),
+  so the trash never holds key bytes (a retention of `Never` would keep them forever); a temporary
+  file that cannot be truncated stays in the protected key directory instead. `write_private` and
+  `selfsigned::load_or_generate` therefore take a `&Trash`, and the TLS `Settings` carries a `trash`
+  built by `Trash::from_config`. A test that asserts the trash entry needs a `TrashRetention` that
+  keeps entries (the default of `TrashRetention`), never `Disabled`, which removes instead of keeping. `selfsigned` issues ECDSA P-256 leaves valid
   `VALIDITY_DAYS` (397) and renews them inside `RENEW_WITHIN_DAYS` (30). `pem::PemPaths::stamp`
   is the modification stamp `maintenance_tick` compares to decide a reload.
 - `tls::ring_provider` / `install_default_provider` — the one place the crypto provider is named
