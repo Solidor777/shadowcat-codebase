@@ -33,8 +33,8 @@ Part of shadowcat-codebase-client-shell: the ui_state persistence pipeline, them
   key inside `worlds.<id>`/`global`) via `merge_one_level`; the HTTP surface, size cap, and a
   route-level pre-check on the patch's own serialized size (before the pool is touched) live in
   `http::routes::put_ui_state`. The client never sends the whole `{global, worlds}` blob.
-  Concurrent same-user sessions (two tabs) now contend only on the individual fields/keys both
-  sessions actually write, instead of last-writer-wins on a whole slice or the whole blob.
+  Concurrent same-user sessions (two tabs) contend only on the individual fields/keys both
+  sessions actually write, never as last-writer-wins on a whole slice or the whole blob.
   **`pruneStaleWorlds(memberWorldIds)`** is the client-side caller that actually exercises the
   server's whole-entry-removal path: it deletes every local `worlds.<id>` entry absent from the
   caller's current membership list, tracks each removed id in a third `dirty` set

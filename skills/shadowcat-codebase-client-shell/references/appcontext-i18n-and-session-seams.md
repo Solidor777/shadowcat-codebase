@@ -49,6 +49,12 @@ Part of shadowcat-codebase-client-shell: the system contract, i18n, selection cl
   singleton into `WorldSession`'s `ModuleRegistry` construction (`i18n` import alongside
   `SceneInteractionBridge`/`ActorSelection`/`TokenSelection`), the same precedented pattern for
   pulling a ui-kit-owned singleton into shell-built `Deps`.
+- **`AppContext.scene` (`SceneInteraction`) is the one seam a module uses to move the camera.**
+  `panToPoint(x, y, opts?)` and `panToToken(tokenId, opts?)` forward to the attached render host
+  and no-op while none is attached. `ActorsPanel`'s "locate on scene" row action calls
+  `ctx.scene.panToToken` (disabled while the actor has no token on the viewed scene), and
+  `ToolRail`'s pan-to-owned button calls `ctx.scene.panToPoint` at the centroid of the user's owned
+  tokens. A module never reaches the render engine directly.
 - **The three selection classes share a shape but NOT their repeat-set reactivity.** All of
   `ActorSelection`, `TokenSelection`, `SceneSelection` are stable instances mutated in place (never
   reassigned) so the AppContext-captured reference stays valid, and none of them PRUNE an id whose

@@ -4,7 +4,7 @@ Shared client interaction seams in `@shadowcat/core` and `@shadowcat/ui-kit`. Re
 
 ## Escape and dialogs
 
-- `EscapeCoordinator` / `ESCAPE_PRIORITY` (core) is the ONE Escape handler: a capture-phase listener that dispatches to registered handlers by priority, then recency; a handler may carry an `appliesTo` filter. Invariant: a component REGISTERS with the coordinator, it never installs its own Escape keydown. Floating panels register through the panel host's floating-escape subscription list (see `shadowcat-codebase-panels`); `ContextMenu` registers at `ESCAPE_PRIORITY.MENU`.
+- `EscapeCoordinator` / `ESCAPE_PRIORITY` (`@shadowcat/ui-kit`) is the ONE Escape handler: a capture-phase listener that dispatches to registered handlers by priority, then recency; a handler may carry an `appliesTo` filter. Invariant: a component REGISTERS with the coordinator, it never installs its own Escape keydown. Floating panels register through the panel host's floating-escape subscription list (see `shadowcat-codebase-panels`); `ContextMenu` registers at `ESCAPE_PRIORITY.MENU`.
 - A `MODAL` priority handler swallows Escape from other window listeners, so a modal that needs Escape for something else (a key-capture field) must handle it inside the modal.
 - `trapFocus`, `ConfirmDialog` / `PromptDialog` and the promise helpers `confirmDialog` / `promptDialog` replace `window.confirm` and `window.prompt`. `DialogHost` is mounted in the shell's `Table.svelte`, not contributed as a surface; a test that renders a component calling `confirmDialog` must mount `DialogHost` too.
 - `createMenuKeyboard` (activate/deactivate) drives every menu's arrow/enter handling; `ContextMenu` is built on it.
