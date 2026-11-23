@@ -9,7 +9,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing mo
   `SceneEcs::token_movement_tags(token) -> BTreeSet<String>` — the linked/instanced/override
   precedence `token_vision_floors` uses (a present `TokenOverrides::movement` REPLACES the set
   wholesale; otherwise `ActorEngine::movement` ∪ the faction record's `Faction::movement`, joined
-  through `SceneEcs::faction_registry_engine`, the faction registry now hydrated into the ECS
+  through `SceneEcs::faction_registry_engine`, the faction registry hydrated into the ECS
   config side-tables beside `vision_modes`/`gradation`; a dangling actor link or a raw/unknown
   token yields the EMPTY set — a mover whose tags cannot be resolved is never exempt; the
   instanced branch reads the embedded actor through the uncached `engine_as` path, same rule as

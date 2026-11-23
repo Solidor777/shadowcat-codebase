@@ -26,7 +26,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing an
   arrival) never touched `pendingDerived` — a still-set OLDER deferred entry (e.g. seq 5) could
   survive past a newer frame's (seq 7) immediate apply advancing `lastAppliedSeq` to 7, then get
   wrongly re-applied by a LATER `flushPendingDerived` call (any subsequent store commit), regressing
-  the mask back to seq 5. Fix: `flushPendingDerived` now applies a pending entry only when
+  the mask back to seq 5. Guard: `flushPendingDerived` applies a pending entry only when
   `p.seq > this.lastAppliedSeq` at flush time (checked AFTER the `store.appliedSeq >=
   p.seq` watermark check, BEFORE the `toVisibility` re-filter) — otherwise discards it; the pending
   slot is unconditionally cleared as soon as the watermark condition is met, applied or not. This is

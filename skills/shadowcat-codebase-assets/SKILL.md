@@ -43,7 +43,8 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
   (`commit_staged_asset`) is file-first-then-row; byte swaps (`commit_replacement`: replace,
   reconvert) are row-first-then-file [[commit-db-row-before-swapping-file]]; delete is
   row-first-then-trash (`discard_asset_files` moves the canonical and every sibling into the
-  server trash; no asset file is ever unlinked). A sibling absent at the staged stem REMOVES the stale one at the final
+  server trash, or removes them at once when the operator sets `trash_retention = "disabled"`;
+  no asset code calls a raw unlink). A sibling absent at the staged stem REMOVES the stale one at the final
   stem (a pass-through replace has no `.orig`; an undecodable one has no derivatives).
 - **Every commit+file-op pair holds the read side of `AppState.write_barrier`** — and never
   the network-bound stream or the CPU-bound conversion (`process_staged_blocking`, on the
@@ -157,8 +158,8 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
 - **Every file removal goes through `Trash`.** Functions that remove or replace asset files take a
   `&Trash` (`discard_asset_files`, the staged-file cleanup in `process`, the audio upgrade swap,
   `TempFileGuard` holding an `Arc<Trash>`); a Rust test that inspects the trashed files needs the
-  DEFAULT retention (`TrashRetention::Disabled`, which the shared test harness uses, removes the file
-  outright so nothing is left to inspect). A new raw unlink in the crate fails the no-fs-delete scan.
+  DEFAULT retention (`TrashRetention::Disabled`, a valid operator setting that the shared test
+  harness also uses, removes the file outright so nothing is left to inspect). A new raw unlink in the crate fails the no-fs-delete scan.
 - **Avatars reuse the bounded decoder.** `check_decodable` (in `data::asset::process`) is the bounded
   decode a user avatar upload runs before storing; the avatar itself lives on the user row, not in
   the asset tables.

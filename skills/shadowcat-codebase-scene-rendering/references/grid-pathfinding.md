@@ -13,9 +13,9 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   pass: (1) footprint-disc-vs-wall clearance (the token's bounding disc must clear ALL `blocksMove`
   segments, via `point_segment_distance`); (2) **mask** — every cell in `footprint_cells(to,...) ∪
   grid.inputs.shape.line_traversal(cell_center(from), cell_center(to), cell)` must be in the non-GM mask
-  (the union closes a gap — footprint-disc-at-destination alone missed a diagonal
-  step's corner-flanker cells for sub-0.5-cell footprints, letting the router approve a step the
-  executor then rejected; `None` from `line_traversal` fails closed); (3) center-to-center
+  (the union is required — the footprint disc at the destination alone misses a diagonal
+  step's corner-flanker cells for sub-0.5-cell footprints, so the router would approve a step the
+  executor rejects; `None` from `line_traversal` fails closed); (3) center-to-center
   step crosses no wall (`segments_cross`); (4) `RegionField::is_arrest`/impassable check via
   `PathGrid.inputs.regions: Option<&RegionField>` (see below; a `None` grid field means "no region enforcement",
   distinct from an empty `RegionField`). `astar_leg` — king-move A*, 4 diagonal
@@ -106,7 +106,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   truncation on the drawn route through `ToolContext.t` — REQUIRED, no English fallback copy of
   the catalog — and `ToolRail` builds its `ToolController` argument `satisfies HostToolContext`,
   every `ToolContext` member that also exists on `AppContext` made mandatory, so a host seam
-  (`t`, `moveRequest`, `combat`, …) can no longer be left out of that literal without a type
+  (`t`, `moveRequest`, `combat`, …) cannot be left out of that literal without a type
   error)/`PathError` — one-shot to the requesting connection only
   (never broadcast); `get_explored` fetched off the scene read lock (no lock across await).
   `Pathfind` also carries an optional `token: Option<Uuid>` (`ws::protocol`): when present

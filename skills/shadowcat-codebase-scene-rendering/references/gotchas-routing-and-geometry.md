@@ -77,7 +77,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing di
   (`activeScene`, in lockstep), there is no per-client "which scene am I looking at" state for a
   broadcast fan-out egress path to diverge against, so this leak class cannot exist.
   `gmViewedScene` (GM local roam) is what introduces per-client scene divergence: a room-wide
-  `MoveStream`/`ScenePing`/`Emote`/`ScrollingText`/`Vfx`/`Ruler` broadcast now reaches connections that may be
+  `MoveStream`/`ScenePing`/`Emote`/`ScrollingText`/`Vfx`/`Ruler` broadcast reaches connections that may be
   viewing DIFFERENT scenes than the event targets. `WorldSession` closes it client-side by
   dropping any frame whose `scene` doesn't equal `this.viewedSceneId` (`onMoveStream`/the
   `scene_ping`/`emote`/`onScrollingText`/`onVfx`/`onRuler` handlers,

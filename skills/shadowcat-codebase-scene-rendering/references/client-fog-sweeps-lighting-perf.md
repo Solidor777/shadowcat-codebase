@@ -25,7 +25,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing vi
   because the post-commit `vision` rebroadcast already carries the light at its FINAL position
   and painting those cells mid-walk would light the corridor's far end before the torch gets
   there, while an unrelated change the same frame carries (another light switched on) must not
-  wait for the walk — and `setDarkness`, which applies immediately, no longer pairs darkness
+  wait for the walk — and `setDarkness`, which applies immediately, never pairs darkness
   from one generation with lit cells from another. `tickLightSweep` clears the hold once the
   last sweep ends, and `reapplyViewedScene` ends every light sweep (they belong to the scene
   being left). `applyCommittedLighting` is THE one path that retargets `Lighting` from a

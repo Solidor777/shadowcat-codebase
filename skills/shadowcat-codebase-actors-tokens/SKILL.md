@@ -46,7 +46,9 @@ Per-module entries for the scene-docs module, token node specs, conditions and b
     doc_type — an actor's owner cannot edit their own sheet. Deliberate.
   - **`/owner` is Update-writable under `cap::EDIT_PERMISSIONS`** (an immutable `/owner` would make
     GM ownership re-assignment unbuildable). `DocRole::Owner`'s BUILT-IN floor is
-    `{READ, WRITE_FIELDS}` plus `DELETE` of that token (`resolve_access` adds it from
+    `{READ, WRITE_FIELDS}` (`role_floor`); the DELETE of that token belongs to the token's EFFECTIVE
+    owner, not to the role, so a stamped `permissions.users` Owner on a token and an Owner of any
+    other doc_type gain no delete (`resolve_access` adds it from
     `holds_token_owner_floor`, the ONE test `effective_role` also uses, so the role and the
     delete grant cannot disagree on who owns the token; client mirror: `resolveCaps` adds
     `core:delete` for an effective owner). It excludes `EDIT_PERMISSIONS` and the embedded-document
@@ -124,10 +126,10 @@ Per-module entries for the scene-docs module, token node specs, conditions and b
   into a `ctx.dispatchIntent` document must snapshot it the same way.
 - **`ConditionsPanel`'s `isActive`/`toggle` share ONE canEdit-gated target set.** Both read
   `editableTargets()` — every selected token resolving a `conditionTarget` AND passing
-  `ctx.canEdit` — so a non-editable token in the selection can no longer make the palette chip's
+  `ctx.canEdit` — so a non-editable token in the selection cannot make the palette chip's
   active/mixed display, or the click's ADD/REMOVE direction, diverge from what the editable
   tokens alone would show. `isActive` reports `false` (never "active") when zero editable
-  targets exist, mirroring its prior no-targets convention.
+  targets exist, the same as with no targets at all.
 - **Docs-ratchet is live on `data::engine::token`:** it carries
   `#![deny(missing_docs)]` + the private-items twin — a new undocumented field/variant on
   `TokenEngine`/`ActorEngine`/`TokenVisual`/`AnimatedSource` fails the 3-OS CI clippy step, and

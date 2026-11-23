@@ -78,7 +78,7 @@ Read references/invariants-streamed-vision-and-regions.md before changing stream
 
 Read references/invariants-routing-and-execute-move.md before changing pathfinder footprint or wall rules, the route-subset-of-gate rule or execute_move's per-cell gate:
 
-- **The pathfinder route is footprint-STRICTER than the center-based authoritative gate on WALLS, but its MASK predicate is now a superset of the gate's.**
+- **The pathfinder route is footprint-STRICTER than the center-based authoritative gate on WALLS, but its MASK predicate is a superset of the gate's.**
 - **The `route ⊆ gate-allowed` invariant is engine-agnostic, not grid-specific.**
 - **`execute_move`'s per-cell gate is the sole movement gate, footprint-aware for walls/mask/impassable, center-cell for arrest/terrain.**
 

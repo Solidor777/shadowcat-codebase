@@ -30,6 +30,7 @@ Server-side vision, light and movement-adjacent rules added on top of the base v
 ## Proximity walls
 
 - `WallEngine.proximity` is `WallProximity {within, senses, sound_gain}` with `WallSense` per sense and `MAX_PROXIMITY_CELLS`. `Seg.open_within` (`OpenWithin {distance, gain}`) plus `Seg::open_from` (inclusive, fail closed) mark a segment as open to a viewer within range; `nearest_hit` skips open segments. Collectors fill it per sense through `SceneEcs::proximity_open` (cells converted to world units). Movement and `Rect::edges` never see it: a proximity wall still blocks movement.
+- The client wall editor (`ToolRail`) writes the WHOLE `/engine/proximity` object as one field change, with the raw stored value (or `null`) as the OCC pre-image, never a per-key edit.
 - Audio: `segment_occluded` returns (blocked, gain); an open segment multiplies the gain, and `muffled` is set only on a closed segment.
 - Unresolved: streamed move-stream vision with a proximity tier has no test.
 

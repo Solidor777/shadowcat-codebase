@@ -3,7 +3,7 @@
 Part of the shadowcat-codebase-scene-rendering skill; read it before changing pathfinder footprint/wall rules, the route-subset-of-gate invariant or execute_move's per-cell gate.
 
 - **The pathfinder route is footprint-STRICTER than the center-based authoritative gate on WALLS,
-  but its MASK predicate is now a superset of the gate's.**
+  but its MASK predicate is a superset of the gate's.**
   `cell_enterable`'s wall check (footprint-disc clearance) is stricter than the
   authoritative gate's center-based wall check — a wide token can be dragged
   (gate allows the center path) along a corridor the router refuses (footprint doesn't fit); this

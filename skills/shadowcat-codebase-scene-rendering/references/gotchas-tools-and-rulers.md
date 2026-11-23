@@ -39,7 +39,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing th
   preview-sequence counter — that counter guards PREVIEW responses only, so a swap
   (`SceneTool.onDeactivate`) cannot drop a move the user already decided on. Deactivation clears
   the active-commit token (DETACHING the commit): the
-  request still executes, and the detached commit's settle leaves the overlay alone because it now
+  request still executes, and the detached commit's settle leaves the overlay alone because the overlay
   belongs to whichever tool is active next (`ToolContext.scene`'s overlay is shared). A commit begun
   after re-activation is a different token, so a detached commit's settle can never release a newer
   commit's suppression. Two commits for one token therefore send two `move_request`s; the

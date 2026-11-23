@@ -37,7 +37,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing Sc
   token's position — such a path MUST route through `execute_move` rather than re-derive its own
   gate; this list is what a reviewer checks a new gate input against, not a live
   two-gate comparison:
-  (1) **per-cell decision** — `blocks_move` (now `move_walls`-sourced) + `GridShape::line_traversal`
+  (1) **per-cell decision** — `blocks_move` (`move_walls`-sourced) + `GridShape::line_traversal`
   + `visible` mask, footprint-aware (see the Footprint predicate bullet below);
   (2) **cell indexing** — the same resolved `GridShape`, never the free square functions;
   (3) **traversal completeness** — a supercover on both grid kinds, never a thin line;
@@ -72,7 +72,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing Sc
   token in the named scene, routed through the same effective-ownership rule (never a forked
   ownership check), failing with the generic `Unreachable` so it discloses nothing.
 - **`/engine` re-root.** Every scene/vision/movement/pathfinding document read in this
-  subsystem now goes through the typed `engine` band, not a `/system` pointer walk. `scene`'s
+  subsystem goes through the typed `engine` band, not a `/system` pointer walk. `scene`'s
   private `engine_as::<T: DeserializeOwned>(doc: &Document) -> Option<T>` (`doc.engine.as_ref()
   .and_then(|v| serde_json::from_value(v.clone()).ok())`) is the module-local typed accessor every
   reader calls — a `None` result (absent `engine`, or a stored value that fails to parse) is what
@@ -91,7 +91,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing Sc
   **`engine_as_cached` is a caching wrapper around `engine_as` for hot-path callers:** the free function `engine_as` still
   fully re-`serde_json::from_value`-decodes on every call; `SceneEcs::engine_as_cached::<T>(&self,
   id: Uuid, doc: &Document) -> Option<T>` is the cached wrapper 18 of the ~19 hot-path call sites
-  in `scene` now go through (walls, tokens, scenes, regions, lights, the world-settings/gradation/
+  in `scene` go through (walls, tokens, scenes, regions, lights, the world-settings/gradation/
   vision-modes singletons, and actor-table lookups). Cache correctness is VALUE-COMPARISON based,
   not mutation-site invalidation: a cached entry (keyed on the document's own id) is reused only
   when its stored source `engine` `Value` still equals the document's current one — `apply_op` is

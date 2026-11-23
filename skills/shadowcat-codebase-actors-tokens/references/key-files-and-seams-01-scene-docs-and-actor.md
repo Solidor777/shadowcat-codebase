@@ -8,7 +8,7 @@ Part of the shadowcat-codebase-actors-tokens skill; read it when editing the sce
   position, vision, conditions, and visual on `doc.engine`, not `doc.system` (there is no
   `ActorSystem`/`TokenSystem`/`FactionRegistrySystem`/`ConditionRegistrySystem` back-compat
   alias). `ItemSystem` is UNCHANGED — `ITEM_DOC_TYPE` is a client-only doc_type with no Rust-side
-  registration, not one of the 23 engine-defined types, so it stays on the opaque `system` band
+  registration, not an engine-defined doc type (see `ENGINE_DOC_TYPES`), so it stays on the opaque `system` band
   ([[shadowcat-codebase-sheets]]/`shadowcat-codebase-documents-permissions` cover it).
   - `buildActorDoc(worldId, name, engine, id?)` — `name: string | null` is a DEDICATED parameter
     (the envelope `name` band), separate from the `ActorEngine` body.
@@ -73,7 +73,7 @@ Part of the shadowcat-codebase-actors-tokens skill; read it when editing the sce
     unconverted, so a resolved default is never scaled relative to an explicit override.
     **An omitted RANGE is not the same as an omitted ASSIGNMENT**, and confusing the two inverts the
     meaning: `ActorsPanel` clears darkvision by writing `null`/`[]` — dropping the whole assignment —
-    rather than by writing an assignment with no range, which would now grant the mode's default
+    rather than by writing an assignment with no range, which grants the mode's default
     instead of removing vision.
   - **Carried light:** `ActorEngine.light?: LightEmission` and `TokenOverrides.light?:
     LightEmission` — the SAME `LightEmission` payload a standalone `light` document's

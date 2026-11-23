@@ -22,5 +22,6 @@ Field-level seams added to `ActorEngine`, `TokenOverrides` and `TokenEngine`, an
 ## Quick edit and delete
 
 - `TokenQuickEdit` (`actors` module, `quickEditTokenId` = exactly one selected token): elevation, `ConditionTogglePalette`, bar nudges through `barQuickEdit` / `resolveQuickBars`. Linked tokens write `/system/<path>`, instanced tokens `/embedded/actor/0/system/<path>`. Bar label, colour and mode match greedily; writes carry the old value as the OCC pre-image.
-- The Delete button is gated on `ctx.canDelete` alone and deletes with the FULL pre-image. `canDelete` is true for the GM and for the token's effective owner (the owner floor includes DELETE; see the ownership invariant above). A UI that hides Delete from owners is a defect.
+- The Delete button is gated on `ctx.canDelete` alone and deletes with the FULL pre-image. `canDelete` is true for the GM and for the token's effective owner (the effective owner holds DELETE of the token; see the token-ownership invariant in SKILL.md). A UI that hides Delete from owners is a defect.
+- A token built by `buildTokenDoc` (the place tool's output) carries `owner: null`. A LINKED token's effective owner is its actor's `/owner` (see the token-ownership invariant in SKILL.md), so a freshly placed token has no owner of its own and no player holds it until the actor is assigned one.
 - Onboarding anchors (`tourAnchor`) are placed on controls here; see `shadowcat-codebase-client-shell`.

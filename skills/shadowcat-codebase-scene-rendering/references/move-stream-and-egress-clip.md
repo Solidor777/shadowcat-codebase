@@ -89,7 +89,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   under its original `token_id` (the client overwrites playback keyed by `token_id`, not
   `request_id`; `request_id` is preserved unchanged and only proves the re-emit is A's own
   original frame) — to this connection only, a re-emit being a glow-only frame when only the
-  glow now reaches (`egress_reemit_yields_a_glow_only_frame_when_only_the_glow_reaches`); a
+  glow reaches (`egress_reemit_yields_a_glow_only_frame_when_only_the_glow_reaches`); a
   zero-progress move (never registered in `Room::scene_streams`) cannot populate a usable
   timeline and is excluded from triggering this path. `MoveError` stays
   mover-only via `handle_socket::etx`, generic (no path/vision geometry disclosed).

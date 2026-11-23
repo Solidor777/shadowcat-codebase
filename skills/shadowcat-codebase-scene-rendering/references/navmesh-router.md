@@ -103,7 +103,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
     integer point, silently returning ZERO polygons from `.buffer()` — a distinct, more severe bug
     class (**silent fail-OPEN**: the wall obstacle vanishes from the mesh under inputs that pass
     every magnitude check, and a route can pass straight through where a wall should block).
-    `build_navmesh` now treats an empty-buffer result for a non-degenerate wall as a hard
+    `build_navmesh` treats an empty-buffer result for a non-degenerate wall as a hard
     whole-build failure (`None`), distinguishing it from a genuinely zero-length segment (a
     legitimate no-op, not a failure). `MAX_NAVMESH_OBSTACLE_SEGMENTS` (5000) caps wall count.
   - `navmesh_find(nav, start, waypoints) -> Result<PathOutcome, PathFail>` — any-angle multi-leg
