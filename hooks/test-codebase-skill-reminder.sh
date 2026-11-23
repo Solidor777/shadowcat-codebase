@@ -187,4 +187,17 @@ check tl19 "/srv/checkouts/shadowcat/src/server/src/auth/session.rs"            
 check tl9 "C:/Dev/Shadowcat/src/server/src/ws/room.rs"                      "shadowcat-codebase-realtime-sync"
 check tl10 "C:/Dev/Shadowcat/src/server/src/http/routes.rs"                 "shadowcat-codebase-realtime-sync"
 
+# `server-ops` claims the backup catalog, the trash and their admin routes ahead of `realtime-sync`
+# (shared `http/` glob); absolute paths per the real Edit/Write payload shape.
+check so1 "C:/Dev/Shadowcat/src/server/src/backup/catalog.rs"               "shadowcat-codebase-server-ops"
+check so2 "/srv/checkouts/shadowcat/src/server/src/trash.rs"                "shadowcat-codebase-server-ops"
+check so3 "C:/Dev/Shadowcat/src/server/src/http/backups.rs"                 "shadowcat-codebase-server-ops"
+check so4 "/srv/checkouts/shadowcat/src/server/src/http/trash.rs"           "shadowcat-codebase-server-ops"
+# `client-shell` owns the onboarding module and the interaction-primitive core files.
+check cs1 "C:/Dev/Shadowcat/src/modules/onboarding/src/index.ts"            "shadowcat-codebase-client-shell"
+check cs2 "/srv/checkouts/shadowcat/src/client/core/src/tour.ts"            "shadowcat-codebase-client-shell"
+check cs3 "C:/Dev/Shadowcat/src/client/core/src/dnd.ts"                     "shadowcat-codebase-client-shell"
+check cs4 "/srv/checkouts/shadowcat/src/client/core/src/keybindings.ts"     "shadowcat-codebase-client-shell"
+check cs5 "C:/Dev/Shadowcat/src/client/core/src/base-path.ts"               "shadowcat-codebase-client-shell"
+
 echo "ALL HOOK TESTS PASS"
