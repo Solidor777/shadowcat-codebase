@@ -180,6 +180,15 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   invalid base throws. Two checkouts run the suite at the same time only with different bases; never
   write a literal test-server port in a spec or config. CI selects the release-build server through
   the e2e profile environment variable that `playwright.config.ts` reads.
+- **End-to-end spec conventions that fail silently when ignored.** Every test server runs with
+  `SHADOWCAT_ONBOARDING_ENABLED=false` (`SERVER_ENV` in `playwright.config.ts`): the first-use tour
+  offer is a fixed toast over the bottom-left of the viewport and intercepts the pointer over tiles
+  and pickers; the first-use path is therefore not covered by the shared suite, and the tours stay
+  reachable through the settings panel's replay buttons. `clickScene` and the other stage gestures
+  take canvas-local pixels, never page coordinates. A panel whose launcher default is closed
+  (the actors panel, for one) must be opened with `openPanel(page, contributionId)` before a spec
+  reaches into it. A confirm the product asks through `confirmDialog` is answered by clicking the
+  `confirm-dialog-confirm` test id; no native dialog fires.
 - **A jsdom package whose tests reach the browser's local storage lists the shared
   `test-setup/jsdom-local-storage.ts` first in its `setupFiles`** (the shell, ducking and dice-3d
   configs do; most jsdom packages do not). Node exposes a non-functional global local-storage

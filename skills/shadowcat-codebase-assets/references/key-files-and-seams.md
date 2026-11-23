@@ -116,7 +116,9 @@ Part of the shadowcat-codebase-assets skill; read it when changing or consuming 
   dispatching `Operation::Move` via `buildMoveOp`), `FilterBar` mapped 1:1 onto `queryAssets`
   (`FilterState.query`/`queryIsRegex` drive `AssetQuery.q` when
   not in regex mode, `nameRegex` when in it; testid `filter-query`),
-  the `computeGridWindow`-virtualized multi-select `AssetGrid`, `PreviewPane` (tags/rename/
+  the `computeGridWindow`-virtualized multi-select `AssetGrid` (its tile track minimum is 96px,
+  sized so a tile's centre stays clear of the 44px favourite star's touch target; the minimum
+  follows the star, so a narrower track puts the star over the tile centre), `PreviewPane` (tags/rename/
   replace/download-original/reconvert/delete), `BulkBar`, and the sequential `UploadQueue`
   (model in `uploadQueueModel.svelte.ts` — a case-insensitive filesystem cannot hold
   `uploadQueue.svelte.ts` beside `UploadQueue.svelte`). Pick mode: the `assetPick` /

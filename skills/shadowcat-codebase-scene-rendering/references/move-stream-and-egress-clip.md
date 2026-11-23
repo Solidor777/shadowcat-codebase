@@ -128,6 +128,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   A recipient the glow alone reaches gets the GLOW-ONLY frame (see the `ws::conn` bullet).
   Within an admitted timeline the polygons are NOT clipped to the recipient's sight — the client
   intersects them with its own fog — and the glow geometry outside it (which also implies the
-  emitter's position, its polygon's kernel) is an accepted disclosure — UX outranks data secrecy
-  for scene geometry; only PII and remote-device security are absolute — bounded by the
+  emitter's position, its polygon's kernel) is an accepted disclosure — game-state secrecy yields to
+  experience, configurability and performance; only personal user information (IP addresses,
+  account details, credentials) and remote-device security are absolute — bounded by the
   emission's own reach: the admission is what bounds the radius of disclosure.

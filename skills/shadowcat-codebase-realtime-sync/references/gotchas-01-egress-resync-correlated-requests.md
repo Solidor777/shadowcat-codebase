@@ -58,7 +58,8 @@ Part of the shadowcat-codebase-realtime-sync skill; read it when changing egress
   citations true when changing a route's gating.
 
 - **Permissions filter every broadcast per recipient** — hidden fields are stripped before
-  transmission (see `shadowcat-codebase-documents-permissions`), never sent-then-hidden.
+  transmission by default (see `shadowcat-codebase-documents-permissions`); only game state may
+  be sent-then-hidden, never personal user information.
 - **Live search rides the broadcast** as top-N subscriptions over the same egress
   [[m6c-2-live-search]]. `ClientMsg::Search` and the `Egress::Subscribe`/`Sub` subscription
   record both carry `doc_types: Vec<String>` (`#[serde(default)]` on the frame, so an omitted

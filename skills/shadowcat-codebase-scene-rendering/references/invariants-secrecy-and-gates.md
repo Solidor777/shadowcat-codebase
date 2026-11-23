@@ -96,7 +96,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing an
   with its mask cleared, the explicit branch, never through an inverse mask over an empty
   `Graphics` whose rendering the code would otherwise be assuming — so an in-sight unlit cell is
   as dark as the darkest band, never brighter than a dim cell, and a token standing in it is
-  drawn under that darkness (send-then-hide, under the UX-outranks-secrecy invariant; the server never streams its
+  drawn under that darkness (send-then-hide, which game state may do and personal user information may not; the server never streams its
   MOVE to that observer). Darkness is withheld when no lighting model applies
   (`Lighting.setTarget(null)`: a GM's `mode:"all"`), and the client still performs no occlusion
   or illumination computation of its own — band→alpha, tint and `renderHint` desaturation are

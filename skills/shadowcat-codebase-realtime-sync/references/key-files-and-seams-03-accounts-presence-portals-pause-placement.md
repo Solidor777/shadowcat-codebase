@@ -32,15 +32,18 @@ Continues "Key files & seams" from key-files-and-seams-02-protocol-http-auth-cli
   receiving user included, built after their own `presence_connect`), so a late joiner never
   waits for another member's next transition. The client surface is `WsClientHandlers.onPresence`
   and `AppContext.presence`.
-- **`ServerMsg::MemberProfile{user, colour, pronouns, has_avatar}`**: out-of-band like `Presence`,
-  sent by `RoomRegistry::broadcast_member_profile` into every live room of each world
-  `worlds_for_user` seats the user in (a world with no live room is skipped; its next `Welcome`
-  roster read carries the stored profile). `http::routes`'s `put_profile`, `put_avatar` and
-  `delete_avatar` call it after the write; the payload comes from
-  `SqliteRepository::member_profile`, which reads no avatar bytes, so a receiver derives the image
-  URL with `avatarUrl` and fetches it. The display name has no edit route, so the frame carries
-  only the three profile fields. A member seated after other clients connected is not added to
-  their roster by either frame.
+- **`ServerMsg::MemberProfile{user, username, colour, pronouns, has_avatar}`**: the member's
+  roster row, out-of-band like `Presence`. Two senders. `RoomRegistry::broadcast_member_profile`
+  sends it into every live room of each world `worlds_for_user` seats the user in (a world with
+  no live room is skipped; its next `Welcome` roster read carries the stored profile);
+  `http::routes`'s `put_profile`, `put_avatar` and `delete_avatar` call it after the write.
+  `RoomRegistry::announce_member_seated` sends it into the one world's live room after a seating;
+  **every path that seats a member must call it** (`http::routes::add_member` and
+  `accept_invite` do), or that world's connected clients never list the new member until their
+  next `Welcome`. Both senders build the frame in `member_profile_frame` from
+  `SqliteRepository::member_profile`, which returns a `MemberProfileRecord` and reads no avatar
+  bytes, so a receiver derives the image URL with `avatarUrl` and fetches it. The announce is
+  best effort: a failure is logged with `tracing::warn` and never fails the seating request.
 - **A hand-built `Welcome` carries `online_users`**: the Rust variant and the `wire.ts` Zod arm
   both require it, so every struct literal (`ws::protocol` tests) and every client mock
   (`mock-server`) lists the field or fails to build or parse.

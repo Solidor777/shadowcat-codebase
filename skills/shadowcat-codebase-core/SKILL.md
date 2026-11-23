@@ -40,8 +40,11 @@ The full list is `docs/design/ARCHITECTURE.md` §2 (10 invariants) — load-bear
 source of truth. The ones agents break most:
 
 - **Server-authoritative, permissions per-recipient.** Client sends intents; server validates,
-  applies, broadcasts. Hidden fields are stripped **before** transmission, never sent-then-hidden.
-  See `shadowcat-codebase-documents-permissions`.
+  applies, broadcasts. Hidden fields are stripped **before** transmission by default. Two classes
+  rank differently (`docs/design/ARCHITECTURE.md` §2): personal user information (IP addresses, account
+  details, credentials, remote-device security) is never traded for anything; game state yields to
+  user experience, configurability and performance, so send-then-hide is accepted there with the
+  client's fog or redaction as the gate. See `shadowcat-codebase-documents-permissions`.
 - **Optimistic with rollback.** Documents are source of truth; ECS/runtime is derived & ephemeral.
 - **NEVER FORK A DECISION ACROSS TWO PATHS — the defect class this codebase produces most.**
   Whenever two code paths are *documented* to agree on something, they eventually disagree on an

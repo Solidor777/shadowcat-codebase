@@ -90,7 +90,7 @@ stall the stage.
   `TokenView.transformOf` (the animator's live transform), never the
   doc-projected target and never a second tween.
 - **The fog mask still hides effects.** The `vfx` layer sits BELOW `mask`:
-  a one-shot reaches every recipient over the wire (`docs/design/ARCHITECTURE.md` §2 invariant 11) but is
+  a one-shot reaches every recipient over the wire (game state is sent-then-hidden, `docs/design/ARCHITECTURE.md` §2 invariant 11) but is
   visually masked at points they cannot see.
 - **Anchor rule, all inside the `vfx` layer** (which sits above `tokens`, so
   no effect ever draws under token art): `below` = footprint base, zIndex 0;

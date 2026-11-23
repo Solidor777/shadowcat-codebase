@@ -15,8 +15,9 @@ carrying **three bands**: the envelope `name: Option<String>` itself, a typed `e
 JSONB body (present only for engine-defined `doc_type`s, strictly ingress-validated), and an
 opaque `system` JSONB body whose meaning the engine never decides (it evaluates engine-grammar
 formulas over leaves a formula names — see `shadowcat-codebase-formula`). Permissions are enforced
-server-side **per recipient**: hidden fields are stripped before transmission, never
-sent-then-hidden. This subsystem also owns the visibility-partitioned full-text index.
+server-side **per recipient**: hidden fields are stripped before transmission by default.
+Send-then-hide is accepted for game state where experience, configurability or performance needs
+it, never for personal user information (IP addresses, account details, credentials). This subsystem also owns the visibility-partitioned full-text index.
 
 ## Reference files
 
