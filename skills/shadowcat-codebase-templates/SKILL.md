@@ -80,6 +80,17 @@ Covers every key file and seam of the server merge engine, its intent handlers a
 
 ## Gotchas
 
+- **The scene `template` document is not a template in this system.** `TemplateEngine` (a measured
+  area drawn on a scene: circle, cone, rect or line) is an ordinary engine doc_type that shares only
+  the word. It never carries a `source` or a `base` and never enters `merge`. A GM turns one into a
+  `region` through `buildRegionFromTemplate` (`@shadowcat/core`, tessellation shared with the render
+  layer; one batch: Create the region, Delete the template with its full pre-image), reached from
+  scene-tools' `ToolController.convertTemplateToRegion`. The region is plain terrain (cost 1, no
+  triggers, no colour); the template stays a drawing and no effect is copied across. Conversion
+  mechanics are in `shadowcat-codebase-scene-rendering`.
+- **A region a module placed (`Room::place_declared`) is born with `source: None` and `base:
+  None`**, so no instance, pull, push or revert ever relates it to a template; it is not a stamp of
+  anything. Its write is validated like any other (`shadowcat-codebase-sandbox`).
 - Every `$derived.by` in `TemplateControls` that reads `ctx.documents` (directly or via
   `ctx.templates.*`, which reads the same underlying store) must call the component's own
   `subscribe()` first — same freeze-at-first-read hazard as every other sheet
