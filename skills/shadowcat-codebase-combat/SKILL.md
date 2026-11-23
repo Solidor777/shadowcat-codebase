@@ -107,8 +107,10 @@ The per-file map of the combat family: types and chain resolver, snapshot, trans
   - broadcast `Audience` selection for a message a transition posts (`transition::resolve_event`'s
     event message and `transition::roll`'s roll message) — `Audience` names a whole-world tier, so
     the question is whether the entry is public at all, not whether some individual may read it;
-  - `settle_turn`'s auto-resolve rule under `TurnControl::OwnerMayEnd` — ONE decision for the whole
-    order walk rather than a per-recipient one. Its real-authority form would be "does ANY non-GM
+  - `settle_turn`'s auto-resolve rule `is_event || defeated || (hidden && OwnerMayEnd)` — the hidden
+    term is ONE decision for the whole
+    order walk rather than a per-recipient one (`CombatantEngine.defeated` is a separate term that
+    applies under every `TurnControl`). Its real-authority form would be "does ANY non-GM
     world member hold `cap::READ` plus ownership", which needs a world-membership enumeration the
     walk does not have; that is a different and more expensive computation, not a mechanical
     extension of the authorization fix, and it is left on the world-default semantics deliberately.
@@ -157,6 +159,13 @@ The per-file map of the combat family: types and chain resolver, snapshot, trans
   combatant stands on the host. A per-user grant on an otherwise unreadable document stays GM-only
   (under-discloses, never leaks). `effects::EffectSweep` is what the sweep returns.
 
+- **A group's members share ONE initiative slot, and a group roll is authorized and built from ONE
+  member expansion.** `transition::rebuild_order` derives the slot from the members (the group
+  document holds no initiative), and `combat::roll_target_combatants` is read by both `authorize`
+  and `build_ops`, so the combatants checked are the combatants written; a non-GM must own every
+  member. Read references/defeated-groups-effects-and-pause.md before touching groups, `defeated`,
+  effect-origin display or the paused tracker.
+
 ## Gotchas
 
 Per-feature traps: rewind validation, the pure-transition test harness, array pointer writes, diagonal costs, world-settings resets and provenance, movementResource deserialization, tagged enums, start re-resolution, and combatant hydration. Read references/gotchas.md before changing any of those.
@@ -168,6 +177,7 @@ Per-feature traps: rewind validation, the pure-transition test harness, array po
 | references/key-files-and-seams.md | The "Key files & seams" section: per-file map of combat code, server and client | Editing or locating combat code |
 | references/hard-invariants-detail.md | Two long Hard invariants in full: Formula text validation and the combat order list | Touching formula fields, turn order or combat membership |
 | references/gotchas.md | The "Gotchas" section | Changing rewind, transition tests, settings resets, combat serde or hydration |
+| references/defeated-groups-effects-and-pause.md | `defeated`, initiative groups and group rolls, effect origin and expiry-notice client seams, the session pause in the tracker | Touching any of those |
 
 ## Pointers
 
