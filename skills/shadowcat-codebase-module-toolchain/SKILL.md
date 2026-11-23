@@ -45,20 +45,26 @@ That whole mechanism (guest ABI, runtime, registry, fault policy) is owned by
   `semver_satisfies` (exact/`^`/`~`/`*`, caret-0.x leftmost-non-zero fix) + `engine_compat_ok`
   (**fail-closed**: missing `engines.shadowcat` → reject).
 - `http::module_routes` — `InstalledModuleInfo { id (folder id), manifest,
-  entry_url }` (ts-rs → `src/types/generated/`); `list_installed_modules` (`GET /api/modules`,
+  entry_url, engine_compat_ok }` (ts-rs → `src/types/generated/`; `engine_compat_ok` is the
+  server-computed fail-closed verdict the client never recomputes); `list_installed_modules` (`GET /api/modules`,
   any-auth); `serve_module_file` (`GET /modules/{id}/{*path}` — two-stage canonicalize +
   `is_strictly_within` proper-descendant check, guards BOTH the `id` segment and the `*path`
   segment, rejects path==root equality); `set_world_enabled_modules`/get (`PUT/GET
   /api/worlds/{id}/enabled-modules`, `require_gm`, atomic validate-all + dedup,
   `MAX_ENABLED_MODULES`; validation collects every per-entry failure (not-installed, incompatible,
-  validators-enabled-with-none-declared) into one `Vec<String>` and reports them together in a
+  validators-enabled-with-none-declared, a manifest `conflicts` entry naming another module in the
+  requested set) into one `Vec<String>` and reports them together in a
   single `AppError::Unprocessable` — a GM correcting a multi-entry batch sees every bad id in one
   response instead of one rejection per round trip — while the whole batch is still rejected
   atomically on any failure, unchanged; rejects an enabled set naming more than one `provides_system` module —
   the server's system-defaults derivation and the client's singleton-contract winner must never
   diverge on which system is active — and, after persisting, runs
   `ws::conn::reseed_world_config` so the stored `system-defaults` singleton refreshes from the
-  newly-enabled package's declaration through a live room broadcast).
+  newly-enabled package's declaration through a live room broadcast, then broadcasts the
+  seq-less `ServerMsg::ModulesChanged` so every connected client reconciles its loaded modules).
+  `serve_module_file` and every client fetch of a module path run under the server's route prefix:
+  the client builds `entry_url` and every REST/WebSocket path through `apiPath`/`wsUrl`
+  (`WorldSession` wraps `entry_url` in `apiPath` before the import), never a bare `/modules/...`.
 - `config` — `Config.modules_dir: Option<String>` + `modules_path()`; the
   `test_server --modules-dir` flag (the `test_server` binary) sets it for e2e.
 - `ws::conn`/`ws::protocol` — `ServerMsg::Welcome.server_version`
@@ -134,6 +140,14 @@ How each gate and the documentation build reach a nested checkout, and where the
 and the two worked example modules live, is in references/out-of-tree-development.md. Read it
 before nesting a module checkout, changing a gate's roots or skip set, or adding an example
 module.
+
+**Lifecycle, settings, keybindings and placements** (activation outcomes and `moduleStatus`,
+`conflicts` and `checkSatisfiability`, the `ModulesChanged` reconcile, `ModuleContext.settings`,
+`ModuleContext.keybindings`, manifest `placements` with `PlacementDecl`, `Room::place_effect`, range
+and expiry): references/module-lifecycle-settings-and-placements.md. Read it before touching any of
+them. A settings section only a server admin may see sets `SettingsSectionMeta.serverAdminOnly` on
+its `Contribution.settingsSection`; the settings module's `Settings` filters it out for every other
+server role.
 
 ## Hard invariants
 
@@ -221,3 +235,4 @@ module.
 | File | Holds | Read it when |
 | --- | --- | --- |
 | references/out-of-tree-development.md | How the lint, ephemeral-reference and documentation gates reach a nested module checkout; the authoring guide and worked examples | nesting a module checkout, changing a gate's roots or skip set, or adding an example module |
+| references/module-lifecycle-settings-and-placements.md | Activation outcomes and status, conflicts and the satisfiability preview, the enable-set broadcast, module settings, keybindings, module-declared placements | touching any of those seams |
