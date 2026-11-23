@@ -19,8 +19,8 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   enforces from it, see the Hard invariants entry in SKILL.md).
 - `data::sqlite::apply_intent` — the singleton-`doc_type` create-gate:
   `SINGLETON_DOC_TYPES` (world-settings/faction-registry/condition-registry/resource-registry/
-  system-defaults/chat-settings/dice-settings/channel-registry/light-gradation/vision-modes —
-  all ten config singletons, the same set `world_seed`'s `CONFIG_SINGLETON_DOC_TYPES` seeds,
+  system-defaults/chat-settings/dice-settings/channel-registry/light-gradation/vision-modes/
+  audio-state/module-settings — all twelve config singletons, the same set `world_seed`'s `CONFIG_SINGLETON_DOC_TYPES` seeds,
   which is what makes the gate the seed path's race backstop) + a tx-scoped
   `singleton_doc_exists` DB check reject a second `Create` of a singleton type. That DB check alone
   closes only the CROSS-CALL race (relies on the single-writer `max_connections(1)` pool + a
@@ -77,6 +77,49 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   entering token (same-scene when `target.scene: None`, cross-scene otherwise), gated to ONE hop
   per move (`allow_teleport: false` on the recursive re-fire that processes the destination cells'
   own `Enter` triggers — a chained portal is refused with a GM-only notice rather than looping).
+  A `PortalChoice` effect shares that one-hop slot but writes nothing itself: it registers a
+  per-token offer, and the owner's accepted choice re-enters the same funnel as a synthetic
+  `Teleport` through `Room::apply_teleport_to`, so a portal and a teleport share one write routine.
+- **The remaining server-authored origins, each a capability-skip like the ones above
+  (`is_server_authored` and `skips_capability_gates` list them in one place).**
+  `WriteOrigin::AudioTransport` is the ONLY origin allowed to `Update` the `audio-state`
+  singleton (Create/Delete stay `ConfigSeed`). `WriteOrigin::DoorToggle` is set only by
+  `Room::toggle_door`, which has already enforced reach and visibility or GM standing.
+  `WriteOrigin::ModulePlacement` is set only by `Room::place_effect` (creating one `region` per
+  placement from a module manifest declaration whose `who` vetted the sender) and by
+  `Room::expire_due_placements` (deleting a placed region past its declared duration); scope,
+  size, engine, containment, singleton, schema and OCC still run. As with every capability-skip
+  origin, the handler's own check is the only authorization the write gets.
+  `WriteOrigin::ServerMessageRevision` is the one server origin that does NOT skip: it is
+  admitted by exact path instead. `SMR_PERMISSION_PATHS` (default, gm_role, users,
+  property_overrides under `/permissions`) lists them; the readership trio
+  `SMR_READERSHIP_PATHS` additionally needs a GM-world-role author, and the declared-capability
+  skip and the missing-capability admission both read the one list.
+- **GM-only engine fields share ONE predicate pair.** `permission::gm_only_field_touched`
+  (Update: a write at, below or above the field's pointer that changes its effective value) and
+  `permission::gm_only_field_in_body` (Create) name the list: a carried-light emission, a token's
+  `identity_hidden` flag, `lock_rotation`, and the facing-limited-vision fields. Both
+  `apply_intent` (via `authorize_update_change`) and the template-merge authorization read them,
+  so a new GM-only field is added to those two functions once. A state-restating write (the
+  stored value sent back, or `null`/absent versus `false`) is not a touch: the shared
+  `pointer_value_changed` compares with `values_semantically_eq` and a per-field normalizer.
+  The `WriteOrigin::TemplateMerge` handler skips `apply_intent`'s gates, so its own authorization
+  must call `gm_only_field_touched` too.
+- **The token owner floor is READ + WRITE_FIELDS plus DELETE of that token.**
+  `permission::holds_token_owner_floor` is the one test behind both the `DocRole::Owner` floor
+  in `effective_role` and the `cap::DELETE` grant in `resolve_access`; no other `doc_type` and no
+  stamped `permissions.users` Owner reaches it. MANAGE_EMBEDDED and EDIT_PERMISSIONS are not in
+  the floor. The client `resolveCaps` mirror must agree with it.
+- `data::repository::WorldMemberRow` is the roster row (user, username, role, `colour`,
+  `pronouns`, `has_avatar`). Avatar bytes are never in a roster listing; the avatar route serves
+  them world-scoped, and a client's roster picks up a changed profile only on reconnect.
+- Sense-occlusion engine fields are validated at ingress like any other engine field:
+  `WallEngine.proximity` (an optional `WallProximity` tier read only by the sight, light and
+  sound collectors) and `RegionEngine.occludes` (an optional `RegionOcclusion`, same readers).
+  Movement never reads either.
+- **Every engine `doc_type` is classified for the session pause.** `ws::session_pause::
+  DOC_TYPE_CLASSES` lists each `ENGINE_DOC_TYPES` entry as `Free`, `PositionWrites` (token) or
+  `Combat`; a test fails until a new engine type is added there.
 - `data::sqlite::apply_intent` — validation-pass OCC pre-image comparison
   (`values_semantically_eq`) is **numeric-variant-aware, not raw equality**. Same-variant
   integer pairs (both `PosInt`/`NegInt`) compare EXACTLY as `i128`, no magnitude limit — this never

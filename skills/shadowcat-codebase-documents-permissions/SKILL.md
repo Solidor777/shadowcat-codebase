@@ -64,7 +64,7 @@ Covers every file and seam of the document model and redaction layer: the `Docum
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic
-  ingress gate for the 23 engine-defined doc types (see the `engine ingress validation` invariant
+  ingress gate for every `ENGINE_DOC_TYPES` entry (see the `engine ingress validation` invariant
   above); tier-2 is the `system`-band's analogous but strictly structural enforcement floor. The
   declarable `Schema` type-tree grammar (`type`/`properties`/`required`/`items`/
   `additionalProperties`/`nullable` — no `enum`, no numeric/string bounds, no `pattern`, no
@@ -83,6 +83,20 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   and carries zero enforcement authority; the server-side `apply_intent` load is the only copy
   that matters.
 - **Redaction operates on content bands, never on the structural envelope; ingress and egress each read ONE classifier.** Read references/hard-invariants-detail-02-redaction-and-read-transition.md (the envelope and content-band bullet) before changing redaction, `REDACTABLE_BANDS` or band classifiers.
+- **A document's own hidden set has ONE extension point: `own_overrides`.** A secret-identity
+  token adds its `IDENTITY_HIDDEN_POINTERS` (envelope name, visual, override name/visual/
+  disposition, `actor_id`) and, per embedded actor copy, `IDENTITY_HIDDEN_COPY_POINTERS`, at the
+  `OwnerOrGm` tier through `identity_hidden_pointers`; every egress and merge path reaches the
+  set through `hidden_own_pointers`, so a new conditional hidden pointer is added there and
+  nowhere else. A token has no `faction` of its own: withholding `actor_id` is what closes the
+  faction-border signal.
+- **A `Visibility::Recipients` list is never shown to a viewer it does not name.**
+  `filter_properties` takes no GM shortcut for a document that holds a recipients tier
+  (`holds_recipients_tier`), and an `Update` delta's permission-writing `FieldChange` has its
+  lists emptied for non-listed viewers (`scrub_recipient_lists`, both `old` and `new`). Both
+  partitions of the search index also exclude recipient-restricted text.
+- **Every GM-only engine field is gated by the one `gm_only_field_touched`/
+  `gm_only_field_in_body` pair**; read references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md (the GM-only fields bullet) before adding one or a new server-authored write path.
 - **Path-prefix authz covers ancestor (subtree-replacing) writes AND whole-doc Create**, not just
   descendant field updates [[path-prefix-authz-covers-ancestor-and-create]].
 - **The singleton create-gate must close BOTH cross-call and intra-batch duplicate-`Create` races,
@@ -141,7 +155,8 @@ Pitfalls of this subsystem: migration, OCC pre-images, raw ownership as a write-
   `chat::roll_property_overrides` computes GM-only `property_overrides` entries for a
   `RollEmbed`'s `spec`/`raw`/`recalc_history[].previous_raw` fields (and, recursively, a
   `TableDrawSegment`'s own `spec`/`raw` at every nesting depth), and the `WriteOrigin::
-  ServerMessageRevision` exact-path admission for writing `/permissions/property_overrides`
+  ServerMessageRevision` exact-path admission for writing `SMR_PERMISSION_PATHS` (the three
+  readership paths and `/permissions/property_overrides`)
   (an origin/doc_type/path-scoped extension of the general `apply_intent` access-grant
   mechanism in references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md, with no other consumer) is documented there rather than here, same
   ownership split as `gm_role`.
