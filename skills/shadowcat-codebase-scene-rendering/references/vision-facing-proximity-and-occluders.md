@@ -25,7 +25,7 @@ Server-side vision, light and movement-adjacent rules added on top of the base v
 ## Render hints and vision treatments
 
 - `RenderHint` is a tagged enum: `Desaturate`, `ColorWash {color, opacity}`, `Outline {color}`, `None`, `Custom {treatment, params}` (the tag field is `kind`, so the custom variant's name field is `treatment`). `scene::VisionMode` re-exports the engine type; `SharedRenderHint` is the `Option<Arc>` form; `LitCell` is the per-cell alias. Every entry of the `renderHints` payload table is a tagged object.
-- Client: the `VISION_TREATMENT_CONTRACT` contribution (`Contribution.visionTreatment`, `VisionTreatmentMeta`) registers custom treatments; `Lighting` reads them through `VisionTreatments`. A string, unknown or malformed table entry parses to `none` (`parseRenderHint`), so a stale or hostile entry draws nothing instead of throwing. Wash and outline are part of the lighting frame key.
+- Client: the `VISION_TREATMENT_CONTRACT` contribution (`Contribution.visionTreatment`, `VisionTreatmentMeta`) registers custom treatments; `Lighting` reads them through `VisionTreatments`. A string, unknown or malformed table entry parses to `none` (`parseRenderHint`), so a stale or hostile entry draws nothing instead of throwing. Wash and outline are part of the lighting frame key. The `vision-custom-kind` Playwright spec drives this seam against the `vision-kind-fixture` installed module (where fixture modules live: shadowcat-codebase-module-toolchain): it reads the stage's `data-light-treatment` attribute, a `wash,outline` cell-count pair, to tell the fill branch from the outline branch, and an unknown treatment name reads `0,0`.
 
 ## Proximity walls
 

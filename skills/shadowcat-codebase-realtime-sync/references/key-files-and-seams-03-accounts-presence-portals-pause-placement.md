@@ -27,9 +27,23 @@ Continues "Key files & seams" from key-files-and-seams-02-protocol-http-auth-cli
 - **Presence**: `Room.presence` counts live connections per user; `Room::presence_connect` and
   `presence_disconnect` return true only on the 0<->1 transitions, and `ws::conn` then
   `broadcast_aux`es `ServerMsg::Presence` to every connection in the room. Out-of-band: no seq,
-  never buffered or resynced, and no snapshot frame, so a client learns of a user already online
-  only at that user's next transition. The client surface is `WsClientHandlers.onPresence` and
-  `AppContext.presence`.
+  never buffered or resynced, so it carries transitions only. The starting snapshot rides on
+  `ServerMsg::Welcome.online_users`, read from `Room::presence_online` (the same map, the
+  receiving user included, built after their own `presence_connect`), so a late joiner never
+  waits for another member's next transition. The client surface is `WsClientHandlers.onPresence`
+  and `AppContext.presence`.
+- **`ServerMsg::MemberProfile{user, colour, pronouns, has_avatar}`**: out-of-band like `Presence`,
+  sent by `RoomRegistry::broadcast_member_profile` into every live room of each world
+  `worlds_for_user` seats the user in (a world with no live room is skipped; its next `Welcome`
+  roster read carries the stored profile). `http::routes`'s `put_profile`, `put_avatar` and
+  `delete_avatar` call it after the write; the payload comes from
+  `SqliteRepository::member_profile`, which reads no avatar bytes, so a receiver derives the image
+  URL with `avatarUrl` and fetches it. The display name has no edit route, so the frame carries
+  only the three profile fields. A member seated after other clients connected is not added to
+  their roster by either frame.
+- **A hand-built `Welcome` carries `online_users`**: the Rust variant and the `wire.ts` Zod arm
+  both require it, so every struct literal (`ws::protocol` tests) and every client mock
+  (`mock-server`) lists the field or fails to build or parse.
 - **`ServerMsg::ModulesChanged`** (no payload) is broadcast by
   `http::module_routes::set_world_enabled_modules` after a GM saves the enabled set; every client
   re-runs its own module reconcile. A new `ServerMsg` needs its Rust variant, the generated type,

@@ -33,6 +33,17 @@ API output unannounced. The position is the two gates' above: unnest before runn
 nested-checkout exclusion here would make the documentation build the one gate in this repo that
 carves them out, and a name-keyed one would go stale the first time a developer chose a different
 directory name.
+
+**Browser-test fixture modules:** test-only installed modules live under
+`src/client/shell/e2e-support/fixture-modules/<id>/` (`module.json` plus a plain `index.js`; the
+bare `@shadowcat/core` specifier resolves through the shell's import map like any installed
+module). They are not workspace packages and never enter `dist/` or the release binary. The
+Playwright loopback server in `playwright.config.ts` is started with `SHADOWCAT_MODULES_DIR` set
+to `FIXTURE_MODULES_DIR`, so discovery lists them; no world enables one unless a spec does, through
+the module manager. A loopback server that Playwright reuses (`reuseExistingServer`) keeps the
+environment it started with, so restart it when a fixture folder is added or the variable was
+missing. `vision-kind-fixture` registers `fixture-glow` on `VISION_TREATMENT_CONTRACT` for the
+custom vision-kind spec.
 The
 authoring guide lives in the docs site: `docs/site/guides/creating-a-module.md` (`docs/design/module-authoring.md` is a
 pointer stub to it). Two in-repo CI-built worked examples double as copyable scaffolds:

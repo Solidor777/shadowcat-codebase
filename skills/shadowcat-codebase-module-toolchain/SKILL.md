@@ -234,5 +234,5 @@ server role.
 
 | File | Holds | Read it when |
 | --- | --- | --- |
-| references/out-of-tree-development.md | How the lint, ephemeral-reference and documentation gates reach a nested module checkout; the authoring guide and worked examples | nesting a module checkout, changing a gate's roots or skip set, or adding an example module |
+| references/out-of-tree-development.md | How the lint, ephemeral-reference and documentation gates reach a nested module checkout; the authoring guide and worked examples; browser-test fixture modules | nesting a module checkout, changing a gate's roots or skip set, or adding an example module |
 | references/module-lifecycle-settings-and-placements.md | Activation outcomes and status, conflicts and the satisfiability preview, the enable-set broadcast, module settings, keybindings, module-declared placements | touching any of those seams |
