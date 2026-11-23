@@ -149,6 +149,13 @@ The per-file map of the combat family: types and chain resolver, snapshot, trans
   deactivate-then-reactivate-different-combat same-scene batch shape (pinned by
   `a_swap_batch_deactivating_then_activating_on_one_scene_passes_in_either_order`) that an earlier,
   two-independent-set design left fail-closed-but-over-rejecting.
+- **An effect-expiry note never names an effect to someone who cannot read it.**
+  `transition::expiry_notices` writes at most two chat `Create` ops in the command's own ops list
+  (one public, one GM-only). An effect goes in the public one only when `ExpiryNotice::Visible`
+  is the resolved mode (`expiry_mode`, through the combat-defaults chain) AND `effect_is_public`
+  holds: the effect, its host and the sweeping combatant all grant default access and no hidden
+  combatant stands on the host. A per-user grant on an otherwise unreadable document stays GM-only
+  (under-discloses, never leaks). `effects::EffectSweep` is what the sweep returns.
 
 ## Gotchas
 
