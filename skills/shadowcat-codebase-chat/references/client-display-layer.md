@@ -34,7 +34,7 @@ Three independently replaceable modules (UI-is-modules; swap any one without the
   `/engine/channels`** with the key deleted — `set_pointer` cannot delete keys, and a null
   tombstone is deliberately not used). Render cap: last 200 per view, derived incrementally via
   `channels`'s `ChatDerivationCache` (`deriveVisibleDocs`) — `channel`/`audience` are frozen at
-  creation (see `handle_edit_message` in references/key-files-and-seams.md), so an id's view membership and sorted position are
+  creation (see `handle_edit_message` in references/key-files-and-seams-01-chat-module.md), so an id's view membership and sorted position are
   parsed/computed once and never revisited; a subsequent edit (a new WireDocument reference for a
   known id) only refreshes the cached reference, an O(log n) binary-search insertion handles a
   genuinely new id, and the full history is never re-sorted. The cache is reset (a fresh

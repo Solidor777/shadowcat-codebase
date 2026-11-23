@@ -77,14 +77,14 @@ Part of the shadowcat-codebase-chat skill; read it when changing roll execution,
   writes BOTH `/engine` (the mutated content) AND `/permissions/property_overrides`
   (recomputed via `roll_property_overrides`, since a freshly-appended
   `RecalcEntry.previous_raw` needs its own GM-only override entry) — the exact two-path
-  admission `apply_intent`'s `ServerMessageRevision` branch grants (see chokepoint 4 in references/key-files-and-seams.md).
+  admission `apply_intent`'s `ServerMessageRevision` branch grants (see chokepoint 4 in references/key-files-and-seams-03-ws-http-and-invariants.md).
   Rate-limited via the same `PingRateLimiter`/`budget_per_min` shape as
   `handle_send_message`/`handle_edit_message`. `WireRecalcOp` (`RerollDice`/`ReplaceDie`/
   `RemoveDice`, ts-rs exported — the wire frame's op vocabulary) converts via
   `WireRecalcOp::into_recalc_op` to `dice::recalc::RecalcOp` before reaching
   `dice::recalculate`; see `shadowcat-codebase-dice` for the engine-side op semantics.
   `ws::protocol`'s `ClientMsg::RecalcRoll{request_id, message_id, roll_id, ops}` and
-  `ws::conn`'s dispatch arm are documented in references/key-files-and-seams.md alongside `SendMessage`/`EditMessage`/
+  `ws::conn`'s dispatch arm are documented in references/key-files-and-seams-03-ws-http-and-invariants.md alongside `SendMessage`/`EditMessage`/
   `DeleteMessage`.
 - **Attribution authz (world-pinned):** `handle_send_message`
   fail-closed-validates `actor_owner` BEFORE `build_message_doc` — an `Actor` ref must resolve to

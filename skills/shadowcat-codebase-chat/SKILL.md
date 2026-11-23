@@ -51,7 +51,7 @@ Covers the per-file map of the chat domain: `MESSAGE_DOC_TYPE`, `ActorOwnerRef`,
 
 ## Hard invariants
 
-These hold on every change to chat; the full text of each, with its rationale, is in references/key-files-and-seams.md. Read it before touching message authoring, audiences, whispers, roll embeds or edit and delete authority.
+These hold on every change to chat; the full text of each, with its rationale, is in references/key-files-and-seams-03-ws-http-and-invariants.md. Read it before touching message authoring, audiences, whispers, roll embeds or edit and delete authority.
 
 - **`SendMessage` is the SOLE message-authoring path.**
 - **The seam is a FOUR-part coupled surface — weakening any one part alone reopens forgery.**

@@ -13,7 +13,7 @@ provenance resolver (`resolveSettingProvenance`), and the client dispatch layer
 `WorldSession`/`AppContext`. A tracker/settings-editor UI hosts all of it:
 `@shadowcat/module-combat-tracker` (the default combat tracker panel) and three
 `@shadowcat/module-game-settings` editors (`CombatSettings`, `CombatSceneOverrides`,
-`ResourceRegistryEditor`) — see the Key files bullet in references/key-files-and-seams.md; both are owned end-to-end by
+`ResourceRegistryEditor`) — see the Key files bullet in references/key-files-and-seams-02-validation-intents-client.md; both are owned end-to-end by
 `shadowcat-codebase-client-shell`, this skill covers only the document/resolver shapes they read
 and write. Everything server-side about the clock itself (transitions, gates, history, and
 formula evaluation through `combat::eval`) is built, including the per-recipient `"combat"`

@@ -33,7 +33,7 @@ Part of the shadowcat-codebase-dice skill; read it before changing docs-ratchet,
   system-defined `Symbol`, and this crate carries zero game-system vocabulary). `xs<N>`/`xf<N>`
   are roll-level parser scratch state (`P.crit_success`/`P.crit_fail`) consumed into
   `SuccessConfig` only when the resolved mode is `SuccessCount` — silently dropped under `Total`,
-  mirroring `e<N>`'s existing mode-gating precedent (see the `e<N>`/`rs<N>` gotcha in references/key-files-and-seams.md) rather
+  mirroring `e<N>`'s existing mode-gating precedent (see the `e<N>`/`rs<N>` gotcha in references/key-files-and-seams-02-expertise-sum-recalc-notation.md) rather
   than FORCING `SuccessCount` the way `cs>N`/`cf<N` do.
 - **Expertise DP is the highest-risk piece of the whole engine** — it is verified via
   differential-oracle testing against a brute-force reference (see the Hard invariants entry
@@ -58,7 +58,7 @@ Part of the shadowcat-codebase-dice skill; read it before changing docs-ratchet,
   empty-`faces` die cannot arrive via chat (notation cannot construct `Faces`
   anyway). The crate itself remains unvalidated by design — any future non-chat caller that
   hand-builds a `RollSpec` must run the same validation. `ReplaceDie`-onto-`Faces` is separately
-  bounds-checked inside `dice::recalc` itself (see the `dice::spec` entry in references/key-files-and-seams.md), so it
+  bounds-checked inside `dice::recalc` itself (see the `dice::spec` entry in references/key-files-and-seams-01-rng-spec-outcome-eval.md), so it
   needed no wire-boundary gate.
 - **`validate_tiers` (`chat::rolls`) guards `SuccessConfig`/`TotalConfig.tiers`
   uniqueness at the wire boundary** —

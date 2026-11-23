@@ -111,7 +111,7 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   can capture updated metadata with pre-replace bytes for a brief window
   ([[commit-db-row-before-swapping-file]]). The in-server `POST /api/admin/backup` route closes
   this for THAT invocation path via `write_barrier` (see Key files & seams in
-  references/key-files-and-seams.md and Hard invariants above) — the residual gap is CLI-mode-only and inherent to backing up while a separate process
+  references/key-files-and-seams-02-audio-db-backup-bundle.md and Hard invariants above) — the residual gap is CLI-mode-only and inherent to backing up while a separate process
   writes assets outside the barrier's reach.
 - Per-world export/import ships as a SEPARATE surface from `backup`/`restore_backup` — not
   whole-server snapshot/restore, and not gated the same way. BOTH `POST /api/worlds/{id}/export`

@@ -43,8 +43,8 @@ Covers every file and seam of the document model and redaction layer: the `Docum
 - **Redaction is fail-closed and owner-aware.** `can_see` is the one chokepoint across every
   egress path; a partial-visibility tier (`OwnerOrGm`) uses a distinct flag — never overload the
   GM see-all boolean, or you leak `GmOnly` to owners [[ownerorgm-tier-no-widen]].
-- **`filter_properties` is a PROPERTY-visibility gate, NOT a whole-document READ gate.** Read references/hard-invariants-detail.md (the `filter_properties` bullet) before touching it.
-- **`PermissionSet.gm_role: Option<DocRole>` makes the GM usual unconditional access conditional, per document.** Read references/hard-invariants-detail.md (the `gm_role` bullet) before touching it.
+- **`filter_properties` is a PROPERTY-visibility gate, NOT a whole-document READ gate.** Read references/hard-invariants-detail-01-filter-gm-role-base.md (the `filter_properties` bullet) before touching it.
+- **`PermissionSet.gm_role: Option<DocRole>` makes the GM usual unconditional access conditional, per document.** Read references/hard-invariants-detail-01-filter-gm-role-base.md (the `gm_role` bullet) before touching it.
 - **The search index is visibility-partitioned.** Redacting only the returned doc leaks GM-only
   text via snippet/match/score — index public and full content separately
   [[search-index-must-be-visibility-partitioned]].
@@ -59,8 +59,8 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   because JS clients cannot preserve the whole-number-vs-float distinction through a JSON
   round-trip (e.g. a server-computed `100.0` comes back over the wire and reparses as `PosInt(100)`,
   which raw `==` would treat as unequal to a stored `100`, causing a spurious `Conflict` on an
-  otherwise up-to-date write). See the `data::sqlite` seam entry in references/key-files-and-seams.md for the exact comparison rule.
-- **The `/base` egress is decided at ONE site, `own_overrides`, by THREE rules.** Read references/hard-invariants-detail.md (the `/base` bullet) before changing `Document.base` egress.
+  otherwise up-to-date write). See the `data::sqlite` seam entry in references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md for the exact comparison rule.
+- **The `/base` egress is decided at ONE site, `own_overrides`, by THREE rules.** Read references/hard-invariants-detail-01-filter-gm-role-base.md (the `/base` bullet) before changing `Document.base` egress.
 - **Tier-2 validates the `system` band's SHAPE only, never values — it EXTENDS the three-band
   document shape, it does not replace it.** `engine`-band validation
   (`validate_engine`/`validate_engine_tree`) remains the separate REAL semantic
@@ -82,7 +82,7 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   `schema_declarations` is informational parity only (lets a client preemptively validate/UX-hint)
   and carries zero enforcement authority; the server-side `apply_intent` load is the only copy
   that matters.
-- **Redaction operates on content bands, never on the structural envelope; ingress and egress each read ONE classifier.** Read references/hard-invariants-detail.md (the envelope and content-band bullet) before changing redaction, `REDACTABLE_BANDS` or band classifiers.
+- **Redaction operates on content bands, never on the structural envelope; ingress and egress each read ONE classifier.** Read references/hard-invariants-detail-02-redaction-and-read-transition.md (the envelope and content-band bullet) before changing redaction, `REDACTABLE_BANDS` or band classifiers.
 - **Path-prefix authz covers ancestor (subtree-replacing) writes AND whole-doc Create**, not just
   descendant field updates [[path-prefix-authz-covers-ancestor-and-create]].
 - **The singleton create-gate must close BOTH cross-call and intra-batch duplicate-`Create` races,
@@ -115,7 +115,7 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   permission change happens to widen it back to visible; a commit-only check would instead leak a
   value a later TIGHTENING was meant to retroactively hide — the conjunction closes both leaks at
   once, per `filter_command`'s own doc comment.
-- **A recipient whole-document READ transition on an `Update` synthesizes a Create or a stub Delete.** Read references/hard-invariants-detail.md (the last bullet) before changing per-recipient broadcast filtering.
+- **A recipient whole-document READ transition on an `Update` synthesizes a Create or a stub Delete.** Read references/hard-invariants-detail-02-redaction-and-read-transition.md (the last bullet) before changing per-recipient broadcast filtering.
 
 ## Gotchas
 
@@ -143,7 +143,7 @@ Pitfalls of this subsystem: migration, OCC pre-images, raw ownership as a write-
   `TableDrawSegment`'s own `spec`/`raw` at every nesting depth), and the `WriteOrigin::
   ServerMessageRevision` exact-path admission for writing `/permissions/property_overrides`
   (an origin/doc_type/path-scoped extension of the general `apply_intent` access-grant
-  mechanism in references/key-files-and-seams.md, with no other consumer) is documented there rather than here, same
+  mechanism in references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md, with no other consumer) is documented there rather than here, same
   ownership split as `gm_role`.
 - `shadowcat-codebase-templates` — the client-side 3-way merge engine + `TemplatesController`
   that produces/consumes `base`; this skill owns only the server-side field/authz/redaction/size

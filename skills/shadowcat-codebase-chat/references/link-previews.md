@@ -51,7 +51,7 @@ guarded, per `validate_url` below).
   independently of `MAX_PREVIEWS_PER_MESSAGE` (an image-heavy message can carry both link previews
   and inline images up to their own separate caps). The call site's gate is
   `previews_enabled() || !image_urls.is_empty()`, not `previews_enabled()` alone — see
-  `chat::body::compose_message` in references/key-files-and-seams.md for why.
+  `chat::body::compose_message` in references/key-files-and-seams-02-shortcodes-sanitize-commands.md for why.
 - **`LinkPreviewCache`** (in-memory, on `WsState`): (world, candidate URL)→`(Instant,
   Option<LinkPreview>)`, positive/negative TTLs, evict-oldest past a cap; `PreviewRateLimiter` (per-user distinct-URL
   fetch budget, only on cache MISS). Both mirror `message_rate`'s `WsState` Arc-field pattern. `cached_or_fetch`

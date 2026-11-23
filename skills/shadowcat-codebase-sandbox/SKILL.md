@@ -27,8 +27,8 @@ consecutive faults auto-disable the module for the world. Never the default path
   validator bound to its fuel-metered wasmi engine — `CompiledValidator.engine`,
   `CompiledValidator.module` — plus the declaring module id; one
   `CompiledValidator::compile` constructor), `run_validator`
-  (fuel/memory/instance limits, the `env.log` import, the 50ms `TooSlow`/250ms `Hung`
-  wall-clock pair via `run_validator_with_budgets`).
+  (fuel/memory/instance limits, the `env.log` import, the 10 s `Hung` liveness backstop via
+  `run_validator_with_hang_guard`).
 - `src/server/src/sandbox/registry.rs` — `ValidatorRegistry`/`ValidatorRegistryCache` (compiled-
   once cache, mtime-invalidated like `crate::modules::ModuleScanCache`; also the home of the
   per-(world, module) consecutive-fault counter (`ValidatorRegistry.faults`), surviving a
@@ -133,14 +133,12 @@ consecutive faults auto-disable the module for the world. Never the default path
   engine (`CompiledValidator.engine`) beside the module (`CompiledValidator.module`), and
   `CompiledValidator::compile` is the ONE compile path (scan-time and every test fixture take
   the identical route).
-- `FaultKind::TooSlow` reclassifies only a call that COMPLETED (an authored `Accept`/`Refuse`)
-  past the 50 ms budget — a call that TRAPPED keeps its precise kind (an infinite loop stays
-  `FaultKind::OutOfFuel`, which is strictly more diagnostic; both kinds count toward
-  auto-disable identically). Reclassifying a trap would also make the fuel-cap test race the
-  clock, since burning the full fuel budget outlasts the budget.
-- The slow-call budget is measured on the BLOCKING THREAD (paired with the verdict inside the
-  blocking task by `run_validator_with_budgets`), never across the async join — scheduling
-  latency is not the validator's fault and must not count against it.
+- A fault decision never depends on elapsed wall-clock time except `FaultKind::Hung`: the
+  verdict of a returning call is a function of the guest and `MAX_FUEL` only (there is no
+  slow-call reclassification), so a loaded host cannot fault a healthy validator. A runaway
+  loop surfaces as `FaultKind::OutOfFuel` because `HANG_GUARD` (10 s) sits far above the
+  ~0.5 s an unoptimized build needs to burn `MAX_FUEL`. `Hung` is only for a stall fuel
+  cannot see.
 - Validator test fixtures use a NON-engine doc_type (conventionally `"item"`), never
   `"actor"`: an engine doc_type with `engine: None` fails `validate_structural`'s
   `validate_engine_tree` before any validator is consulted, so an `"actor"` fixture with no
