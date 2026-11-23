@@ -1,4 +1,4 @@
-Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::protocol, ws::conn, http routes, auth sessions, throttling, accounts, invites, eviction, WsClient or the client stores. Part 02 of 02 of "Realtime & Sync: key files and seams"; the index is key-files-and-seams.md.
+Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::protocol, ws::conn, http routes, auth sessions, throttling, accounts, invites, eviction, WsClient or the client stores. Part 02 of 03 of "Realtime & Sync: key files and seams"; the index is key-files-and-seams.md.
 
 Continues "Key files & seams" from key-files-and-seams-01-room-and-rate-limiter.md.
 

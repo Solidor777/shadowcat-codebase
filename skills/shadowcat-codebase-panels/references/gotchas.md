@@ -120,7 +120,7 @@ Part of the shadowcat-codebase-panels skill. Read it before changing engine wiri
 - **The default stub `popoutDriver` (`() => Promise.resolve(true)`) never actually moves the
   panel to a new group** — after a "successful" stub pop-out, `api.getPanel(id)?.group.id` still
   resolves to the panel's ORIGINAL, already-`#groupWillDropSubs`-tracked group, not a genuinely
-  distinct popout group. A test targeting `#popoutGroupSubs`'s OWN wiring (not the pre-existing
+  distinct popout group. A test targeting `#popoutGroupSubs`'s OWN wiring (not the
   zone-managed one) needs a driver that behaves like real `addPopoutGroup` and actually relocates
   the panel — `dockview.test`'s `popOutToRealGroup` helper does this via `api.addGroup` +
   `api.removePanel`, then a fresh `addPanel` into that new group, synchronously inside the driver.

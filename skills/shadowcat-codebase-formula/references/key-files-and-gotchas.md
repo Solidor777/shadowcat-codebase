@@ -129,7 +129,7 @@ erroring cleanly — build expressions with `parseFormula`, never by hand.
   `Expr::BestOf` call), mirrored by the server twin's own
   declaration and parity-checked against the dice parser's `fn_call` match arms the same way; the
   template scan reserves a function name ONLY when immediately followed by `(`, which is what
-  keeps `floor(101d6/2)` reading as notation rather than a stat reference now that the server runs
+  keeps `floor(101d6/2)` reading as notation rather than a stat reference, because the server runs
   every roll through the scan. Separately, this package's OWN formula-grammar function set (`FN_NAMES`/`FnName` in `parser`:
   min/max/floor/ceil/round — five names) overlaps with but is not identical to the dice crate's
   six (`FnName` in `dice::spec`: also has `Abs`, which this package has no counterpart for) — the

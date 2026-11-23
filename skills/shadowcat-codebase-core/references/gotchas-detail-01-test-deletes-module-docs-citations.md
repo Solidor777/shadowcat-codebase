@@ -79,7 +79,7 @@ Part of the shadowcat-codebase-core skill; read it when working under the test-f
   the SYMBOL (RULE 15) and points inward, so closing it cannot rot a comment.
   Stronger than RULE 15 and wins where they touch: RULE 15 says how to cite, this says what may be
   referred to at all. Ordinary Markdown docs and `.superpowers/` artifacts remain exempt — they may
-  cite documents by path + section anchor. **This skill family (the plugin checkout's `skills/**/*.md`) is now
+  cite documents by path + section anchor. **This skill family (the plugin checkout's `skills/**/*.md`) is
   IN SCOPE for a narrower subset** (owner ruling): a skill may still cite a durable document by
   path + section anchor, but may not carry a milestone/task id (`M13-0`, `M10e-4`), a phase/  <!-- EXAMPLE: RULE 16 specimen -->
   workstream/invariant id (`D9`, `D16`), a sweep/round/review marker (`sweep 12`, `fix-round`,  <!-- EXAMPLE: RULE 16 specimen -->
@@ -98,7 +98,7 @@ Part of the shadowcat-codebase-core skill; read it when working under the test-f
   before matching, which would delete the evidence the guard needs. It is not the GROUP either —
   one permitted citation would then exempt every bare anchor sharing its paragraph — so a citation
   wrapped across two lines must carry its path on the line its anchor sits on.
-  **Two spellings the reference entries did not reach are now banned in CODE.** A comment naming a
+  **Two spellings the reference entries do not reach are banned in CODE.** A comment naming a
   codebase skill BY NAME (`codebase skill pointer`) is the same class of process-assigned referent:
   skills are created, split, re-scoped and retired, and their names move with them. It is
   deliberately absent from the skill list,
@@ -123,9 +123,9 @@ Part of the shadowcat-codebase-core skill; read it when working under the test-f
   marked. The coverage control's own `ACKNOWLEDGED` lists answer to the same rule as the symbol
   gate's: hit-counted on every FULL-corpus run, the reached-entry count printed beside the
   EXAMPLE count, and a zero-hit entry fatal — a `--scope`d run makes no such claim, since a zero
-  on a subset says the scope missed the token rather than that the entry is dead. Scoping the
-  corpus to the tracked skill directories is what killed six of these entries at once, silently,
-  which is what the rule now prevents. But
+  on a subset says the scope missed the token rather than that the entry is dead. Narrowing the
+  corpus (for example to the tracked skill directories) can orphan several entries at once,
+  silently; the zero-hit-fatal rule is what catches that. But
   **a green detector is not a satisfied rule**: history narration is only partly detectable (`no
   longer` usually describes runtime data, not the code's past), so it is a review obligation.
   A THIRD detectable-but-bounded class sits beside it: **history narration by allusion**, a

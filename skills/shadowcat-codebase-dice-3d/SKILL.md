@@ -56,7 +56,7 @@ with 3D dice off never downloads or initializes either.
 - `settings.ts` / `performanceSeam.ts` / `audioSeam.ts` — the per-device appearance override
   (`readDice3DSettings`/`writeDice3DSettings`, localStorage) and two seam functions
   (`dice3dEnabled`/`reducedMotionPreferred`/`antialiasPreferred`, `playThrowSound`) reading the
-  real merged `AppContext.performance`/`AppContext.audio` (now fully integrated). **Each
+  real merged `AppContext.performance`/`AppContext.audio`. **Each
   takes its `AppContext` slice as an explicit parameter** (`Pick<AppContext, "performance">` /
   `Pick<AppContext, "audio">`) rather than calling `getAppContext()` internally — Svelte 5's
   `getContext()` (which `getAppContext()` wraps) is only valid during a component's SYNCHRONOUS

@@ -52,8 +52,8 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
   Create AND `Operation::Move` arms of both `apply_intent`/`apply_command` already call (and
   `import_world`'s post-loop pass, where the maps are empty because every bundle row is already
   inserted) — the
-  in-flight-batch map `apply_intent` threads through that helper (despite its historical
-  folder-only name) is now populated with BOTH `asset_folder` AND `note` Creates in one batch, since
+  in-flight-batch map `apply_intent` threads through that helper (named for folders, but
+  not folder-only) is populated with BOTH `asset_folder` AND `note` Creates in one batch, since
   ids are unique regardless of doc_type; `check_move_acyclic`'s cycle walk therefore covers a note's
   same-batch ancestors for free, with no separate note-specific map. See
   `shadowcat-codebase-documents-permissions` for the shared placement/cascade mechanics this plugs

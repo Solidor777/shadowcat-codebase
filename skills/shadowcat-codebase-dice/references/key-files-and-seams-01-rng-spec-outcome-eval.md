@@ -50,8 +50,8 @@ Part of the shadowcat-codebase-dice skill; read it when editing dice::rng, spec,
   `CritSuccess{trigger: CritTrigger, extra_successes, positive_counter}` /
   `CritFail{trigger: CritTrigger, lost, negative_counter, allow_negative}` are SuccessCount-only
   crit-event configs. `TotalConfig{difficulty: Option<i32>, tiers: Vec<Tier>}` — Sum and Tiered are
-  now ONE mode: empty `tiers` = default pass/fail at `margin >= 0`; non-empty = a custom ladder.
-  `SuccessRule` (was a struct, now an enum): `Numeric{comp: Comparator, target: i32}`
+  ONE mode: empty `tiers` = default pass/fail at `margin >= 0`; non-empty = a custom ladder.
+  `SuccessRule` (an enum): `Numeric{comp: Comparator, target: i32}`
   (`#[default]` via a HAND-WRITTEN `impl Default` — `derive(Default)`'s `#[default]` attribute only
   targets a fieldless variant, `Numeric` carries fields) | `HasSymbol(Symbol)`.
   `SuccessConfig{success: SuccessRule, required_successes: Option<i32>, tiers: Vec<Tier>,

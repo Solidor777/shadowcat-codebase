@@ -19,10 +19,11 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   engine's own grammars over `system` data a formula names — `crate::formula` (server twin of
   `@shadowcat/formula`) reads numeric leaves through `SystemLeafResolver` — and by default
   computation runs on the server; the client requests. The typed `engine` body
-  (present only for the 25 engine-defined doc types: tokens, actors, scenes, walls, regions,
-  lights, drawings, templates, messages, asset folders, rollable tables, the
+  (present only for the engine-defined doc types, whose one list is `ENGINE_DOC_TYPES`: tokens,
+  actors, scenes, walls, regions, lights, drawings, templates, messages, asset and table folders,
+  rollable tables, notes, playlists, audio state, module settings, the
   world/vision/lighting/chat/dice/faction/condition/channel/system-defaults config-docs, and the
-  combat family (combat, combatant, resource-registry, effect, combat-history) gets REAL
+  combat family (combat, combatant, combatant group, resource-registry, effect, combat-history) gets REAL
   server-side ingress validation instead
   (`validate_engine`/`validate_engine_tree`, `deny_unknown_fields` per struct) — this is the band
   engine-owned geometry (movement-collision, vision) lives in, not a `system`-body exception.

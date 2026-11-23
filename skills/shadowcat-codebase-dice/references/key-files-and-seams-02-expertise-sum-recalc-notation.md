@@ -65,7 +65,7 @@ Continues "Key files & seams" from key-files-and-seams-01-rng-spec-outcome-eval.
   `Numeric`, a fresh face INDEX via `roll_uniform(rng, 0, faces.len()-1)` for `Faces` — mirrors the
   same formula used at `eval::groups`'s two other draw sites. `ReplaceDie`/`RemoveDice` needed no
   `Faces` change (both are `DieKind`-agnostic, operating only on `natural`/id).
-  `chat::rolls::execute_roll`/`execute_roll_with_seed` (in `chat`, not here) now return the
+  `chat::rolls::execute_roll`/`execute_roll_with_seed` (in `chat`, not here) return the
   parsed `RollSpec` and rolled `RawRoll` alongside `formula`/`outcome`, so they can be persisted
   onto a `Segment::RollEmbed`; `chat::handle_recalc_roll` (also in `chat`) is `recalculate`'s
   FIRST production caller — it re-derives from the message's stored `spec`/`raw` under a fresh

@@ -101,9 +101,9 @@ Covers every key file and seam of the server merge engine, its intent handlers a
 - A template's own document is not special — pulling/pushing reads/writes it through the exact
   same document/intent seam as any instance; there's no separate "template document" type or
   table.
-- **`TemplatesController.push`/`pull` no longer compute anything locally** — a caller reasoning
+- **`TemplatesController.push`/`pull` compute nothing locally** — a caller reasoning
   about "what happens on pull" must read the SERVER's `merge::plan::compute_pull`/
-  `ws::conn::merge_intents` handler, not the client controller, which is now a thin intent sender
+  `ws::conn::merge_intents` handler, not the client controller, which is a thin intent sender
   plus modal orchestration.
 
 ## Reference files

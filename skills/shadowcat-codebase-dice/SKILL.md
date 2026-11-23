@@ -131,9 +131,9 @@ Per-module entries for dice::rng, spec, outcome, eval (groups, classify, crit, e
   opaque chat `engine` body (`Segment::RollEmbed{formula, outcome, roll_id, spec, raw,
   recalc_history}`) and the client mirrors them by hand in the `chat-docs` module's Zod
   (`RollOutcomeSchema`/`DieRecordSchema`) — a shape change to `RollOutcome`/`DieRecord` MUST
-  update that mirror, not regenerate a binding. `dice::recalc::RecalcOp` now derives
-  `#[derive(Serialize, Deserialize)]` (so it can be stored inside `chat::RecalcEntry.ops`) but
-  still carries no `#[derive(TS)]` — this crate's wire boundary stays serde-only by design; the
+  update that mirror, not regenerate a binding. `dice::recalc::RecalcOp` derives
+  serde's Serialize and Deserialize (so it can be stored inside `chat::RecalcEntry.ops`) but
+  carries no `#[derive(TS)]` — this crate's wire boundary stays serde-only by design; the
   wire-facing mirror (`chat::WireRecalcOp`, ts-rs exported) and its `into_recalc_op` conversion
   live in `chat`, not here, preserving the crate boundary the same way `RollOutcome`'s Zod
   mirror does. All transport policy (caps, entropy, settings, error surfacing) lives in
@@ -150,7 +150,7 @@ Per-module entries for dice::rng, spec, outcome, eval (groups, classify, crit, e
   whoever authored the template. **The seven function names
   (floor/ceil/round/abs/min/max/best) are not modifier vocabulary** — they
   never enter `P::modifiers`'s match at all (`fn_call` is a separate `factor`-level grammar
-  production) — but they now have their OWN parity set of the same shape: the template grammar's
+  production) — but they have their OWN parity set of the same shape: the template grammar's
   `NOTATION_FUNCTIONS` (both template sides) against this parser's `fn_call` match arms, because the
   server resolves every roll's references through the template scan at the chat boundary
   (`chat::rolls`), so a function name the scan didn't reserve would read as a stat reference and

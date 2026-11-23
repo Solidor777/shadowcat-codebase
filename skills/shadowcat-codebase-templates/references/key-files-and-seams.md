@@ -167,7 +167,7 @@ Part of the shadowcat-codebase-templates skill. Read it before changing or revie
     `TemplateModalHost` renders); the modal's resolve re-sends the SAME intent type with
     `resolutions` built from the user's per-conflict "theirs" choices. `StaleResolutions`/
     `UnknownResolution`/`Unresolvable` reopen the modal with the FRESH conflict set the rejection
-    carries — no extra round trip; a rejection whose fresh outcome no longer conflicts is re-sent
+    carries — no extra round trip; a rejection whose fresh outcome has no conflicts is re-sent
     ONCE as a compute-only call (the rejected call wrote nothing, so the re-send applies it),
     bounded to one retry before the failure is reported.
   - `canPull(childId)` gates on `#isOwnerOrGm(child)` (`effectiveOwner`, the SAME
@@ -176,11 +176,11 @@ Part of the shadowcat-codebase-templates skill. Read it before changing or revie
     checked**: the server writes `/base` itself under `WriteOrigin::TemplateMerge` (no client
     capability maps to it at all — see the documents-permissions skill), so gating this
     advisory mirror on `canEdit(child, "/base")` would hide pull/revert from exactly the users the
-    server now authorizes.
+    server authorizes.
   - `canPush(templateId)` gates on `#isOwnerOrGm(template)` AND `canEdit(template, "/embedded")`
     AND `findInstances(templateId).length > 0` — covers the TEMPLATE only; per-instance write
-    authorization is entirely server-side now (no client-side `#canApplyUpdate` derivation left —
-    the server derives it against the actual computed `Update`).
+    authorization is entirely server-side (the client derives no per-instance apply authority; the
+    server derives it against the actual computed `Update`).
 - `MergeConflictModal` (+ `TemplateModalHost`) — unchanged UX; consumes `WireMergeConflict`
   (the hand-written Zod mirror in the `wire` module of the ts-rs-generated `MergeConflict` —
   the `wire.test.ts` parity assertions pin the two shapes equal) instead of an engine-produced
@@ -218,7 +218,7 @@ Part of the shadowcat-codebase-templates skill. Read it before changing or revie
   delete and tokenize functions), plus the hand-written conflict/plan/bands types those functions
   produced — a second live merge implementation is a divergence channel, not a safety net, once
   the server executes every merge.
-- `Document.base` — now SERVER-owned and engine-tree-validated. See
+- `Document.base` — SERVER-owned and engine-tree-validated. See
   `shadowcat-codebase-documents-permissions` for the field/authz/validation facts; this skill
   covers only the client-side `MergeBase` snapshot SHAPE that `snapshotBase`/`stampInstance` still
   produce and the server still consumes.

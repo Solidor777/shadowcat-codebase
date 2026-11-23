@@ -1,4 +1,4 @@
-Part of the shadowcat-codebase-realtime-sync skill; read it when touching self-service account routes, the route prefix, frame admission limits, presence, the modules-changed frame, portal offers, the session pause, module placements or the present-note relay. Part 03 of 03 of "Key files and seams"; the index is key-files-and-seams.md.
+Part of the shadowcat-codebase-realtime-sync skill; read it when touching self-service account routes, the route prefix, frame admission limits, presence, the modules-changed frame, portal offers, the session pause, module placements or the present-note relay. Part 03 of 03 of "Realtime & Sync: key files and seams"; the index is key-files-and-seams.md.
 
 Continues "Key files & seams" from key-files-and-seams-02-protocol-http-auth-client.md.
 

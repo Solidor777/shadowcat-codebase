@@ -98,9 +98,8 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
     path — by capturing the `Result` via `.map()` BEFORE popping, then propagating via `?` only
     AFTER the pop.** An early `?` inside the pushed scope would otherwise leak `table_id` on
     `cx.chain` past this call's return, corrupting cycle detection for a LATER SIBLING draw in
-    the same request that happens to reuse the same table id — this was a real bug caught before
-    merge, not a hypothetical; any refactor of this function must preserve the push→map→pop→`?`
-    ordering exactly.
+    the same request that happens to reuse the same table id; any refactor of this function must
+    preserve the push→map→pop→`?` ordering exactly.
   - `MAX_DRAW_DEPTH=8` bounds `TableEntry::Draw` recursion; exceeding it is `TooDeep`, checked
     BEFORE the cycle check on every call.
   - `weighted_row(rows, total) -> Option<usize>` — first row whose cumulative weight (in row
@@ -110,8 +109,8 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
     is a legitimate "no matching row" outcome, not an error (`TableEngine::validate` guarantees
     non-overlap, never exhaustive coverage).
   - `resolve_row_results`'s `TableEntry::Text` arm collects `chat::sanitize`'s `image_urls` onto
-    `cx.image_urls` alongside its `segments` — dropping this half of `Sanitized`'s output (as an
-    earlier version did) silently means a row's inline markdown image is never asset-ified, with
+    `cx.image_urls` alongside its `segments` — dropping this half of `Sanitized`'s output
+    silently means a row's inline markdown image is never asset-ified, with
     no error anywhere; see `chat::body::compose_message`'s identical collection for the reused
     pattern.
 - `chat::Segment::TableDraw(TableDrawSegment)` — the one `Segment` variant chat's own parser can

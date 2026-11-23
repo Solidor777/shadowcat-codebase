@@ -1,4 +1,4 @@
-Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::room, move execution, the rate limiter or the ws module root. Part 01 of 02 of "Realtime & Sync: key files and seams"; the index is key-files-and-seams.md.
+Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::room, move execution, the rate limiter or the ws module root. Part 01 of 03 of "Realtime & Sync: key files and seams"; the index is key-files-and-seams.md.
 
 ## Key files & seams
 
@@ -53,7 +53,7 @@ Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::roo
   - `Room::establish_resync_floor(user_id)` / `Room::resync_floor(user_id)` — the per-user resync
     floor: `session_floors: Mutex<HashMap<Uuid, i64>>`, same in-memory/room-lifetime pattern as
     `moving`. `establish_resync_floor` is called from `ws::conn`'s `ClientMsg::Hello { last_seq:
-    None }` arm (the field is no longer vestigial — see the Gotchas entry in references/gotchas-01-egress-resync-correlated-requests.md). `resync_floor`
+    None }` arm (the field is load-bearing — see the Gotchas entry in references/gotchas-01-egress-resync-correlated-requests.md). `resync_floor`
     fails closed to `current_seq() + 1` (empty) for a user with no recorded floor, never to `1`.
     Bounds "any member can request the entire world history via `ResyncRequest`" — the reachability
     half of the historical-replay confidentiality gap; the redaction-policy half is untouched.
