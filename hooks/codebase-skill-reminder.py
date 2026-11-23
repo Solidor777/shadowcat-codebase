@@ -24,8 +24,8 @@ SUBSYSTEMS = [
     ("audio",                [r"src/server/src/data/engine/audio\.rs", r"src/server/src/audio/", r"src/server/src/scene/audibility(\.rs|/)", r"src/server/src/data/asset/process/audio\.rs", r"src/client/audio/", r"src/client/core/src/(audio|audibility|playlist-docs)\.ts", r"src/modules/audio/", r"src/modules/sheet-playlist/", r"src/modules/ducking/"]),
     ("portmap",              [r"src/server/src/portmap/", r"src/server/src/http/port_forward\.rs"]),
     ("tls",                  [r"src/server/src/http/assets/permits"]),
-    ("server-ops",           [r"src/server/src/backup/", r"src/server/src/trash\.rs", r"src/server/src/http/(backups|trash)\.rs"]),
-    ("assets",              [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
+    ("server-ops",           [r"src/server/src/backup/", r"src/server/src/trash\.rs", r"src/server/src/http/(backups|trash)\.rs", r"src/server/src/main\.rs", r"src/server/src/config\.rs", r"src/server/src/db\.rs", r"src/server/src/backup\.rs", r"src/server/tests/backup_cli\.rs", r"src/server/src/audio_monitor/"]),
+    ("assets",               [r"src/modules/asset-browser/", r"src/server/src/data/asset(\.rs|/)", r"src/server/src/data/sqlite/assets\.rs", r"src/server/src/data/engine/asset_folder\.rs", r"src/server/src/http/assets(\.rs|/)", r"src/client/core/src/asset[-a-z]*\.ts"]),
     ("combat",               [r"src/server/src/data/engine/combat", r"src/server/src/combat/", r"src/modules/combat-tracker/"]),
     ("tables-notes",         [r"src/server/src/data/engine/table\.rs", r"src/server/src/data/engine/table/", r"src/server/src/tables/", r"src/client/core/src/table-docs\.ts", r"src/server/src/data/engine/note\.rs", r"src/server/src/data/engine/note/", r"src/server/src/data/sqlite/notes\.rs", r"src/server/src/data/sqlite/tables\.rs", r"src/server/src/data/engine/table_folder\.rs", r"src/server/src/notes/", r"src/client/core/src/note-docs\.ts", r"src/modules/notes/", r"src/modules/tables/"]),
     ("sandbox",              [r"src/server/src/sandbox/", r"examples/validator-rust/", r"src/server/tests/sandbox\.rs"]),
@@ -41,7 +41,6 @@ SUBSYSTEMS = [
     ("performance",          [r"src/client/core/src/performance\.ts", r"src/client/ui-kit/src/performance\.svelte\.ts", r"src/modules/settings/src/PerformanceEditor", r"src/modules/statusbar/src/PerfStats"]),
     ("dice-3d",               [r"src/modules/dice-3d/", r"src/client/ui-kit/src/dice3dInteraction"]),
     ("client-shell",         [r"src/modules/entry/", r"src/modules/core-ui/", r"src/modules/topbar/", r"src/modules/statusbar/", r"src/modules/settings/", r"src/modules/game-settings/", r"src/modules/onboarding/", r"src/client/shell/", r"src/client/ui-kit/", r"src/client/core/src/(contributions|index)(\.test)?\.ts$", r"src/client/core/src/(tour|dnd|keybindings|base-path)\.ts"]),
-    ("server-ops",           [r"src/server/src/main\.rs", r"src/server/src/config\.rs", r"src/server/src/db\.rs", r"src/server/src/backup\.rs", r"src/server/tests/backup_cli\.rs", r"src/server/src/audio_monitor/"]),
 ]
 
 
