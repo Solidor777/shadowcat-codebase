@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-realtime-sync
-description: "Use when touching Shadowcat realtime: WebSocket transport, per-world rooms, broadcast/egress, sequence numbers + resync, the client document store and optimistic/rollback, sessions/auth, user accounts (admin-created) and world invite/accept seating, live search, the scene-addressed out-of-band relays (ping/emote/vfx/shared ruler) and their shared `ws::scene_broadcast_permitted` admission, the typed correlated-request rejections, or the `randomUuid` id source. Covers src/server/src/{ws,http,auth} + src/client/core store. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat realtime: WebSocket transport, per-world rooms, broadcast/egress, sequence numbers + resync, the client document store and optimistic/rollback, sessions/auth, user accounts (admin-created) and world invite/accept seating, live search, the scene-addressed out-of-band relays (ping/emote/vfx/shared ruler) and their shared `ws::scene_broadcast_permitted` admission, the typed correlated-request rejections, the session pause, presence, portal offers, module placements, the route prefix (`apiPath`/`wsUrl`), self-service account routes, or the `randomUuid` id source. Covers src/server/src/{ws,http,auth} + src/client/core store. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Realtime & Sync
@@ -17,7 +17,7 @@ optimistically and roll back on divergence.
 
 ## Key files & seams
 
-The per-file map of ws, http, auth and the client store: Room and move execution, rate limiters, shutdown drain, protocol, connection loop, sessions, throttling, accounts and invites, eviction, WsClient and the stores. Read references/key-files-and-seams.md before editing any of those files or when you need to know which seam owns a behavior.
+The per-file map of ws, http, auth and the client store: Room and move execution, rate limiters, shutdown drain, protocol, connection loop, frame admission limits, sessions, throttling, accounts and invites, eviction, the route prefix, presence, the session pause, portal offers, module placements, WsClient and the stores. Read references/key-files-and-seams.md before editing any of those files or when you need to know which seam owns a behavior.
 
 ## Hard invariants
 

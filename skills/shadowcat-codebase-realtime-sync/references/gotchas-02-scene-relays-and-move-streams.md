@@ -139,4 +139,11 @@ Continues "Gotchas" from gotchas-01-egress-resync-correlated-requests.md.
   widen `Egress::Frame` to carry `RoomEvent` without first re-verifying that invariant against
   every current construction site — doing so would let an unredacted `StoredCommand` reach the
   egress sink through a path that skips `send_filtered_event`'s redaction call.
+- **A server-cut timing test measures from the last accepted progress, never from the producer
+  going quiet.** A peer that has stopped reading can still have its socket accept a later lump
+  after the producer has been flat for a while, and the no-progress window restarts at each.
+  `test-support`'s `record_cut_after_progress` reads `WriteStats::last_progress_at`; waiting for
+  the writes to go flat would measure a reference the server's own window does not use. The
+  overshoot past the derived bound is recorded per operating system and only capped by
+  `CUT_OVERSHOOT_MAX`.
 
