@@ -89,6 +89,12 @@ consecutive faults auto-disable the module for the world. Never the default path
   validator's rules to an unauthorized writer, unauthorized intents never burn fuel or a
   fault streak, and a bare-id Update can never feed another world's document through this
   world's validators as a cross-world oracle.
+- **A server-authored write is still validated.** The pre-transaction validator pass in
+  `apply_intent` is not conditioned on `WriteOrigin`: the origin reaches only the shared
+  authorization functions, where a capability-skipping origin (`skips_capability_gates`) is exempt.
+  So a module-placed `region` Create (`WriteOrigin::ModulePlacement`, `Room::place_declared`) is
+  judged by every enabled validator whose `docType` matches, exactly like a client write. A
+  module's own validator can therefore refuse the region its own manifest declared.
 - `sandbox::validate_document` always re-runs the validation pass's own pure structural validators
   (`validate_system_size`/`validate_property_overrides`/`validate_engine_tree`/
   `validate_containment`/`validate_system_schema_tree`) against the document BEFORE consulting
