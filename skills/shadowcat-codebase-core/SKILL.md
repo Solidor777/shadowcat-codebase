@@ -76,8 +76,8 @@ source of truth. The ones agents break most:
 
 ## Gotchas
 
-- **No data migrations pre-customers** (user directive): edit the single baseline migration in place, never add an incremental migration file, and keep the document-schema migrate step-free until a milestone marks live customer databases. Full text: references/gotchas-detail.md.
-- **Server-crate Rust tests never call a permanent-delete function on their own fixtures** (use the tempfile directory guard, or rename a file aside), and **a Rust mod item never carries an outer doc** (document it with the inner doc block; pnpm lint:module-docs enforces it). Full text: references/gotchas-detail.md.
+- **No data migrations pre-customers** (user directive): edit the single baseline migration in place, never add an incremental migration file, and keep the document-schema migrate step-free until a milestone marks live customer databases. Full text: references/gotchas-detail-02-ratchets-typedoc-migrations.md.
+- **Server-crate Rust tests never call a permanent-delete function on their own fixtures** (use the tempfile directory guard, or rename a file aside), and **a Rust mod item never carries an outer doc** (document it with the inner doc block; pnpm lint:module-docs enforces it). Full text: references/gotchas-detail-01-test-deletes-module-docs-citations.md.
 - **NEVER work around a rule — follow its INTENT; if unsure, ASK (user directive).**
   Verbatim: *"we do not try to work around rules, ever. we accept the intent of the rule and follow
   it. if we are unsure of the intent, ask the user."* Reworking text or code until a rule stops
@@ -99,7 +99,7 @@ source of truth. The ones agents break most:
   span's delimiter left before classification by one of the ways out printed beside the buckets:
   block-blanked, unpaired inside a span, unpaired at top level — the two lists are `SPAN_BUCKETS`
   and `RUN_EXCLUSIONS`, and a test pins these two sentences to them.
-  The remainder of this bullet (the gate's span accounting, bounds, residuals and local-name rules) is in references/gotchas-detail.md; read it before changing citation conventions or the gate.
+  The remainder of this bullet (the gate's span accounting, bounds, residuals and local-name rules) is in references/gotchas-detail-01-test-deletes-module-docs-citations.md; read it before changing citation conventions or the gate.
 - **As far as code is concerned, ephemeral documents, plans, dates, history and tasks DO NOT EXIST**
   (user directive, iron-clad; RULE 16). This is an ontology, not a style preference: the test is
   never "is this reference useful?" but "is this thing visible from the code?" Every exception
@@ -120,9 +120,9 @@ source of truth. The ones agents break most:
     holding the artifact that assigned it, same as the milestone-id class above. A citation of a
     versioned SYMBOL (`` `PanelLayoutV1` ``, `` `Vec2` ``) is unaffected: the letter-run before the
     digit excludes it.
-  The remainder of this rule (why it is one class, the state-the-constraint conversion, the scope for skills and its guard, the example exemption, detector bounds and the scan subject) is in references/gotchas-detail.md; read it before writing or reviewing comments, doc prose or skill text that names anything outside the code.
-- **There are no justified keeps, exemptions or carve-outs unless the user explicitly signs off** (user directive): report a candidate as unconverted and awaiting a ruling, remove the need for the exemption first, and print the active count of any exemption that exists. Full text: references/gotchas-detail.md.
-- **No ratchets, only gates** (user directive): nothing is grandfathered, every doc and comment check is an error that fails CI, and there is no warn tier. The gate list, the nightly rustdoc examples gate and how it can pass while enforcing nothing: references/gotchas-detail.md.
+  The remainder of this rule (why it is one class, the state-the-constraint conversion, the scope for skills and its guard, the example exemption, detector bounds and the scan subject) is in references/gotchas-detail-01-test-deletes-module-docs-citations.md; read it before writing or reviewing comments, doc prose or skill text that names anything outside the code.
+- **There are no justified keeps, exemptions or carve-outs unless the user explicitly signs off** (user directive): report a candidate as unconverted and awaiting a ruling, remove the need for the exemption first, and print the active count of any exemption that exists. Full text: references/gotchas-detail-02-ratchets-typedoc-migrations.md.
+- **No ratchets, only gates** (user directive): nothing is grandfathered, every doc and comment check is an error that fails CI, and there is no warn tier. The gate list, the nightly rustdoc examples gate and how it can pass while enforcing nothing: references/gotchas-detail-02-ratchets-typedoc-migrations.md.
 - **`.claude/CLAUDE.md` is TRACKED and shared** — edits there reach other contributors and the
   open-source repo. `.gitignore`'s `/CLAUDE.md` rule is root-anchored and matches no file (no
   root-level `CLAUDE.md` exists); the genuinely-ignored entries under `.claude/` are
@@ -135,7 +135,7 @@ source of truth. The ones agents break most:
 - **Decide on technical merits, not "how Foundry does it."** [[decide-on-merits-not-foundry]]
 - **Tests yield to correct code** — fix code only if objectively wrong; else fix the test.
   [[tests-yield-to-correct-code]]
-- **TypeDoc gotchas** (references/gotchas-detail.md): a doc comment on the same line as its target is silently dropped; a link tag to a private member fails the docs build; most root-level typedoc settings are inert under the packages entry-point strategy (only the root decides whether a warning is fatal); the only documented-coverage exemption is the enumerated set of ts-rs synthesized discriminants.
+- **TypeDoc gotchas** (references/gotchas-detail-02-ratchets-typedoc-migrations.md): a doc comment on the same line as its target is silently dropped; a link tag to a private member fails the docs build; most root-level typedoc settings are inert under the packages entry-point strategy (only the root decides whether a warning is fatal); the only documented-coverage exemption is the enumerated set of ts-rs synthesized discriminants.
 
 ## Pointers
 

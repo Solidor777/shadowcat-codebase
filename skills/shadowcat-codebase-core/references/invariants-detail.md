@@ -162,7 +162,7 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   is the fixture author's measurement, not something this skill verifies.
 - **The `lan-plain-http` Playwright project is the runtime proof of the LAN invariant.**
   `playwright.config.ts` runs two projects over two servers: the loopback project (everything
-  except `LAN_SPEC`, against `127.0.0.1:31999`) and `lan-plain-http` (only `LAN_SPEC`, against the
+  except `LAN_SPEC`, against the loopback port from `resolveE2ePorts`, 31999 by default) and `lan-plain-http` (only `LAN_SPEC`, against the
   origin built from `LAN_HOST` and `LAN_PORT`). `LAN_HOST` is a non-loopback hostname that
   Chromium's `--host-resolver-rules` maps to `127.0.0.1`, so the origin is genuinely insecure on
   every CI OS with no network setup, and its server binds `0.0.0.0` because server policy keyed on
@@ -171,8 +171,14 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   `SECURE_CONTEXT_MEMBERS` table (which includes deviceMemory) is `undefined` there (it also
   attaches other measured members without asserting them), and its two session tests
   (a GM session and a player session) additionally fail on any page error. Both servers are
-  `reuseExistingServer` outside CI, so a local run can drive another session's binary on port
-  31999 or 32000; only CI's isolated runner attributes a result to the tree under test.
+  `reuseExistingServer` outside CI, so a local run can drive another session's binary on the same
+  port; only CI's isolated runner attributes a result to the tree under test.
+  **Every Playwright port derives from one base, `E2E_PORT_BASE_ENV` (the port-base environment variable, default
+  `DEFAULT_E2E_PORT_BASE` 32000), through `resolveE2ePorts`:** loopback is base minus one, then `lan`,
+  `https`, `mediaRange`, `longAudio` and `routePrefix` take the next five, six contiguous ports in all, and an
+  invalid base throws. Two checkouts run the suite at the same time only with different bases; never
+  write a literal test-server port in a spec or config. CI selects the release-build server through
+  the e2e profile environment variable that `playwright.config.ts` reads.
 - **A jsdom package whose tests reach the browser's local storage lists the shared
   `test-setup/jsdom-local-storage.ts` first in its `setupFiles`** (the shell, ducking and dice-3d
   configs do; most jsdom packages do not). Node exposes a non-functional global local-storage

@@ -16,7 +16,7 @@ Part of shadowcat-codebase-core: the docs build and gate commands and the docs-l
   CI-blocking), `pnpm lint:docs` (function doc coverage),
   `pnpm lint:props` (property/type/named-arrow doc coverage), `pnpm lint:comments` (no ephemeral
   references). **All are errors repo-wide with no per-package staging** — see the no-ratchets rule
-  in references/gotchas-detail.md; there is no `rulesAt(severity)` and no advisory tier anywhere in these configs.
+  in references/gotchas-detail-02-ratchets-typedoc-migrations.md; there is no `rulesAt(severity)` and no advisory tier anywhere in these configs.
   Two structural constraints survive and still bite:
   **(1) A package with COMPONENTS is covered by TWO blocks, not one.** `.ts` and `.svelte` need
   different parsers and one flat-config block cannot carry both, so each config has a `.ts` block
