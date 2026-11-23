@@ -21,7 +21,7 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
 - **Trash** (`trash`, routes in `http::trash`, admin-only): production code removes a file or
   directory through `Trash::discard` / `Trash::discard_sync`, never a raw
   standard-library remove call. Each entry is a `<trashed_at_ms>-<uuid>/` directory holding
-  `manifest.json` and the discarded item, built under a `.staging-` name and renamed into place last so a listing never sees
+  `manifest.json` and the discarded item, built under a `.staging-` name; its final name appears in one atomic step, so a listing never sees
   a half-built entry. `TrashRetention` is `Days`, `Never` or `Disabled` (`Disabled` removes at
   once and creates no directory); `Config::trash_path` and `Trash::from_config` resolve it;
   `spawn_retention_sweep` runs hourly. An id from a path is parsed by `EntryId`, a positive

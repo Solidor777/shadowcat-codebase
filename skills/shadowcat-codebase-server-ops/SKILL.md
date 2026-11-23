@@ -101,7 +101,7 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   (directory rename does NOT replace a non-empty destination on any target OS, hence the two-step
   swap), the staged tree renames into `assets_dir`, then the db rename is the LAST, single step.
   If the db rename fails the assets swap is undone by two renames, so on an error return the live
-  db and assets are both the backup's or both what they were. The replaced `.restore-old` tree
+  db and assets are both the backup's or both what they were. The `.restore-old` tree that holds the prior data
   moves into the trash only after the db rename succeeded (a failure to trash it is a warning,
   not a failed restore), and every staging leftover moves into the trash too. Only a crash
   between the final renames can park `.restore-old`; the next restore clears it before staging.
