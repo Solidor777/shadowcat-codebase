@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-server-ops
-description: "Use when touching Shadowcat's server bootstrap/config/CLI/deployment surface: the `main` module (entry point, early one-shot CLI branches), the `config` module (`Cli`/`Config` layering: CLI flag > SHADOWCAT_* env > TOML > default), the `db` module (the shared `connect_pool` single-writer SqlitePool bootstrap plus `open_read_only_pool`'s dedicated read-only bootstrap, every pool-opening site in the crate calls one of the two), or the `backup` module (whole-server VACUUM-INTO backup/restore). Covers the single-binary deployment story, not any one data/document subsystem. Invoke shadowcat-codebase-core first."
+description: "Use when touching Shadowcat's server bootstrap/config/CLI/deployment surface: the `main` module (entry point, early one-shot CLI branches), the `config` module (`Cli`/`Config` layering: CLI flag > SHADOWCAT_* env > TOML > default), the `db` module (the shared `connect_pool` single-writer SqlitePool bootstrap plus `open_read_only_pool`'s dedicated read-only bootstrap, every pool-opening site in the crate calls one of the two), the `backup` module (whole-server VACUUM-INTO backup/restore, the in-server backup list and staged restore), the `trash` module (recoverable deletion), the `portmap` module (router port forwarding) or `onboarding_enabled`. Covers the single-binary deployment story, not any one data/document subsystem. Invoke shadowcat-codebase-core first."
 ---
 
 # Shadowcat — Server Bootstrap, Config, and Backup/Restore
@@ -14,11 +14,12 @@ binary starts, how configuration is resolved, and how a deployment's data is sna
 one-shot `--backup-to`/`--restore-from` CLI modes share it, mutually exclusive with each other and
 with serving. `config` resolves the effective `Config` from four layered sources. `backup`
 is a pure-I/O module (no `AppState`/`SqliteRepository` dependency) providing whole-server backup
-and restore as a deployment-operator tool, not an in-app feature.
+and restore, driven by the CLI and by the admin routes. `trash` holds every server-side deletion
+and `portmap` asks a home router to forward the listening port.
 
 ## Key files & seams
 
-Per-module entries for config and Cli, the http router and serve, main, the db helpers, backup, world_bundle, audio_monitor and the admin routes, with the seams between them. Read references/key-files-and-seams.md before editing any of those areas or when a task names one of them.
+Per-module entries for config and Cli, the http router and serve, main, the db helpers, backup and its catalog, staged restore, the trash, portmap, world_bundle, audio_monitor and the admin routes, with the seams between them. Read references/key-files-and-seams.md before editing any of those areas or when a task names one of them.
 
 ## Hard invariants
 
@@ -41,13 +42,16 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   never deleted except by explicit delete, so db-then-assets ordering guarantees every asset a
   snapshot's rows reference is already present in the assets copy. `manifest.json` is written
   last, after both.
-- **Two backup surfaces, not one.** The CLI one-shot mode (`--backup-to`/`--restore-from`,
-  cross-process, invokable from cron/Task Scheduler/systemd-timer with no running server) remains
-  the ONLY restore path — restore never runs in-server (see below). Backup ALSO has an in-server
-  admin route (`POST /api/admin/backup`) because a cross-process CLI invocation cannot
-  reach the live process's `write_barrier` to quiesce concurrent asset writes; the in-server route
-  can. Anything needing a write-quiesced backup (e.g. a future scheduled-backup feature) must use
-  the admin route, not the CLI mode.
+- **Two backup and restore surfaces.** The CLI one-shot mode (`--backup-to`/`--restore-from`,
+  cross-process, no running server) and the in-server admin routes (`POST /api/admin/backup`, the
+  `http::backups` list/prune/delete/restore routes). A cross-process CLI invocation cannot reach
+  the live process's `write_barrier` to quiesce concurrent asset writes; the in-server route can,
+  so anything needing a write-quiesced backup uses the admin route. An in-server restore never
+  swaps files under the open pool: the route stages `restore-pending.json` and stops the server,
+  and `backup::apply_pending_restore` applies it at the next start, before the database opens.
+- **Recoverable deletion**: server production code removes files through `trash::Trash::discard`
+  (or `discard_sync`), never a raw remove; `AppState.trash` carries the one `Trash`. Backups, the
+  restore staging leftovers and deleted assets all move into it.
 - **Fail-closed restore**: `restore_backup` validates `manifest.json` + `world.db` presence
   BEFORE touching any destination file — a missing/malformed/foreign backup directory returns
   `BackupError::InvalidBackupDir` with zero destination writes.
@@ -60,7 +64,8 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   refuse-non-empty gate for backup lives at the CLI layer (`main::run_backup`, via the
   exported `dir_is_empty_or_absent`). A future caller invoking `create_backup` directly (e.g. an
   in-app export feature) would bypass that gate.
-- **Restore never starts the server** — restore and serve are always two separate invocations
+- **A restore never runs against an open database pool** — `restore_backup` never starts the
+  server, and the in-server path applies the staged restore before `SqliteRepository::connect`
   (a live connection can't safely have a different file swapped in as its backing file; Windows
   can even fail that swap outright on an open handle).
 - **No shell-out for the recursive directory copy** (`tokio::fs` walks only — no `cp -r`/`xcopy`/
@@ -94,17 +99,13 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   an existing FILE on all three target OSes); the assets tree copies to
   `<assets_dir>.restore-tmp`, the live `assets_dir` renames out to `<assets_dir>.restore-old`
   (directory rename does NOT replace a non-empty destination on any target OS, hence the two-step
-  swap), the staged tree renames into `assets_dir`, then `.restore-old` is removed. A failure at
-  any point leaves `restore_backup::db_path` either fully pre-restore or fully post-restore, and independently
-  leaves `assets_dir` either fully pre-restore or fully post-restore — worst case
-  (crash between the two directory renames) parks the old tree at `.restore-old`, which the next
-  restore attempt clears before staging. No `--force`-only special case: both paths use the
-  staging protocol regardless of `force`, since without `force` the pre-restore-destination-empty
-  gate has already run. The db swap and the assets swap are two INDEPENDENT atomic operations,
-  not one joint transaction — the db rename completes in full before the assets copy/swap starts,
-  so a crash in that window pairs a new db with old (or momentarily absent) assets; recovery is
-  re-running `restore_backup` with `force` (the db swap already completed, so a force-less retry
-  would refuse on the now-existing `restore_backup::db_path`).
+  swap), the staged tree renames into `assets_dir`, then the db rename is the LAST, single step.
+  If the db rename fails the assets swap is undone by two renames, so on an error return the live
+  db and assets are both the backup's or both what they were. The replaced `.restore-old` tree
+  moves into the trash only after the db rename succeeded (a failure to trash it is a warning,
+  not a failed restore), and every staging leftover moves into the trash too. Only a crash
+  between the final renames can park `.restore-old`; the next restore clears it before staging.
+  No `--force`-only special case: both paths use the staging protocol regardless of `force`.
 - The CLI backup mode (`create_backup` invoked directly by `main::run_backup`, cross-process,
   no live server) still has NO write-quiesce — its assets-copy is not transactionally coupled to
   the `VACUUM INTO` snapshot, so a CLI backup racing an external process's in-flight asset REPLACE

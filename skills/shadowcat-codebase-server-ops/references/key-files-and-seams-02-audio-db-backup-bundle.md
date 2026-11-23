@@ -84,15 +84,17 @@ Continues "Key files & seams" from key-files-and-seams-01-config-router-serve-ad
   ([[shadowcat-codebase-realtime-sync]]). There are now exactly two pool-options decisions in the
   crate (the write bootstrap and the read-only bootstrap); nothing calls `SqlitePoolOptions::new()`
   directly outside these two functions.
-- `backup` — `BackupManifest`, `BackupError`, `dir_is_empty_or_absent`,
-  `create_backup(db_path, assets_dir, out_dir) -> Result<BackupManifest, BackupError>`,
-  `restore_backup(backup_dir, db_path, assets_dir, force) -> Result<(), BackupError>`. Opens its
+- `backup` — `BackupManifest` (carries `kind: BackupKind` and an optional `note`), `BackupKind`
+  (manual, pre-restore, scheduled), `BackupError`, `dir_is_empty_or_absent`,
+  `create_backup(db_path, assets_dir, out_dir, trash, kind, note) -> Result<BackupManifest, BackupError>`,
+  `restore_backup(backup_dir, db_path, assets_dir, force, trash) -> Result<(), BackupError>`. Every
+  removal inside both moves into `trash` (`trash::Trash::discard`), never a raw remove. Opens its
   own short-lived pool via `db::connect_pool` (does not reuse `SqliteRepository`/`AppState`) —
   pure file I/O + one SQL statement, deliberately decoupled from the rest of the server so it
   works even when `main()`'s normal startup path never runs. `restore_backup` opens no SQL pool at
   all (file copy/rename only), so the foreign-keys pragma `connect_pool` always enables has no
   restore-time counterpart to diverge from.
-- `POST /api/admin/backup` (`http::routes::admin_backup`, admin-only via `AdminUser`)
+- `POST /api/admin/backup` (`http::backups::admin_backup`, admin-only via `AdminUser`)
   — in-server backup trigger, layered ABOVE `backup`. Resolves the source db file via ONE
   `db::database_file(&state.config.db)` call: `Ok(Some(path))` proceeds; `Ok(None)` (an in-memory
   `Config.db`) is a caller-facing configuration mistake, rejected with `AppError::Unprocessable`
