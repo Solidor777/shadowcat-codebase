@@ -33,8 +33,20 @@ Part of the shadowcat-codebase-formula skill; read it when changing or consuming
   boundary (the `evaluate` module's reference case, `resolveAll`'s call to `resolveAll.evalNode`,
   the `template` module's identifier resolver) validates a consumer callback's return through
   these before trusting it as a `FormulaValue`.
+- The `coerce` module — `coerceFormula(text)`, the ONE decision every formula text input makes
+  about what to store: a finite numeric literal becomes a `number`, any other text that PARSES is
+  kept as its trimmed source `string`, and everything else (an empty input included) is the
+  `FormulaError` `parseFormula` returned. Only the parse is checked; what a reference means stays
+  the evaluator's call. The combat settings editors (`BarsEditor`, `ResourceRegistryEditor`,
+  `CombatSettings`, `CombatSceneOverrides`) all store through it, so a second spelling of the
+  number-or-text rule in an editor is the fork this exists to prevent. Its sibling in the `parser`
+  module, `isBareLeafReference(formula)`, answers the dotted path (lowercased, the form a resolver
+  is offered) when a stored formula is EXACTLY one bare reference and `null` for a number, any
+  other node shape, or a parse failure; it is an AST shape check over `parseFormula`, not a second
+  grammar. The token quick-edit bar nudges use it to decide whether a bar's value can be written
+  straight to its leaf.
 - The `index` module — the only public entry point, re-exporting `types`, `parser`, `evaluate`,
-  `graph` and `template`.
+  `graph`, `template` and `coerce`.
 - Server twin: `crate::formula` (`src/server/src/formula/`) — `formula::types` (`FormulaError`,
   `FormulaErrorKind`, `FormulaValue`, the four caps), `formula::lexer::tokenize`,
   `formula::parser::parse`/`Expr`/`BinOp`/`FnName`, `formula::evaluate`/`Resolve`,
@@ -113,7 +125,8 @@ erroring cleanly — build expressions with `parseFormula`, never by hand.
   **Math-function names do NOT belong in
   `NOTATION_KEYWORDS`** — it guards the dice-MECHANIC modifier vocabulary specifically (the same
   category as kh/cs/tr/rs/xs/xf). The notation `fn_call` vocabulary has its OWN list,
-  `NOTATION_FUNCTIONS` (floor/ceil/round/abs/min/max), mirrored by the server twin's own
+  `NOTATION_FUNCTIONS` (floor/ceil/round/abs/min/max, plus `best`, the dice parser's two-branch
+  `Expr::BestOf` call), mirrored by the server twin's own
   declaration and parity-checked against the dice parser's `fn_call` match arms the same way; the
   template scan reserves a function name ONLY when immediately followed by `(`, which is what
   keeps `floor(101d6/2)` reading as notation rather than a stat reference now that the server runs
@@ -121,6 +134,14 @@ erroring cleanly — build expressions with `parseFormula`, never by hand.
   min/max/floor/ceil/round — five names) overlaps with but is not identical to the dice crate's
   six (`FnName` in `dice::spec`: also has `Abs`, which this package has no counterpart for) — the
   overlap is coincidental, not a parity-enforced one.
+- **An identifier in a dice COUNT position substitutes as a bare integer, not a labeled value.**
+  `resolveNotationTemplate` rewrites `prof d6` to `3 d6`, and `str + d6` still labels `str`: an
+  identifier followed (after any spaces or tabs) by the dice operator is the count, so it resolves
+  through the integer-only path (`resolveInteger`'s i32-magnitude rule) and must be NON-NEGATIVE.
+  Both twins carry the one decision (`diceOperatorFollows` here, `dice_operator_follows` and
+  `substitute_bare_count` in `formula::template`), and the scan's single carried flag
+  (a flag that the preceding claim was an integer or a bare count, held across blanks) is what stops a second `1` being synthesized ahead of an `d` that already has its count.
+  A change to either twin's count handling lands in the corpus first.
 - The `internal` module's four helpers are the ONLY sanctioned way to cross a consumer-callback
   boundary. A gap at one boundary reopens the class of bug the others already guard against
   [[injected-callback-boundary-must-validate-every-site]] — treat any NEW injected-callback seam as
