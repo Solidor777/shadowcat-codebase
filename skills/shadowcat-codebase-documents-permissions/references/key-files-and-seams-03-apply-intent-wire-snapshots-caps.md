@@ -94,7 +94,9 @@ Continues "Key files & seams" from key-files-and-seams-01-document-engine-token-
   admitted by exact path instead. `SMR_PERMISSION_PATHS` (default, gm_role, users,
   property_overrides under `/permissions`) lists them; the readership trio
   `SMR_READERSHIP_PATHS` additionally needs a GM-world-role author, and the declared-capability
-  skip and the missing-capability admission both read the one list.
+  skip and the missing-capability admission both read the one list. The declared-capability skip
+  (in `authorize_update_change`) also covers exactly `/engine` and `/system` (the delete tombstone's
+  payload clear) on a message doc; any other path under the origin still runs the additive check.
 - **GM-only engine fields share ONE predicate pair.** `permission::gm_only_field_touched`
   (Update: a write at, below or above the field's pointer that changes its effective value) and
   `permission::gm_only_field_in_body` (Create) name the list: a carried-light emission, a token's

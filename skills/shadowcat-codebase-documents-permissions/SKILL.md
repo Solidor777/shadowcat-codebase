@@ -25,6 +25,7 @@ sent-then-hidden. This subsystem also owns the visibility-partitioned full-text 
 | references/key-files-and-seams.md | The full Key files & seams section: `data::document`, `data::engine`, `data::permission`, `data::search`, `Repository`/validation, `apply_intent` and its `WriteOrigin`s, the client `wire` mirror, snapshots, role caps. | Touching any file or seam in `src/server/src/data` or its client wire mirror, or looking up where something lives. |
 | references/hard-invariants-detail.md | The long Hard-invariant bullets: `filter_properties`, `gm_role`, `/base` egress, envelope-vs-content-band redaction, the whole-document READ transition. | Changing redaction, `gm_role`, `Document.base` egress, band classifiers, or replay/broadcast transitions. |
 | references/gotchas.md | The full Gotchas section. | Before finishing any change in this subsystem, or when something here behaves unexpectedly. |
+| references/engine-ingress-and-redaction-additions.md | Placement rules (`validate_containment`, combat groups, table folders and the folder-delete reparent), `RenderHint`/region/bar ingress validators, the second `filter_properties` consumer (the bars channel), embedded actor-copy identity pointers. | Adding an engine doc type with a parent rule, touching the folder-delete path, a value validator for scene/region/bar bodies, or a server-side evaluator that reads a document for a recipient. |
 
 ## Key files & seams
 
@@ -94,7 +95,9 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   `filter_properties` takes no GM shortcut for a document that holds a recipients tier
   (`holds_recipients_tier`), and an `Update` delta's permission-writing `FieldChange` has its
   lists emptied for non-listed viewers (`scrub_recipient_lists`, both `old` and `new`). Both
-  partitions of the search index also exclude recipient-restricted text.
+  partitions of the search index also exclude recipient-restricted text. `Visibility::Recipients`
+  is an untagged struct variant (`{ recipients: Vec<Uuid> }`), so the wire form stays
+  `{"recipients": [...]}` while the property carries its own generated doc.
 - **Every GM-only engine field is gated by the one `gm_only_field_touched`/
   `gm_only_field_in_body` pair**; read references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md (the GM-only fields bullet) before adding one or a new server-authored write path.
 - **Path-prefix authz covers ancestor (subtree-replacing) writes AND whole-doc Create**, not just
@@ -156,10 +159,11 @@ Pitfalls of this subsystem: migration, OCC pre-images, raw ownership as a write-
   `RollEmbed`'s `spec`/`raw`/`recalc_history[].previous_raw` fields (and, recursively, a
   `TableDrawSegment`'s own `spec`/`raw` at every nesting depth), and the `WriteOrigin::
   ServerMessageRevision` exact-path admission for writing `SMR_PERMISSION_PATHS` (the three
-  readership paths and `/permissions/property_overrides`)
-  (an origin/doc_type/path-scoped extension of the general `apply_intent` access-grant
-  mechanism in references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md, with no other consumer) is documented there rather than here, same
-  ownership split as `gm_role`.
+  readership paths and `/permissions/property_overrides`) are documented in
+  references/key-files-and-seams-03-apply-intent-wire-snapshots-caps.md (an
+  origin/doc_type/path-scoped extension of the general `apply_intent` access-grant mechanism, with
+  no other consumer); the chat skill owns the producers (`handle_recalc_roll`,
+  `handle_revise_audience`), same ownership split as `gm_role`.
 - `shadowcat-codebase-templates` — the client-side 3-way merge engine + `TemplatesController`
   that produces/consumes `base`; this skill owns only the server-side field/authz/redaction/size
   facts in references/key-files-and-seams.md and references/hard-invariants-detail.md.

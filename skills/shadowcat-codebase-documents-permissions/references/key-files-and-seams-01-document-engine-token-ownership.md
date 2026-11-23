@@ -81,14 +81,16 @@ Part of the shadowcat-codebase-documents-permissions skill; read it when touchin
 - `data::engine` — the typed `engine`-band structs + the ingress-validation
   registry, one submodule per doc-type family (`data::engine::token`, `data::engine::scene`,
   `data::engine::geometry`, `data::engine::registries`) plus the `data::engine` module itself:
-  `is_engine_doc_type(doc_type) -> bool` (membership in `ENGINE_DOC_TYPES`, the one 26-entry
+  `is_engine_doc_type(doc_type) -> bool` (membership in `ENGINE_DOC_TYPES`, the one 31-entry
   registry slice — token, scene, wall, region, light, drawing, template, actor, message,
   world-settings, vision-modes, light-gradation, chat-settings, dice-settings, channel-registry,
-  faction-registry, condition-registry, asset_folder, table, note, combat, combatant,
-  resource-registry, effect, system-defaults, combat-history; `search_text`'s match must stay
+  faction-registry, condition-registry, combat, combatant, resource-registry, effect,
+  system-defaults, combat-history, combatant-group, asset_folder, table_folder, table, note,
+  playlist, audio-state, module-settings; `search_text`'s match must stay
   in sync with it — the combat family
   plus `system-defaults`, see `shadowcat-codebase-combat`; `table` (rollable tables) is
-  standalone, never embedded/parented, while `note` forms its OWN `parent_id` tree of notes
+  never embedded and may be filed only under a `table_folder` (see
+  references/engine-ingress-and-redaction-additions.md), while `note` forms its OWN `parent_id` tree of notes
   (never embedded, but — unlike `table` — MAY carry a parent), see
   `shadowcat-codebase-tables-notes` for both engine bodies and `note`'s
   `data::sqlite::notes::check_note_parent` placement check),
