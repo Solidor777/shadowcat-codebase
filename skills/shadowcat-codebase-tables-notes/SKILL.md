@@ -1,6 +1,6 @@
 ---
 name: shadowcat-codebase-tables-notes
-description: "Use when touching Shadowcat's rollable tables OR rich-text notes. Tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Notes: the `note` engine doc type (`NoteEngine{source, body, sort}`), `data::engine::note`'s server-derived-body ingress arm, `chat::body::compose_static`/`chat::NOTE_CONTENT_POLICY`, `data::sqlite::notes::check_note_parent`'s parent-tree placement, and the client `note-docs` module (`buildNoteDoc`/`parseNoteBody`). Covers src/server/src/data/engine/table.rs, src/server/src/data/engine/note.rs, src/server/src/tables/, src/server/src/data/sqlite/notes.rs, the `TableDraw`/`DrawnRow`/`roll_property_overrides`/`compose_static`/`NOTE_CONTENT_POLICY` portions of src/server/src/chat/, src/client/core/src/table-docs.ts, src/client/core/src/note-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides and for `compose_static`/`NOTE_CONTENT_POLICY` themselves, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules and the note-tree placement mechanics `check_note_parent` plugs into, invoke shadowcat-codebase-documents-permissions."
+description: "Use when touching Shadowcat's rollable tables OR rich-text notes. Tables: the `table` engine doc type (`TableEngine`/`DrawRule`/`TableRow`/`RowRange`/`TableEntry`), `tables::handle_draw_table`/`tables::draw::draw_table`'s recursive draw resolution (cycle detection, depth/budget caps, weighted/formula row selection), the `Segment::TableDraw`/`TableDrawSegment`/`DrawnRow` chat segment family and its GM-only spec/raw redaction, the `draw_table` wire frame, the client `table-docs`/`chat-docs` mirrors and `WsClient.drawTable`, or `SegmentList`'s recursive `table_draw` rendering. Table folders: the `table_folder` doc type (`TableFolderEngine`, `check_table_folder_parent`, the folder-delete lift). Notes: the `note` engine doc type (`NoteEngine{source, body, sort, kind}`, `NotePageKind`), `data::engine::note`'s server-derived-body ingress arm and server-owned secret overrides, `notes::handle_present_note`, `chat::body::compose_static`/`chat::NOTE_CONTENT_POLICY`, `data::sqlite::notes::check_note_parent`'s parent-tree placement, and the client `note-docs` module (`buildNoteDoc`/`parseNoteBody`). Covers src/server/src/data/engine/table.rs, src/server/src/data/engine/note.rs, src/server/src/tables/, src/server/src/data/sqlite/notes.rs, the `TableDraw`/`DrawnRow`/`roll_property_overrides`/`compose_static`/`NOTE_CONTENT_POLICY` portions of src/server/src/chat/, src/client/core/src/table-docs.ts, src/client/core/src/note-docs.ts, the `table_draw` portion of src/client/core/src/chat-docs.ts, and the `table_draw` portion of src/client/ui-kit/src/SegmentList.svelte. Invoke shadowcat-codebase-core first; for the Segment/redaction/chat-frame machinery a table draw rides and for `compose_static`/`NOTE_CONTENT_POLICY` themselves, invoke shadowcat-codebase-chat; for the row-selecting roll's parse context and formula validation, invoke shadowcat-codebase-dice; for the engine-doc-type registry/containment rules and the note-tree placement mechanics `check_note_parent` plugs into, invoke shadowcat-codebase-documents-permissions."
 ---
 
 # Shadowcat — Rollable Tables & Notes
@@ -31,8 +31,13 @@ and `nested` — one `TableDrawSegment` per `TableEntry::Draw` entry, recursing 
 full `draw_table` call. A draw is NEVER stored back onto the table document; it exists only as the
 chat message it produces.
 
-**Notes** deliver one engine doc type (`note`) with no action of its own: `NoteEngine{source, body,
-sort}` — the author writes `source` (markdown), and `data::engine::mod`'s `"note"` arm of
+**Table folders** (`table_folder`, `TableFolderEngine{sort}`) are the container tables are filed
+under, a `parent_id` tree of its own.
+
+**Notes** deliver one engine doc type (`note`) whose only server action is the GM's
+present-to-table relay (`notes::handle_present_note`): `NoteEngine{source, body, sort, kind}`
+(`kind` is `NotePageKind`: `Text`, or `Image`/`Pdf`/`Video` carrying an `asset_id`, defaulting to
+`Text`; `source` is the caption of a media page) — the author writes `source` (markdown), and `data::engine::mod`'s `"note"` arm of
 `normalize_engine` derives `body: Vec<Segment>` from it via `chat::compose_static` under the fixed
 `chat::NOTE_CONTENT_POLICY`, on every Create AND every Update post-image. A client's own `body` is
 never trusted or partially honored — it is unconditionally overwritten. Notes form a `parent_id`
@@ -60,8 +65,17 @@ Covers the key files and seams of notes: the note engine doc type, the server-de
   even on an error return.** See `draw_table`'s ordering note in references/tables-key-files-and-seams.md — this is the whole cycle
   guard; getting it wrong either falsely rejects a legitimate sibling draw or, worse, permits
   infinite recursion.
-- **A table document has no parent and is never embedded** (`validate_containment`'s `table`
-  arm) — unlike an item or effect, it is always addressed by its own top-level id.
+- **A table is never embedded, and its only legal parent is a `table_folder` in the same scope**
+  (`validate_containment` rejects embedding; `SqliteRepository::check_table_folder_parent` enforces
+  the parent type at the persistence chokepoint, batch-then-database like `check_note_parent`). A
+  `table_folder` (`TableFolderEngine{sort}`, `TABLE_FOLDER_DOC_TYPE`) nests only under another
+  `table_folder`. A table is always addressed by its own id, never through a parent.
+- **Deleting a `table_folder` never deletes a table in it.** `table_folder_reparent_moves` runs at
+  the start of a `Delete`'s expansion in BOTH write loops (`apply_command`, `apply_intent`) and
+  emits explicit `Move` ops (logged, broadcast, invertible, never a silent column update) lifting
+  every table in the folder's subtree to the nearest ancestor the same command does not also
+  delete (`deleted_ids`), so deleting an outer and a nested folder in one command lifts to the
+  same surviving ancestor in either order.
 - **`DrawRule::Weighted`'s row-weight sum is bounded by `chat::rolls::MAX_DIE_SIDES`, because the
   draw literally rolls `1d<sum>`.** Any future change to `MAX_DIE_SIDES` or to how a `Weighted`
   draw derives its notation must keep this bound aligned — the positive+negative control at the
@@ -80,9 +94,21 @@ Covers the key files and seams of notes: the note engine doc type, the server-de
 - **An inline `[[formula]]` span in a note NEVER executes.** `compose_static` always produces a
   `Segment::RollButton`, never a `Segment::RollEmbed` — a note save must not roll dice as a side
   effect of a document write, unlike chat's own `compose_message` (Execute mode).
-- **A note MAY carry a `parent_id`; a table NEVER may.** Do not generalize `table`'s
-  no-parent rule to `note`, or vice versa — they are independent containment decisions
-  (`validate_containment`'s `table` and `note` arms are separate match cases).
+- **A note's parent is another `note`; a table's parent is a `table_folder`.** Do not generalize one
+  parent-type rule to the other — `check_note_parent` and `check_table_folder_parent` are separate
+  checks dispatched from the one shared `check_parent_placement`, and neither type may be embedded.
+- **A note's secret-hiding property overrides are server-owned, never client-trusted.**
+  `validate_engine_tree` calls `stamp_note_secret_overrides` on every Create and Update
+  post-image: every stored `/engine/source` and `/engine/body`-rooted override key is dropped and
+  swapped for `NoteEngine::secret_property_overrides` of the freshly derived body. A note holding
+  any `Segment::Secret` also marks `/engine/source` as `OwnerOrGm` (the markdown still contains the
+  hidden text; the author keeps it so they can edit their own note), while each secret's rendered
+  `content`/`visibility` stays under the secret's own tier. Never write note override keys by hand.
+- **A presented note never widens access.** `notes::handle_present_note` authors no document: it
+  gates on the GM, spends the shared `VFX_RATE_PER_MIN` budget (the bucket `/fx` spends), requires a
+  `note` of THIS world whose `permissions.default` is above `DocRole::None`
+  (`PresentNoteError::NotShared` otherwise), then relays `ServerMsg::PresentNote` through
+  `Room::broadcast_aux`. A recipient who still cannot read the note fails to open it.
 
 ## Gotchas
 
@@ -99,9 +125,23 @@ Covers the key files and seams of notes: the note engine doc type, the server-de
   `SendMessageError::TooLong` for an oversized whisper-recipient list** — a draw has no
   author-typed body, so no OTHER `TooLong` case is reachable through this type; do not read it as
   a general content-length cap.
-- **`check_note_parent` shares its in-flight-batch map with `check_asset_folder_parent`** — the
-  map's own name is a historical artifact of once tracking only folders; do not assume it tracks
-  only folders when reading `check_parent_placement`/`check_move_acyclic`.
+- **`check_note_parent` shares its in-flight-batch map with `check_asset_folder_parent`** (and
+  `check_table_folder_parent` reads the same map) — the map is not folder-only; do not assume it
+  tracks only folders when reading `check_parent_placement`/`check_move_acyclic`.
+- **A client constructing a real 64-bit integer engine value must send a plain number, not the ts-rs bigint.**
+  `NoteEngine.sort` and `TableFolderEngine.sort` are 64-bit on the Rust side (ts-rs emits bigint, which `WsClient.send`'s
+  JSON stringify cannot serialize), so `buildNoteDoc` and `buildTableFolderDoc` pass a plain
+  number. `RowRange` avoids the trap by being 32-bit on the Rust side instead.
+- **A note body accepts only `[[secret:gm|...]]`.** `compose_static` has no sender and no member
+  lookup, so a `[[secret:@user ...|...]]` span in a note is `RollError::SecretRequiresGm`; the
+  `@user` form, its `MAX_WHISPER_RECIPIENTS` cap and its `Visibility::Recipients` overrides belong
+  to chat messages (`shadowcat-codebase-chat`; the per-viewer scrub of recipient lists is
+  `shadowcat-codebase-documents-permissions`).
+- **A same-page `#fragment` link is the only relative URL a note body may keep.**
+  `chat::sanitize`'s `fragment_only_url` passes `#` plus `[A-Za-z0-9_-]+` and drops every other
+  schemeless form, under every content policy. The note sheet's table of contents reads the
+  RENDERED heading elements (`collectHeadings`, `findAnchor` in `sheet-note`), not the markdown,
+  so setext and raw-HTML headings are covered.
 - **A test named for `check_note_parent` may genuinely be pinning a DIFFERENT mechanism.** Only
   two shapes actually depend on `check_note_parent` itself: a Create/Move whose new parent exists
   but is the WRONG doc_type, and a Create/Move whose new parent is a note in ANOTHER WORLD *when

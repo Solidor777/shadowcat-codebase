@@ -61,8 +61,8 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
 - Client (`@shadowcat/core`) — `note-docs.ts`:
   - `NOTE_DOC_TYPE`, re-exports the ts-rs-generated `NoteEngine` verbatim (like `TableEngine`, a
     note crosses the wire as a stored, editable document).
-  - `buildNoteDoc(worldId, name, source, opts?: {parentId?, sort?, id?, owner?}) -> WireDocument` —
-    `engine: {source, body: [], sort}` (the placeholder `body` is discarded server-side; `sort`
+  - `buildNoteDoc(worldId, name, source, opts?: BuildNoteDocOptions{parentId?, sort?, id?, owner?, kind?}) -> WireDocument` —
+    `engine: {source, body: [], sort, kind}` (`kind` defaults to `{kind:"text"}`; the placeholder `body` is discarded server-side; `sort`
     is built as a plain `number`, NOT a bigint, despite `NoteEngine.sort`'s ts-rs bigint typing —
     a bigint value is not JSON-serializable and `WsClient.send` does a bare JSON stringify call,
     so a real bigint value breaks every `Create` containing a note; `wire.ts`'s own hand-mirrored
@@ -96,4 +96,31 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
     `NoteSheet`'s child-note create (siblings = the open note's existing children) — the two
     modules never import one another, so this lives in `@shadowcat/core` beside `buildNoteDoc`
     rather than in either.
+- **Page kind** — `NoteEngine.kind: NotePageKind` (`#[serde(tag = "kind")]`: `Text` | `Image{asset_id}`
+  | `Pdf{asset_id}` | `Video{asset_id}`, `#[default]` `Text`, so an older stored note reads as text).
+  `asset_id` is not existence-checked at ingest (same posture as a chat `[[asset:]]` span and a
+  table `Image` entry); the client renders through the asset resolver and shows a placeholder when
+  it does not resolve or the asset is deleted. Client: `parseNotePageKind(doc)` is fail-closed to
+  `{kind:"text"}` for a wrong doc_type, a missing field, an unknown tag or a media kind without an
+  `asset_id`. `NoteSheet` renders the media block (image, embed and video elements via `ctx.assets.url`) and
+  offers Change media through the asset picker.
+- **Secret blocks** — `NoteEngine::secret_property_overrides` plus
+  `data::validation::stamp_note_secret_overrides` (see the skill's invariants). A note accepts only
+  `[[secret:gm|...]]` (`RollError::SecretRequiresGm` otherwise).
+- **Present to table** — `ClientMsg::PresentNote` is handled by `notes::handle_present_note`
+  (`PresentNoteError`: `Forbidden`, `RateLimited`, `NotFound`, `NotShared`, `Data`); rejections
+  return as a correlated `ServerMsg::ChatError`. Success is the out-of-band `ServerMsg::PresentNote`
+  (never sequenced or logged), delivered to clients as `PresentNoteNotice`
+  (`WsClientHandlers.onPresentNote`, `WorldSession.onPresentNote`, `AppContext.notes`' present
+  call); the shell's `createPresentedNoteHandler` (wired in `Table.svelte`) opens the note's sheet
+  panel. A new `ServerMsg` variant needs its wire type and Zod arm in the same change.
+- **Note sheet and tree UI** — `NoteSheet` (`@shadowcat/module-sheet-note`) mounts the ui-kit
+  `PermissionsEditor` (default role, per-user overrides, opt-in GM role; gated on the `/permissions`
+  edit capability) and `UserMultiSelect`; sharing is `PermissionSet.users`. It builds its table of
+  contents from the rendered DOM (`collectHeadings`, `findAnchor` in `note-toc`) and scrolls
+  in-note `#fragment` links itself. `NoteTree` (`@shadowcat/module-notes`) reorders siblings through
+  core's `createDragController` (a drag handle, plus Alt+Arrow keys; drag is off while a search
+  filters the tree) with `noteSiblings` and the shared sort-key helpers (`computeReorderUpdate`,
+  `buildReorderOps`), and opens its right-click / long-press menu through ui-kit's
+  `createContextMenuTrigger` calling the same handlers as the buttons.
 

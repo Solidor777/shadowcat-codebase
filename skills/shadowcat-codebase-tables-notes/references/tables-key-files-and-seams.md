@@ -161,4 +161,25 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
     when `row` is absent/null. A
     `doc_link` segment additionally renders a Draw button when its target resolves to a `table`
     document in the local store.
+- **Table folders** — `data::engine::table_folder::TableFolderEngine{sort: i64}` (`TABLE_FOLDER_DOC_TYPE`
+  = `"table_folder"`, `deny_unknown_fields`, ts-rs exported), registered in `normalize_engine` and
+  `validate_containment` (never embedded). The folder's `name` is its display name; a table or
+  another folder points at it through `Document.parent_id`.
+  - Placement: `SqliteRepository::check_table_folder_parent` (`data::sqlite::tables`) requires a
+    `table` or `table_folder` parent to be a `table_folder` in the same scope, resolved against the
+    batch's in-flight Creates before the database, dispatched from the shared
+    `check_parent_placement` on Create and `Operation::Move`; cycles are `check_move_acyclic`'s.
+  - Delete: `table_folder_reparent_moves` (its inputs: the transaction, the folder id and the set of ids being deleted) returns explicit `Move` ops for
+    every `table` in the folder's subtree (breadth-first closure of nested folders), targeting the
+    nearest ancestor not in that set (`deleted_ids` of the whole command). Both write loops call it
+    at the start of a `Delete` expansion; `moved_ids` feeds `descendants_first`'s `kept` argument.
+    The nested folders themselves are deleted by the normal descendant expansion.
+  - Client: `TABLE_FOLDER_DOC_TYPE` and `buildTableFolderDoc(worldId, name, opts)` in
+    `table-docs.ts` (`opts`: `id`, `owner`, `parentId`, `sort`; `sort` is sent as a plain number
+    since the ts-rs type is a bigint); `buildTableDoc`'s `opts.parentId` files a table under a
+    folder. `TablesPanel` (`@shadowcat/module-tables`) renders ui-kit's generic `DocFolderTree`
+    (props `folderDocType`, labels, `rootDropId`, `deleteChoices`, `onDelete`, `buildFolder`,
+    `dropHover`; exposes `dropTargets()`), with a filter, create-under-folder, a drag handle, a Move
+    picker and a menu Move. The asset browser's `FolderTree` is a thin wrapper over the same
+    component, so a change to `DocFolderTree` reaches both panels.
 
