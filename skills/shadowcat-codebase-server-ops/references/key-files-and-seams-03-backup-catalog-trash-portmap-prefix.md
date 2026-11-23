@@ -39,8 +39,27 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   on a LAN address (`soap::is_lan_address`). A permanent lease (`lease_secs` 0) is still deleted at
   shutdown. The module denies `unwrap`, `expect`, `panic!`, slice indexing and unchecked
   arithmetic outside tests because it parses unauthenticated LAN bytes; adding one is a defect.
-- **Route prefix** (`Config.route_prefix`): see the realtime-sync skill for the router nesting
-  and the client `apiPath`. Config surface: set it the same four-layer way as any other key.
+- **Route prefix** (`Config.route_prefix`, a subpath such as `/ttrpg` to serve the whole app under).
+  Config half: set through the usual layers (CLI flag, `SHADOWCAT_*` env, TOML); `Config::load`
+  runs `config::normalize_route_prefix` ONCE on the merged value (leading slash added, trailing
+  slash dropped, `/` or empty means no prefix) and a value with an empty, `.` or `..` segment or a
+  character outside letters, digits, `-`, `.`, `_`, `~` fails the boot rather than serving a
+  mangled route. `Config::base_path` (`""` or `/prefix`) is the ONE reader; nothing else reads the
+  field. Serving half: `http::router` writes every route at its root-mount path and wraps the
+  whole application, fallback included, in one router nest under the prefix, plus an explicit
+  `{prefix}/` route because a nest does not match its own prefix followed by a bare slash; the
+  security-header, request-id and trace layers wrap the nest, so the default 404 outside the
+  prefix gets them too, and nothing answers outside it. `http::embed::static_handler` reads
+  the original request URI (a nest leaves it intact) and strips the prefix exactly once with
+  `strip_route_prefix`, which matches whole segments (`/ttrpgx/a.js` is not under `/ttrpg`), so
+  the embedded lookup key and `is_hashed_asset_path` see bundle-relative paths. Only `index.html`
+  is rewritten: each `BASE_PLACEHOLDER` (`%%SHADOWCAT_BASE%%`) in it becomes the prefix, feeding
+  its `<base href>` and `window.__SHADOWCAT_BASE__`; every other file is served byte for byte.
+  The `test_server` binary takes `--route-prefix` through the same normalizer and still prints its
+  address without the prefix. Gotcha: the TLS session cookie is `__Host-`prefixed and rewritten to
+  `Path=/` (`auth::session`), so two prefixed servers on one host share one cookie jar entry and
+  overwrite each other's session. The client half (`apiPath`, `wsUrl`, the relative import map,
+  `lint:route-prefix`) is in the realtime-sync and client-shell skills.
 - **`onboarding_enabled`**: `Config.onboarding_enabled` (default true, `Cli.onboarding_enabled`
   overrides) is published as `onboarding_enabled` in the `/api/config` response
   (`http::routes`); clients read it from there, never from their own storage.
