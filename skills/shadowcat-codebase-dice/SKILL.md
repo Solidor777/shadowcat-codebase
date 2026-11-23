@@ -147,8 +147,8 @@ Per-module entries for dice::rng, spec, outcome, eval (groups, classify, crit, e
   reads all three declarations and fails `pnpm test:scripts` on a difference in any direction. That
   gate is the only signal — without the edits, a template the client rewrites is notation
   this parser then rejects or reads differently, and the first report is a wrong roll seen by
-  whoever authored the template. **The six math-function names
-  (floor/ceil/round/abs/min/max) are not modifier vocabulary** — they
+  whoever authored the template. **The seven function names
+  (floor/ceil/round/abs/min/max/best) are not modifier vocabulary** — they
   never enter `P::modifiers`'s match at all (`fn_call` is a separate `factor`-level grammar
   production) — but they now have their OWN parity set of the same shape: the template grammar's
   `NOTATION_FUNCTIONS` (both template sides) against this parser's `fn_call` match arms, because the
@@ -179,6 +179,8 @@ Per-module entries for dice::rng, spec, outcome, eval (groups, classify, crit, e
 ## Gotchas
 
 - **`GroupModifier::Clamp` is one per group** (a second min or max token is `ParseError::DuplicateClamp`; the clamp sits where its first token appeared), applies to kept dice only, and applies the ceiling after the floor so a hand-built floor above the ceiling cannot panic. `SuccessRule::Parity` tests with Euclidean remainder, so a negative odd value still counts. Every `SuccessRule` match (crit, expertise) must handle each variant.
+
+- **`best(a, b, ...)` is `Expr::BestOf`, not an `Expr::Call`, and every branch is rolled.** `dice::eval::roll` rolls all branches unconditionally; the winner is chosen only at `evaluate_total`'s `fold`, so `evaluate` stays pure over the stored `RawRoll`. The winner is the branch whose total is best under `RollSpec::direction` (`HighWins` greater, `LowWins` lower), a tie going to the leftmost. Losing branches' dice are marked on a CLONE of the records as `kept: false` with `DieRecord::best_of_branch = Some(branch index)` (never on `raws`), and only the winning branch contributes `labeled_consts` chips. The parser needs at least two arguments (`ParseError::BestOfRequiresTwoArgs`), and `best` is Total-mode only: `chat::rolls`' `walk_groups` flags a best-of node over every branch and `RollError::BestOfRequiresTotal` refuses it in any other mode. `best` is in `NOTATION_FUNCTIONS` on both template sides, so the parity gate reads it like the math functions. The client mirrors `best_of_branch` in the `chat-docs` die schema and `RollTooltip` shows a distinct reason for a die dropped by `best` versus one dropped by keep/drop.
 
 Docs-ratchet, the notation-level token precedents, the expertise and e<N> mode gotchas, the wire-boundary validation split, and the compare_labels edge cases. Read references/gotchas.md before changing any of those areas or when a dice change behaves unexpectedly.
 
