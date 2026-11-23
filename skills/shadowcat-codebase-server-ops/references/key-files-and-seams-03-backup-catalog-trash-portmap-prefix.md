@@ -4,8 +4,12 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
 
 - **Backup catalog** (`backup::catalog`, routes in `http::backups`, all `AdminUser`): `BackupEntry`
   per directory under `Config::backups_path_for`, `BackupRetention` (config `backup_keep_last` /
-  `backup_keep_days`), `list_backups`, `plan_prune`, `prune`. An id from a path reaches the
-  filesystem only through `resolve_backup` (a well-formed-id allowlist), never a raw join. Routes:
+  `backup_keep_days`), `list_backups`, `plan_prune`, `prune`. `plan_prune` never plans the newest
+  backup; with both limits set an entry is kept when EITHER keeps it (the union), with one set only
+  that limit applies, and with neither set nothing is planned. An id from a path reaches the
+  filesystem only through `resolve_backup`, never a raw join: the id must be a single
+  `[A-Za-z0-9_-]+` component naming a real non-symlink directory whose canonical parent is the
+  canonical backups root, else `BackupError::InvalidBackupDir`. Routes:
   `GET /api/admin/backups`, `POST .../prune`, `DELETE .../{id}` (moves into the trash),
   `POST .../{id}/restore`, `DELETE .../restore-failed`. Pruning and delete go through `Trash`.
 - **Staged restore** (`http::backups::restore_from_backup` -> `backup::apply_pending_restore`):
@@ -16,8 +20,8 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   database file; Windows refuses the rename). It restores with `force = true`, discards the
   marker into the trash (so a restart never re-applies it), and on any failure writes
   `restore-failed.json` (`RestoreFailed`, listed in `BackupListing.restore_failed`) and starts on
-  the data it had. A successful restore clears an older failure marker. The CLI
-  `--restore-from` path is no longer the only restore path.
+  the data it had. A successful restore clears an older failure marker. Restore has two
+  paths: the CLI `--restore-from` and this staged admin restore.
 - **Trash** (`trash`, routes in `http::trash`, admin-only): production code removes a file or
   directory through `Trash::discard` / `Trash::discard_sync`, never a raw
   standard-library remove call. Each entry is a `<trashed_at_ms>-<uuid>/` directory holding

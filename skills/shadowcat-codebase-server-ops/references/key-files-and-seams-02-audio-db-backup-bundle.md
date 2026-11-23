@@ -81,7 +81,7 @@ Continues "Key files & seams" from key-files-and-seams-01-config-router-serve-ad
   `data::sqlite::SqliteRepository::open_read_pool`
   is the sole caller, clone-ing the repository's own stored `connect_options`; `auth::session`'s
   `SqlxSqliteStore` is the one consumer, using this read pool for its hot `load`/`id_exists` path
-  ([[shadowcat-codebase-realtime-sync]]). There are now exactly two pool-options decisions in the
+  ([[shadowcat-codebase-realtime-sync]]). There are exactly two pool-options decisions in the
   crate (the write bootstrap and the read-only bootstrap); nothing calls `SqlitePoolOptions::new()`
   directly outside these two functions.
 - `backup` — `BackupManifest` (carries `kind: BackupKind` and an optional `note`), `BackupKind`
