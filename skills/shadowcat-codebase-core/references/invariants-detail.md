@@ -200,7 +200,7 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   in-memory database, where `Config::assets_path` and `Config::trash_path` fall back to `./assets`
   and `./trash` of the working directory; each server therefore gets its own folder under
   `E2E_SERVER_DATA_DIR` (inside `E2E_OUTPUT_DIR`, the config's `outputDir`) through
-  `sharedServerEnv` / `serverDataEnv` (`SHADOWCAT_ASSETS_DIR`, `SHADOWCAT_TRASH_DIR`, siblings so
+  `sharedServerEnv` / `serverDataEnv` (the assets-folder and trash-folder environment settings, siblings so
   `Config::validate`'s trash-nesting rule holds), and `startedServerEnv` does the same for a
   started server. A new web server in the config takes its env from `sharedServerEnv` with a name of
   its own; a unit test beside `server-process` fails when any web server's env lacks the two folders
