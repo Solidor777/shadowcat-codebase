@@ -75,7 +75,7 @@ The per-file map of ws, http, auth and the client store: Room and move execution
 
 ## Gotchas
 
-Per-feature traps: egress test harnesses, malformed Intent frames, Hello and snapshot, live search, correlated-request rejections, client id source, audio frames, the ping/ruler/emote/scrolling-text relays, MoveRequest and MoveStream, and the Egress::Frame payload. Read references/gotchas.md before changing egress, resync, relays, move streams or client ids. One rule from that file holds on every change: **permissions filter every broadcast per recipient** — hidden fields are stripped before transmission, never sent-then-hidden.
+Per-feature traps: egress test harnesses, malformed Intent frames, Hello and snapshot, live search, correlated-request rejections, client id source, audio frames, the ping/ruler/emote/scrolling-text relays, MoveRequest and MoveStream, and the Egress::Frame payload. Read references/gotchas.md before changing egress, resync, relays, move streams or client ids. One rule from that file holds on every change: **permissions filter every broadcast per recipient** — hidden fields are stripped before transmission by default; only game state may be sent-then-hidden, never personal user information.
 
 ## Reference files
 

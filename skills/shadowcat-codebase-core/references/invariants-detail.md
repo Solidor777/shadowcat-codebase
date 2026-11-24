@@ -188,7 +188,7 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   `clickScene` and the other stage gestures take canvas-local pixels, never page coordinates.
   Docked panels narrow the canvas, so every click is a point local to the canvas element, inside
   it, never a fraction of the viewport. `pnpm e2e:build` runs from `src/client/shell` (it is that
-  package's script: `vite build --mode e2e`, then the server build). A panel whose launcher default is closed
+  package's script: a workspace clean, which wipes build output, then `vite build --mode e2e`, then the server build). A panel whose launcher default is closed
   (the actors panel, for one) must be opened with `openPanel(page, contributionId)` before a spec
   reaches into it. A confirm the product asks through `confirmDialog` is answered by clicking the
   `confirm-dialog-confirm` test id; no native dialog fires.

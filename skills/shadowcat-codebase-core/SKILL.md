@@ -36,7 +36,7 @@ pnpm workspace = `src/types`, `src/client/*`, `src/modules/*`.
 
 ## Hard invariants
 
-The full list is `docs/design/ARCHITECTURE.md` §2 (10 invariants) — load-bearing, treat as the
+The full list is `docs/design/ARCHITECTURE.md` §2 (11 invariants) — load-bearing, treat as the
 source of truth. The ones agents break most:
 
 - **Server-authoritative, permissions per-recipient.** Client sends intents; server validates,
