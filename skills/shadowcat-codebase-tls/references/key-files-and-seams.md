@@ -19,6 +19,20 @@ Part of the shadowcat-codebase-tls skill. Read it before changing or reviewing T
   re-check (`regen_reason`) runs only once `SELFSIGNED_CHECK_SECS` (24 hours) has elapsed since the
   last one. An ACME task would use the same seam; `TlsSource::Acme` is status vocabulary
   only. Rationale: `docs/design/built-in-https.md` §2 (invariants) and §8 (listener).
+- **Two self-signed certificates, chosen by peer address.** `resolver::PeerScope::of` (the ONE
+  classifier: loopback, private, link-local, IPv6 ULA and link-local are `Lan`, everything else
+  including CGNAT is `Public`) is called only by `resolver::finish_phase`, which passes it to
+  `Snapshot::config_for`. The LAN certificate (`selfsigned-cert.pem`) lists the eligible interface
+  addresses; the public one (`PUBLIC_CERT_FILE`, `PUBLIC_KEY_FILE`, `Snapshot::with_public_fallback`)
+  lists the name localhost, loopback, `tls_hostnames` and the router's external address, never an interface
+  address (`SanSet::assemble_public`). Both go through `selfsigned::load_or_generate_kind`,
+  `force_regenerate_kind` and `regen_reason_for`, so expiry, `tls_hostnames`, the machine-hostname
+  opt-in and `--tls-regenerate` apply to both; a new `Snapshot` derivation must go through
+  `Snapshot::build` or it drops the public certificate. The external address arrives through
+  `TlsRuntime::set_external_source` (`main` installs `PortMapRuntime::public_address`) and is polled
+  every `maintenance_tick`: a KNOWN address the certificate lacks (`RegenReason::MissingExternalAddress`)
+  regenerates it, an address that turns unknown does not. A new code path that reads
+  `SanSources::interface_ips` for something a peer can see leaks the host's LAN.
 - `tls::keyfile` / `tls::selfsigned` / `tls::pem` — the certificate material. `keyfile::write_private`
   restricts the still-empty temporary file BEFORE any secret byte is written and returns the error
   when the OS refuses, so the caller (`selfsigned::load_or_generate`'s `persist_error`) degrades to

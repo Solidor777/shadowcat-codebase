@@ -26,6 +26,9 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
 - `portmap::runtime` — `PortMapRuntime` (`AppState.portmap`): `activate` after the listener binds,
   `apply` on a toggle, `status`, `shutdown` after the HTTP drain; `effective_enabled`;
   `read_stored_toggle`/`write_stored_toggle` over the stored setting named by `STORED_TOGGLE_KEY`.
+  `PortMapRuntime::public_address` is the one in-process reader of the external address: `Some` only
+  in the `Mapped` state with a publicly routable address. `main` hands it to
+  `tls::TlsRuntime::set_external_source` so the public-peer certificate can name it.
 - `portmap::status` — `PortMapStatus`, `PortMapState`, `PortMapProtocol`, `is_public_address`.
 - `http::port_forward` — the admin route.
 
@@ -47,7 +50,8 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
 - **A permanent lease (`lease_secs` 0, used after the router answers with the permanent-lease-only
   error) is still deleted at shutdown.**
 - **The status is admin-only**: it carries the router's external address, which no player route
-  may expose (`AdminUser` on both route methods).
+  may expose (`AdminUser` on both route methods). The one other reader, `public_address`, feeds only
+  the public-peer certificate's names, which is the address the player already typed.
 - **A loopback bind never maps** (`PortMapState::UnreachableBind`); a router external address that
   is not publicly routable reports `MappedNotPublic`, not `Mapped`.
 

@@ -38,6 +38,10 @@ Covers every key file and seam of TLS, the sniffing listener, the serve loop and
   and then only for `Reach::Proxy` or `Reach::Native(Selected::Primary)`, so a plain request, the
   self-signed fallback and a challenge certificate never receive it.
 - **Ring only.** Every rustls configuration is built through `ring_provider`.
+- **A public peer never reads the host's interface addresses.** The self-signed certificate is chosen
+  once by `PeerScope::of(peer.ip())` in `finish_phase`; the public one lists no interface address.
+  Reads of `SanSources::interface_ips` reach only the LAN certificate and the operator's startup
+  lines. Personal-information security outranks convenience.
 - **`ConnMeta` reaches handlers from exactly two places:** `conn_serve`'s per-connection
   `Extension(ConnectInfo(meta))` and `scheme::into_service`. `ConnMeta::cap_exempt` is decided once,
   by `Config::is_cap_exempt` in the acceptor task, and travels with the connection so the live caps

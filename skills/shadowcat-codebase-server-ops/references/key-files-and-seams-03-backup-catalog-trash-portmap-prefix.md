@@ -43,6 +43,16 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   on a LAN address (`soap::is_lan_address`). A permanent lease (`lease_secs` 0) is still deleted at
   shutdown. The module denies `unwrap`, `expect`, `panic!`, slice indexing and unchecked
   arithmetic outside tests because it parses unauthenticated LAN bytes; adding one is a defect.
+  `main` installs `PortMapRuntime::public_address` into `TlsRuntime::set_external_source` (the
+  portmap task has no address when TLS starts, so the TLS maintenance tick polls it), and
+  `run_tls_regenerate` replaces both the LAN and the public-peer self-signed certificates.
+- **Peer addresses stay server-side.** `ConnMeta.peer`, `http::throttle::ClientIp`
+  (`resolve_client_ip`, which honours `X-Forwarded-For` only from `trusted_proxies`), `PeerSlots`
+  and the login throttle keys are used for admission and rate limiting; none is written to a
+  WebSocket frame, a response body, a stored document or a backup. The server log carries the peer
+  only in `tracing` events (`SniffListener` debug lines, `PeerSlots::refused`), readable by the
+  operator. A new use of a client address that reaches a response, frame or document is a
+  privacy defect: players must not see each other's addresses.
 - **Route prefix** (`Config.route_prefix`, a subpath such as `/ttrpg` to serve the whole app under).
   Config half: set through the usual layers (CLI flag, `SHADOWCAT_*` env, TOML); `Config::load`
   runs `config::normalize_route_prefix` ONCE on the merged value (leading slash added, trailing
