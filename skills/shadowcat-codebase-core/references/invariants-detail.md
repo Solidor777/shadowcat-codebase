@@ -194,8 +194,17 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   `confirm-dialog-confirm` test id; no native dialog fires. A spec that must stop and restart its
   own server (a backup restore stops the server it asked to restore) starts one with `startServer`
   from `e2e-support/server-process.ts` on a free port, over `E2E_SERVER_ENV` (the shared server
-  environment the Playwright config's web servers read too), and keeps its data folder under
-  Playwright's per-test output directory (the test info's output directory), which Playwright clears each run. The `onboarding` project cannot run under
+  environment the Playwright config's web servers read too), and passes `startServer` a `dataDir`
+  under Playwright's per-test output directory (the test info's output directory), which Playwright
+  clears each run. **No test server writes into the repo root.** The shared web servers run on an
+  in-memory database, where `Config::assets_path` and `Config::trash_path` fall back to `./assets`
+  and `./trash` of the working directory; each server therefore gets its own folder under
+  `E2E_SERVER_DATA_DIR` (inside `E2E_OUTPUT_DIR`, the config's `outputDir`) through
+  `sharedServerEnv` / `serverDataEnv` (`SHADOWCAT_ASSETS_DIR`, `SHADOWCAT_TRASH_DIR`, siblings so
+  `Config::validate`'s trash-nesting rule holds), and `startedServerEnv` does the same for a
+  started server. A new web server in the config takes its env from `sharedServerEnv` with a name of
+  its own; a unit test beside `server-process` fails when any web server's env lacks the two folders
+  or shares an asset store. The `onboarding` project cannot run under
   `--repeat-each`: its server has no seeded admin and its first-run setup succeeds once, so a repeat
   fails by design; run it again from a fresh server instead.
 - **A jsdom package whose tests reach the browser's local storage lists the shared
