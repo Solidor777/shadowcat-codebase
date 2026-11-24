@@ -176,16 +176,19 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   port; only CI's isolated runner attributes a result to the tree under test.
   **Every Playwright port derives from one base, `E2E_PORT_BASE_ENV` (the port-base environment variable, default
   `DEFAULT_E2E_PORT_BASE` 32000), through `resolveE2ePorts`:** loopback is base minus one, then `lan`,
-  `https`, `mediaRange`, `longAudio` and `routePrefix` take the next five, six contiguous ports in all, and an
+  `https`, `mediaRange`, `longAudio`, `routePrefix` and `onboarding` take the next six, seven contiguous ports in all, and an
   invalid base throws. Two checkouts run the suite at the same time only with different bases; never
   write a literal test-server port in a spec or config. CI selects the release-build server through
   the e2e profile environment variable that `playwright.config.ts` reads.
-- **End-to-end spec conventions that fail silently when ignored.** Every test server runs with
-  `SHADOWCAT_ONBOARDING_ENABLED=false` (`SERVER_ENV` in `playwright.config.ts`): the first-use tour
-  offer is a fixed toast over the bottom-left of the viewport and intercepts the pointer over tiles
-  and pickers; the first-use path is therefore not covered by the shared suite, and the tours stay
-  reachable through the settings panel's replay buttons. `clickScene` and the other stage gestures
-  take canvas-local pixels, never page coordinates. A panel whose launcher default is closed
+- **End-to-end spec conventions that fail silently when ignored.** Every test server except the
+  `onboarding` project's runs with `SHADOWCAT_ONBOARDING_ENABLED=false` (`SERVER_ENV` in
+  `playwright.config.ts`): the first-use tour offer is a fixed toast over the bottom-left of the
+  viewport and intercepts the pointer over tiles and pickers; the first-use path is covered only by
+  `onboarding.spec.ts`, and the tours stay reachable through the settings panel's replay buttons.
+  `clickScene` and the other stage gestures take canvas-local pixels, never page coordinates.
+  Docked panels narrow the canvas, so every click is a point local to the canvas element, inside
+  it, never a fraction of the viewport. `pnpm e2e:build` runs from `src/client/shell` (it is that
+  package's script: `vite build --mode e2e`, then the server build). A panel whose launcher default is closed
   (the actors panel, for one) must be opened with `openPanel(page, contributionId)` before a spec
   reaches into it. A confirm the product asks through `confirmDialog` is answered by clicking the
   `confirm-dialog-confirm` test id; no native dialog fires.

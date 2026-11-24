@@ -43,7 +43,10 @@ Part of the shadowcat-codebase-realtime-sync skill; read it when editing ws::roo
     inside `execute_move`, still under `publish_guard`, after each successful commit; the caller
     (`handle_move_request`) separately broadcasts `exec.frame` to the room via
     `Room::broadcast_aux_shared` — the registry write and the broadcast are two distinct actions on
-    the same frame, not one call. In-memory only — cleared on server restart (move state is
+    the same frame, not one call. `execute_move` registers the entry BEFORE it fires region
+    triggers, and a committed teleport (`apply_region_trigger_effects`, the funnel every
+    teleport path reaches) removes the token's entry, so a portal jump ends the glide and the
+    moving lock never refuses the next move. In-memory only — cleared on server restart (move state is
     derived, not durable). Also backs `Room::scene_streams(scene, now)` /
     `Room::concurrent_streams(scene, exclude_mover, now)`, which read `ActiveStream.frame` as the
     in-flight movers' position + carried-light TIMELINES so the egress clip (`ws::move_clip`) can
