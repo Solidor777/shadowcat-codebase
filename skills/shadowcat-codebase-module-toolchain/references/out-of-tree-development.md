@@ -43,7 +43,13 @@ to `FIXTURE_MODULES_DIR`, so discovery lists them; no world enables one unless a
 the module manager. A loopback server that Playwright reuses (`reuseExistingServer`) keeps the
 environment it started with, so restart it when a fixture folder is added or the variable was
 missing. `vision-kind-fixture` registers `fixture-glow` on `VISION_TREATMENT_CONTRACT` for the
-custom vision-kind spec.
+custom vision-kind spec. `placement-fixture` declares three module-placed effect areas in its
+manifest `placements` (`gm-zone`, `open-zone` and `cast-zone`, authorised for `gm`, `player` and
+`caster_owner` respectively, each a circle with an enter trigger that adds a condition) and
+registers nothing on the client, since the server authorises a placement from the manifest alone;
+the module-placement spec drives it. `live-module-fixture` ships only one stylesheet (manifest
+`style`), so enabling or disabling it in the module manager is observable as the injected `<link>`
+and the custom property the stylesheet sets; the live-modules spec drives it.
 The
 authoring guide lives in the docs site: `docs/site/guides/creating-a-module.md` (`docs/design/module-authoring.md` is a
 pointer stub to it). Two in-repo CI-built worked examples double as copyable scaffolds:

@@ -67,6 +67,10 @@ Continues "Key files & seams" from key-files-and-seams-01-config-router-serve-ad
   (`SqlitePoolOptions::max_connections(1)` + a `PRAGMA foreign_keys = ON;`
   `SqlitePoolOptions::after_connect` hook); `connect_pool(url)` is the URL-string convenience that
   chains the two for callers with no need to share the parsed connect options with a second pool.
+  The write pool keeps its single connection alive for the life of the pool: `connect_pool_with_options`
+  sets the pool's idle timeout and maximum lifetime to `None`, because sqlx's defaults (10 and 30 minutes) would
+  reap the connection, and an in-memory database exists only while a connection to it is open, so
+  the next connection would open an empty database ("no such table"); a pool test pins both as `None`.
   Every
   write-pool-opening call in the crate routes through `connect_pool`/`connect_pool_with_options`:
   `data::sqlite::SqliteRepository::connect` (which then runs migrations — `connect_pool`
@@ -77,7 +81,9 @@ Continues "Key files & seams" from key-files-and-seams-01-config-router-serve-ad
   `open_read_only_pool(options) -> Result<SqlitePool, sqlx::Error>`, opens a small
   (`max_connections(4)`) read-only pool against the SAME already-parsed connect options passed in
   — never a fresh parse of the URL string, since a second parse of an in-memory URL creates an
-  unrelated, empty in-memory database (see `parse_connect_options`'s doc).
+  unrelated, empty in-memory database (see `parse_connect_options`'s doc). For an in-memory
+  database the read-only pool reaches the writer's data through the shared-cache name carried by the
+  cloned options, so it relies on the writer's connection staying open.
   `data::sqlite::SqliteRepository::open_read_pool`
   is the sole caller, clone-ing the repository's own stored `connect_options`; `auth::session`'s
   `SqlxSqliteStore` is the one consumer, using this read pool for its hot `load`/`id_exists` path

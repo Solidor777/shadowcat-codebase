@@ -29,7 +29,8 @@ Part of shadowcat-codebase-client-shell: per-package notes for entry, core-ui, p
   helper in `fixtures.ts` reads that attribute and clicks only when closed, dismissing the
   dropdown with Escape otherwise because the full-viewport launcher backdrop intercepts a second
   trigger click) + `Presence` (member
-  roster) + a standing settings-entry button that toggles `settings:panel` through the same
+  roster; each badge's title and accessible label read `name (pronouns)` when the member's
+  `ctx.memberProfiles` entry carries pronouns) + a standing settings-entry button that toggles `settings:panel` through the same
   `AppContext.panels` seam — imports NOTHING from `@shadowcat/module-panels` (seam boundary by
   design: topbar's package.json declares no module-panels dependency and the launcher talks to
   panels only through `AppContext.panels`; NOT lint-enforced — the repo's sole

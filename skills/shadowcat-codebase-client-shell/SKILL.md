@@ -68,6 +68,7 @@ plain-routed, not contributions. i18n is a framework-neutral core with a thin Sv
   `<Surface>`, AppContext, render-layer API) — never import one another or the shell directly.
 - **Entry views are plain-routed, not contributions; surfaces are in-world only.**
 - **Escape is registered, never listened for:** a component adds a handler to `EscapeCoordinator` instead of its own keydown listener (references/interaction-primitives.md).
+- **Overlays draw on `--z-popover`:** dockview stacks floating groups at 999 + 2n, so a dialog, scrim or menu on a literal near 1000 hides behind open floating windows; `--z-popover` (50000, in both `_semantic.scss` and `theme.ts`) stays above that range and below the drag ghost at 99999 (references/interaction-primitives.md).
 - **No bare same-origin URL literal in client code:** every `/api`, `/modules` and socket URL is built with `apiPath` / `wsUrl` so a route prefix works; `pnpm lint:route-prefix` fails otherwise (references/session-features-onboarding-and-settings.md).
 - **Config docs are server-seeded; a panel never creates one.** Every config singleton
   (world-settings, the faction/condition/channel/resource registries, chat/dice settings,

@@ -191,7 +191,13 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   package's script: a workspace clean, which wipes build output, then `vite build --mode e2e`, then the server build). A panel whose launcher default is closed
   (the actors panel, for one) must be opened with `openPanel(page, contributionId)` before a spec
   reaches into it. A confirm the product asks through `confirmDialog` is answered by clicking the
-  `confirm-dialog-confirm` test id; no native dialog fires.
+  `confirm-dialog-confirm` test id; no native dialog fires. A spec that must stop and restart its
+  own server (a backup restore stops the server it asked to restore) starts one with `startServer`
+  from `e2e-support/server-process.ts` on a free port, over `E2E_SERVER_ENV` (the shared server
+  environment the Playwright config's web servers read too), and keeps its data folder under
+  Playwright's per-test output directory (the test info's output directory), which Playwright clears each run. The `onboarding` project cannot run under
+  `--repeat-each`: its server has no seeded admin and its first-run setup succeeds once, so a repeat
+  fails by design; run it again from a fresh server instead.
 - **A jsdom package whose tests reach the browser's local storage lists the shared
   `test-setup/jsdom-local-storage.ts` first in its `setupFiles`** (the shell, ducking and dice-3d
   configs do; most jsdom packages do not). Node exposes a non-functional global local-storage

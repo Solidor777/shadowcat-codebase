@@ -25,7 +25,10 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
 
 - **Pool-open options are derived from shared constructors, never restated per site** —
   `db::connect_pool_with_options` is the sole place `max_connections(1)` and the foreign-keys
-  `SqlitePoolOptions::after_connect` hook are set for a WRITE pool, and `db::open_read_only_pool`
+  `SqlitePoolOptions::after_connect` hook are set for a WRITE pool, together with
+  `idle_timeout(None)` and `max_lifetime(None)` (an in-memory database dies with its last
+  connection, so the writer's one connection must never be reaped; the read-only pool's shared-cache
+  view of that database relies on the writer staying open), and `db::open_read_only_pool`
   is the sole place a READ-ONLY pool's `max_connections(4)` + `.read_only(true)` are set; a new
   pool-opening call site must call one of these rather than reconstructing `SqlitePoolOptions`
   inline, or the decisions silently fork again the moment one site's requirements change and the
