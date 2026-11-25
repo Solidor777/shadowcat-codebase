@@ -45,8 +45,10 @@ Part of the shadowcat-codebase-chat skill; read it when changing roll execution,
   per attempted send, so the flood budget stays 1:1. `System` still has NO parse_command
   producer (exhaustive test unchanged).
 - **Roll immutability (anti-cheat):** `handle_edit_message` rejects (`RollImmutable`) when the
-  stored `kind == Roll`, when the stored content carries ANY `RollEmbed`/`RollButton` segment
-  (an executed inline roll's audit record cannot be erased by editing around it), or when the
+  stored `kind == Roll`, when the stored content carries ANY `RollEmbed`/`RollButton` segment,
+  including one nested inside a secret (`any_segment` is the one recursive walk; an executed inline
+  roll's audit record cannot be erased by editing around it, and `find_roll_mut` is the matching
+  walk for recalc, so a GM can recalculate a roll inside a secret), or when the
   new content parses to kind `Roll` (no editing INTO a roll). The stored-kind check is
   deliberately UNCONDITIONAL because `kind: Roll` + `audience: Whisper` IS reachable via the
   frame `audience` field (no `/w` token ⇒ `parse_command` still runs). Edits route through

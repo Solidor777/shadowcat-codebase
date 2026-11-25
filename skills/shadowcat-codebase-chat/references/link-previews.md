@@ -13,7 +13,7 @@ guarded, per `validate_url` below).
   `validate_url` (scheme `http`/`https` ONLY, reject `userinfo`, reject empty host, AND — the
   load-bearing arm — for an IP-LITERAL host run `is_blocked_ip` directly, since hyper
   short-circuits DNS for a literal and `GuardedResolver` would never see it; url-crate normalizes
-  `2130706433`/`0x7f000001` to `Host::Ipv4`, caught here);
+  `2130706433`/`0x7f000001` to an IPv4 host, caught here);
   `GuardedResolver` (custom `reqwest::dns::Resolve`, validates EVERY resolved IP against the
   clean-room RFC-cited `is_blocked_ip` v4+v6 blocklist — private/loopback/link-local/CGNAT/ULA/
   multicast/documentation/6to4-`2002::/16`/NAT64/IPv4-mapped/IPv4-compat, ALL-OR-NOTHING so a
@@ -118,7 +118,7 @@ an allowlisted host) for the caller to run via `post_publish::run_pending_enrich
   scraped time among the candidate rows (`create_landed_row::scraped_at`), and a job with none creates no row), so a later
   post of that address reuses the asset.
 - **`PreviewImage` job sharing in `link_preview::enrich`** — `enrich` queues ONE `PreviewImage` job per distinct `preview_url` (candidates whose
-  previews end on the same address share it, `cache_urls` in message order), and queues none for a
+  previews end on the same address share it, `cache_urls` in message order; every NEW job, for a cached preview as well as a fresh one, spends one unit of the per-user fetch budget through `PreviewRateLimiter` and a refused job leaves the card without its image), and queues none for a
   candidate whose address already has an asset id among the message's previews: that id is recorded
   on the candidate's row and carried on its segment. That reuse write does not take
   `PreviewFetchLocks`, which would make the send wait on a background fetch, and relies on the

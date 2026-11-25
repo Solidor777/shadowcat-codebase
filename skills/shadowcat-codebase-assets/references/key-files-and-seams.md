@@ -51,7 +51,7 @@ Part of the shadowcat-codebase-assets skill; read it when changing or consuming 
   `MAX_TAG_CHARS`/`MAX_TAGS`) is the one rule for GM-set tags, applied by the routes
   (`uploads::validate_tags`) and by bundle import alike.
 - `data::asset::query` — the repo's vocabulary: `AssetFilter { folder: Option<FolderFilter>,
-  tags, kind: Option<AssetKind>, query: Option<String> }` (`query` is a
+  tags, kind: Option<AssetKind>, query: Option<String>, ids: Option<Vec<Uuid>> }` (`query` is a
   full-text query over the display name AND every explicit/derived tag, not a name substring; see
   `assets_fts` below; `AssetKind::Audio` is the audio counterpart of the image kinds),
   `AssetSort { Name, Created, Size }`, `AssetCursor`, `sort_key_of`.
@@ -75,8 +75,10 @@ Part of the shadowcat-codebase-assets skill; read it when changing or consuming 
     shared validators `validate_tags`/`validate_folder`.
   - `http::assets::query` — `GET /api/worlds/{world}/assets`: bare `Asset[]` with NO params,
     `AssetPage { items, next_cursor }` with any; `AssetQuery.q: Option<String>`
-    maps to `AssetFilter.query`, matched via `assets_fts` (below), NOT a substring/LIKE; `is_bare`
-    checks whether `q` is absent. `compile_regex` (≤256 bytes, 1 MiB size/DFA
+    maps to `AssetFilter.query`, matched via `assets_fts` (below), NOT a substring/LIKE;
+    `AssetQuery.ids` is a comma-separated uuid list (`parse_ids`: at most `MAX_IDS`, else 400; blanks
+    skipped) that becomes `AssetFilter.ids`; `is_bare` checks whether `q` and `ids` are both absent,
+    so naming ids always takes the page form. `compile_regex` (≤256 bytes, 1 MiB size/DFA
     caps), `encode_cursor`/`decode_cursor`.
   - `http::assets::mutate` — `patch` (`PATCH /api/assets/{uuid}`), `bulk`
     (`POST /api/worlds/{world}/assets/bulk`), `original` (`GET …/original`, GM), `reconvert`
@@ -132,8 +134,11 @@ Part of the shadowcat-codebase-assets skill; read it when changing or consuming 
   `computeListWindow` virtualizes it), chosen by persisted view-mode buttons; `applySelectionGesture`
   is the selection rule both views share. Favourites (`getFavorites` / `toggleFavorite`, re-read
   before each flip) are per user and live under `ui_state.modules['asset-browser']`, the module
-  settings namespace; `FilterState.favoritesOnly` filters CLIENT-SIDE over the loaded pages and
-  keeps paging until the list fills, so it is not an `AssetQuery` field. `UploadQueue` takes a third
+  settings namespace; `toggleFavorite` calls are serialized through one promise chain so two quick flips
+  cannot drop one. `FilterState.favoritesOnly` makes `AssetBrowser`'s `reload` fetch only the
+  favourites: `queryFavoriteAssets` sends the favourite ids through `AssetQuery.ids` in chunks of
+  `MAX_QUERY_IDS` and merges the pages in the server's order, so that listing has no cursor and
+  toggling a favourite does not refetch. `loadMore` restores its cursor when its page fails. `UploadQueue` takes a third
   constructor argument for the progress notification; it reports per-file progress through
   `AppContext.notifyProgress`, and `PreviewPane` does the same for reconvert. `fmtBytes` lives in
   `@shadowcat/core` `format`.

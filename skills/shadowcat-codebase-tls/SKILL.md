@@ -38,13 +38,19 @@ Covers every key file and seam of TLS, the sniffing listener, the serve loop and
   and then only for `Reach::Proxy` or `Reach::Native(Selected::Primary)`, so a plain request, the
   self-signed fallback and a challenge certificate never receive it.
 - **Ring only.** Every rustls configuration is built through `ring_provider`.
-- **A public peer never reads the host's interface addresses.** The self-signed certificate is chosen
-  once by `PeerScope::of(peer.ip())` in `finish_phase`; the public one lists no interface address.
-  Reads of `SanSources::interface_ips` reach only the LAN certificate and the operator's startup
-  lines. Personal-information security outranks convenience.
+- **Only a Lan-scope peer reads the host's interface addresses.** The self-signed certificate is
+  chosen once by `PeerScope::of(ip, trusted_proxy)` in `finish_phase` (`trusted_proxy` is
+  `Config::is_trusted_proxy`, carried from the acceptor through `negotiate`, `sniff_and_hello` and
+  `HelloDone`). `PeerScope` is `Lan` (private, link-local, unique-local), `Host` (an unlisted
+  loopback peer) or `Public` (a listed trusted proxy, even on loopback, and every other address);
+  `Host` and `Public` certificates list no interface address. Reads of `SanSources::interface_ips`
+  reach only the LAN certificate and the operator's startup lines. Known limit: a source-rewriting
+  router or an unlisted LAN pass-through proxy makes a remote peer look `Lan`. Personal-information
+  security outranks convenience.
 - **`ConnMeta` reaches handlers from exactly two places:** `conn_serve`'s per-connection
   `Extension(ConnectInfo(meta))` and `scheme::into_service`. `ConnMeta::cap_exempt` is decided once,
-  by `Config::is_cap_exempt` in the acceptor task, and travels with the connection so the live caps
+  by `Config::is_cap_exempt` in the acceptor task (a different predicate from the scope's
+  `is_trusted_proxy`: loopback is cap-exempt but is `Host` scope), and travels with the connection so the live caps
   apply the identical rule. `ConnMeta::plain` and `ConnMeta::tls` default it to `false`; only
   `SniffListener`'s acceptor sets it, so a new `ConnSource` must set it too.
 - **The accepted-socket option is decided once, in `set_accepted_nodelay`.** Its callers are

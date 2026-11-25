@@ -34,7 +34,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing th
   and above 180° the base corners cross behind the apex so the wedge opens OPPOSITE its facing
   direction. That is why the bound is `(0.0, 180.0)` rather than a full turn; widening it requires
   tessellating the base as an arc first, which would change the default cone's output and break its
-  regression pin. `templateShapeSpec` refuses an out-of-range angle exactly as it refuses a
+  regression pin. `templateShapeSpec` and `templateToRegionShape` both gate the angle through core's `isDrawableConeAngle` and refuse an out-of-range angle (an undrawable cone reaches the server as an unknown-shape refusal) exactly as they refuse a
   non-finite one, because the optimistic store legitimately holds server-unvalidated engine data.
 - **Template authoring controls are conditional by kind** in `ToolRail`: `ToolController`'s
   `templateAngle` shows for `"cone"`, `templateWidth` for `"line"` and `"rect"`, both `null` when

@@ -19,20 +19,32 @@ Part of the shadowcat-codebase-tls skill. Read it before changing or reviewing T
   re-check (`regen_reason`) runs only once `SELFSIGNED_CHECK_SECS` (24 hours) has elapsed since the
   last one. An ACME task would use the same seam; `TlsSource::Acme` is status vocabulary
   only. Rationale: `docs/design/built-in-https.md` §2 (invariants) and §8 (listener).
-- **Two self-signed certificates, chosen by peer address.** `resolver::PeerScope::of` (the ONE
-  classifier: loopback, private, link-local, IPv6 ULA and link-local are `Lan`, everything else
-  including CGNAT is `Public`) is called only by `resolver::finish_phase`, which passes it to
-  `Snapshot::config_for`. The LAN certificate (`selfsigned-cert.pem`) lists the eligible interface
+- **Three self-signed certificates, chosen by peer address.** `resolver::PeerScope::of(ip, trusted_proxy)`
+  (the ONE classifier: a listed trusted proxy is `Public` first; then loopback is `Host`; private,
+  link-local, IPv6 ULA and link-local are `Lan`; everything else including CGNAT is `Public`) is
+  called only by `resolver::finish_phase`, which passes it to `Snapshot::config_for`; the acceptor,
+  `negotiate`, `negotiate_with`, `sniff_and_hello` and `HelloDone` carry `trusted_proxy`
+  (`Config::is_trusted_proxy`, not `is_cap_exempt`). `Snapshot::self_signed_for(scope)` returns the
+  certificate a scope receives. The LAN certificate (`selfsigned-cert.pem`) lists the eligible interface
   addresses; the public one (`PUBLIC_CERT_FILE`, `PUBLIC_KEY_FILE`, `Snapshot::with_public_fallback`)
-  lists the name localhost, loopback, `tls_hostnames` and the router's external address, never an interface
-  address (`SanSet::assemble_public`). Both go through `selfsigned::load_or_generate_kind`,
-  `force_regenerate_kind` and `regen_reason_for`, so expiry, `tls_hostnames`, the machine-hostname
-  opt-in and `--tls-regenerate` apply to both; a new `Snapshot` derivation must go through
-  `Snapshot::build` or it drops the public certificate. The external address arrives through
-  `TlsRuntime::set_external_source` (`main` installs `PortMapRuntime::public_address`) and is polled
+  lists the name localhost, loopback, `tls_hostnames`, the machine hostname when `tls_advertise_hostname` is on, and the router's external address, never an interface
+  address (`SanSet::assemble_public`). The host certificate (`selfsigned-host-cert.pem` /
+  `selfsigned-host-key.pem`, `Kind::Host`, `HOST_CERT_FILE`, `load_or_generate_host`,
+  `force_regenerate_host`, `Snapshot::with_host_fallback`) names only localhost, 127.0.0.1 and ::1
+  (`SanSet::assemble_host`), so a tunnel agent on the host shows internet players nothing of the
+  host's network; only expiry or an unreadable file replaces it. `--tls-regenerate` replaces all
+  three. All three go through `selfsigned::load_or_generate_kind`,
+  `force_regenerate_kind` and `regen_reason_for`, so expiry and `--tls-regenerate` apply to all three
+  (`run_tls_regenerate` calls `force_regenerate`, `force_regenerate_public` and `force_regenerate_host`);
+  `tls_hostnames` and the machine-hostname opt-in apply to the LAN and public ones only; a new `Snapshot` derivation must go through
+  `Snapshot::build` or it drops the public and host certificates. The external address arrives through
+  `TlsRuntime::set_external_source` (`main` installs `PortMapRuntime::external_source`) and is polled
   every `maintenance_tick`: a KNOWN address the certificate lacks (`RegenReason::MissingExternalAddress`)
   regenerates it, an address that turns unknown does not. A new code path that reads
-  `SanSources::interface_ips` for something a peer can see leaks the host's LAN.
+  `SanSources::interface_ips` for something a peer can see leaks the host's LAN. The admin route
+  `http::routes::admin_tls` reads `ConnMeta` from connect-info and calls
+  `TlsRuntime::admin_status_for(scope, now)`, so it reports the certificate that admin's own
+  connection received (`admin_status` keeps the `Lan` scope; no connect-info means `Lan`).
 - `tls::keyfile` / `tls::selfsigned` / `tls::pem` — the certificate material. `keyfile::write_private`
   restricts the still-empty temporary file BEFORE any secret byte is written and returns the error
   when the OS refuses, so the caller (`selfsigned::load_or_generate`'s `persist_error`) degrades to
@@ -110,7 +122,10 @@ Part of the shadowcat-codebase-tls skill. Read it before changing or reviewing T
   bound is `Config::egress_window`. Once shutdown is signalled a pending send gets at most
   `CLOSE_SEND_TIMEOUT`, and `http::SESSION_GRACE` is `CLOSE_SEND_TIMEOUT` plus one second.
 - `fd_budget::STREAMED_FILE_PERMITS` sizes the semaphore `http::assets::permits::StreamedFilePermits::production` creates. The asset file-serve paths take a permit
-  (`acquire`) before opening a file; `http::world_bundle::export_world` takes ONE permit before any
+  (`acquire(user)`) before opening a file; one user may hold at most `1 / USER_SHARE_DIVISOR` (a
+  quarter) of the pool, taken from a per-user semaphore in addition to the pool permit, so one
+  user's page of images cannot starve the others (a user at their share is refused after the same
+  wait). `http::world_bundle::export_world` takes ONE permit (as the admin's id) before any
   header is written and holds it until its producing task ends, so a single permit covers the whole
   export, not each file it reads. `acquire` waits up to `PERMIT_WAIT` (2 seconds); a pool still
   exhausted after the wait answers 503 with `Retry-After` before any header is written. The same

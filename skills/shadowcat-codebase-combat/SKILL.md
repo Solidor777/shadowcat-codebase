@@ -157,7 +157,10 @@ The per-file map of the combat family: types and chain resolver, snapshot, trans
   is the resolved mode (`expiry_mode`, through the combat-defaults chain) AND `effect_is_public`
   holds: the effect, its host and the sweeping combatant all grant default access and no hidden
   combatant stands on the host. A per-user grant on an otherwise unreadable document stays GM-only
-  (under-discloses, never leaks). `effects::EffectSweep` is what the sweep returns.
+  (under-discloses, never leaks). `host_is_nameable` (the host grants default access, hosts no
+  hidden combatant, is not a secret-identity token, and is not an actor such a token links) and
+  `source_name` (the source and the host or combatant holding it must both be nameable) apply the
+  same rule to a name shown in the note. `effects::EffectSweep` is what the sweep returns.
 
 - **A group's members share ONE initiative slot, and a group roll is authorized and built from ONE
   member expansion.** `transition::rebuild_order` derives the slot from the members (the group

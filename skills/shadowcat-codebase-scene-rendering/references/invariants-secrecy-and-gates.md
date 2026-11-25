@@ -50,7 +50,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing an
   not run under the guard). GMs are exempt from
   both gates entirely. `publish::visible_cache`/`publish::explored_cache` memoize per `(scene, lenient)`/
   `scene` within one `publish` call so a batch of Creates doesn't recompute the mask or refetch
-  explored per token. **By design: a dark scene under `Visible` still refuses non-GM token
+  explored per token. `Room::publish` fetches the world capability defaults (`Repository::world_cap_defaults`, an await that cannot run under the scene read guard) only when `batch_needs_world_defaults` finds a token Create or a token rotation write under the `OwnTurn` facing rule; every other batch skips the read. **By design: a dark scene under `Visible` still refuses non-GM token
   placement into an unseen cell** — the same fail-closed reasoning the per-step traversal gate
   uses, scoped here to Create. Do NOT "fix" this by softening the defaults — it is the correct
   fail-closed outcome.

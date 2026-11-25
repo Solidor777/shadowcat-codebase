@@ -21,7 +21,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing Sc
   finite or ≤0-on-either-axis falls back to
   `DEFAULT_SCENE_BOUNDS_UNITS = (100.0, 100.0)`, which MUST numerically match the client's
   `DEFAULT_SCENE_BOUNDS` in the `scene-docs` module (dual-language default-parity invariant — verify both
-  when either changes). Per-scene only, no world-settings layer. **Movement gate:**
+  when either changes). The scene-tools bounds (`MAX_PROXIMITY_CELLS`, the template angle and width, the ambient level) are pinned the same way: the `server-bounds` module's JSON fixture is read by both its client test and the server's `client_bounds_parity` test, so a bound changed on one side fails the other. Per-scene only, no world-settings layer. **Movement gate:**
   `visible_cells(user, scene, lenient)` is the move-gate mask — under strict (center) sampling it
   EQUALS `player_lit_mask`'s cells because both share `cell_visible` / `lighting_inputs` /
   `source_los_poly` / `point_qualifies`; `lenient` adds the 4 corners (a superset, never a

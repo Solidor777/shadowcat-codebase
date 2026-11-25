@@ -27,9 +27,12 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
   `apply` on a toggle, `status`, `shutdown` after the HTTP drain; `effective_enabled`;
   `read_stored_toggle`/`write_stored_toggle` over the stored setting named by `STORED_TOGGLE_KEY`.
   `PortMapRuntime::public_address` is the one in-process reader of the external address: `Some` only
-  in the `Mapped` state with a publicly routable address. `main` hands it to
-  `tls::TlsRuntime::set_external_source` so the public-peer certificate can name it.
-- `portmap::status` — `PortMapStatus`, `PortMapState`, `PortMapProtocol`, `is_public_address`.
+  in the `Mapped` state with a publicly routable address. `PortMapRuntime::external_source` wraps it
+  as the `tls::ExternalSource` that `main` hands to `tls::TlsRuntime::set_external_source`, so the
+  public-peer certificate can name it.
+- `portmap::status` — `PortMapStatus`, `PortMapState`, `PortMapProtocol`, `is_public_address`
+  (judges an IPv4-mapped IPv6 address as its IPv4 address, and rejects the reserved, benchmarking,
+  protocol-assignment, CGNAT, 6to4 and NAT64 ranges besides private, loopback and link-local).
 - `http::port_forward` — the admin route.
 
 ## Hard invariants
@@ -39,8 +42,8 @@ The module parses bytes from unauthenticated LAN peers, so it is written to be u
   construct it rejects is a defect, not a lint to silence.
 - **At most one mapping is held, and the slot equals what the router holds.** `Shared::slot` is
   written with no await after the router's grant (`mapping::acquire` makes the grant its last
-  await), so aborting the task at any await never strands an unrecorded mapping, and `shutdown`
-  deletes exactly the recorded one.
+  await) and cleared only after the router's delete returns, so aborting the task at any await
+  never strands an unrecorded mapping, and `shutdown` deletes exactly the recorded one.
 - **One enable decision**: `effective_enabled` (the `port_forward` config key when set, else the
   stored toggle) is called by the runtime, the route and the status. A config key locks the toggle
   (`locked_by_config`).

@@ -53,7 +53,7 @@ channel's own posture.
   wrapper that commits the reduced state via `apply_intent` under `WriteOrigin::AudioTransport`
   (Update only — Create/Delete of `audio-state` are `WriteOrigin::ConfigSeed`-only, seeded once
   by `world_seed`; see the guard split in `data::sqlite::apply_intent`).
-  `audio::transport::on_active_scene` swaps a scene's ambience playing-entries when
+  `audio::transport::on_session_pause` keys on whether audio is HELD (paused with the pause-audio switch on) before versus after, so flipping the switch mid-pause pauses or resumes the `session_paused`-marked tracks at once and no marker outlives the pause; a hand-paused track is never resumed by it. `audio::transport::on_active_scene` swaps a scene's ambience playing-entries when
   `world-settings.activeScene` commits (hooked from `ws::room::Room::publish`).
 - `scene::emitters`/`scene::audibility` — `token_light_emission`/`token_sound_emission` share
   ONE resolution precedence (linked-token override-or-actor, embedded-actor uncached read, raw

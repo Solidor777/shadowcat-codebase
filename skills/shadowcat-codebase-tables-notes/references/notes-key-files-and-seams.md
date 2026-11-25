@@ -118,7 +118,10 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
   `PermissionsEditor` (default role, per-user overrides, opt-in GM role; gated on the `/permissions`
   edit capability) and `UserMultiSelect`; sharing is `PermissionSet.users`. It builds its table of
   contents from the rendered DOM (`collectHeadings`, `findAnchor` in `note-toc`) and scrolls
-  in-note `#fragment` links itself. `NoteTree` (`@shadowcat/module-notes`) reorders siblings through
+  in-note `#fragment` links itself. The sheet has no visibility control of its own: `PermissionsEditor`
+  is the one editor of a note's visibility (`setVisibility` only shares an unshared note when it is
+  presented). A PDF page renders as a link that opens in a new tab (`note-media-pdf-link`), not an
+  embed, because the server serves a PDF with an attachment disposition. `NoteTree` (`@shadowcat/module-notes`; `canReorder` requires `/engine/sort` edit access on the row AND every sibling at its level) reorders siblings through
   core's `createDragController` (a drag handle, plus Alt+Arrow keys; drag is off while a search
   filters the tree) with `noteSiblings` and the shared sort-key helpers (`computeReorderUpdate`,
   `buildReorderOps`), and opens its right-click / long-press menu through ui-kit's

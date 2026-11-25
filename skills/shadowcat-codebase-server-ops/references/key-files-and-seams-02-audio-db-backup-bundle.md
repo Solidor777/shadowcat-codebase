@@ -144,5 +144,6 @@ Continues "Key files & seams" from key-files-and-seams-01-config-router-serve-ad
   `StreamedFilePermits` permit before any header (`shadowcat-codebase-tls` owns the pool) and holds
   it, with the read side, across its row read + `write_bundle`'s chunk-production phase,
   `import_world` holds the read side across the upload +
-  extraction + `SqliteRepository::import_world`'s asset-finalization rename step — so neither can
+  extraction (its staged upload is disarmed with `TempFileGuard::keep` and sent through the async
+  `Trash::discard`, never a blocking call on the runtime) + `SqliteRepository::import_world`'s asset-finalization rename step — so neither can
   interleave with a concurrent in-server backup snapshot.

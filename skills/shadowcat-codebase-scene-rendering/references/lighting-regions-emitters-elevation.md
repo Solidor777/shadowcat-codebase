@@ -70,7 +70,8 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing th
   `SceneEcs::token_sound_emission(token)` shares this SAME linked/instanced/override resolution
   precedence for the audio subsystem's carried `SoundEmission` — see `shadowcat-codebase-audio`
   for `scene::audibility`'s falloff/occlusion/listener-selection geometry, which composes
-  `segments_cross`/`elevation::wall_occludes` rather than re-deriving occlusion.
+  `segments_cross`/`elevation::wall_occludes` rather than re-deriving occlusion. A sound-blocking region outline silences an emitter outright: `compute_audibility` reads the outline edges through `region_occluder_entries(scene, WallSense::Sound)` (the same edges `sound_wall_entries` already appends to the wall set, so no second geometry), and a listener-to-emitter segment that is blocked AND crosses any of them gets gain 0 (`muffled` stays true); a plain wall keeps its `through_wall_gain`.
+  `region_field_if`'s ambient-only flag skips every region whose behavior is not `ambient_light` before `anchored_region_parts` and rasterization: the lighting caches' fingerprint reads only the ambient facet, and `RegionField::into_ambient_map` already discards the skipped regions' contribution, so the output is identical and only the wasted rasterization goes.
   **Carried-light authoring is GM-only, server-enforced:** `permission::carried_light_touched` /
   `carried_light_in_body` classify any write that creates, changes or removes an emission (direct
   pointer writes, value-compared ancestor writes, removals, create bodies), and `apply_intent`

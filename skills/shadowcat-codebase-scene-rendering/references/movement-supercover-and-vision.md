@@ -15,7 +15,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   has zero overlap with `bound`'s bbox lies entirely outside it; by convexity, a ray from an
   interior point already crosses one of `Rect::edges()` (always present in the filtered set)
   before it could reach that wall, so `nearest_hit` never needed to consider it — excluding it
-  changes no polygon vertex, only how many segments get scanned per ray. Pinned by a mutation
+  changes no polygon vertex, only how many segments get scanned per ray. `nearest_hit` has an unflagged fast path: a segment set with none of the per-ray flags (`one_way`, `limited`, `open_within`) never skips a hit, so it takes the first minimum-`t` hit in one allocation-free pass (strict `<` keeps the earliest input-order hit on a tie, as the sorted walk does); only a flagged set collects and sorts the hits. Pinned by `nearest_hit_unflagged_fast_path_matches_the_sorted_walk`. Pinned by a mutation
   test (`scene::vision::tests`): a wall straddling `bound`'s edge (half in, half out) must still
   occlude a point directly behind its in-bound sliver — flipping the filter from an overlap test
   to a strict-containment test makes that test fail exactly as expected, confirming it is a real

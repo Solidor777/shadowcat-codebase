@@ -12,6 +12,8 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   canonical backups root, else `BackupError::InvalidBackupDir`. Routes:
   `GET /api/admin/backups`, `POST .../prune`, `DELETE .../{id}` (moves into the trash),
   `POST .../{id}/restore`, `DELETE .../restore-failed`. Pruning and delete go through `Trash`.
+  `http::backups::create_in_app_backup` skips the retention prune for `BackupKind::PreRestore`, so the
+  pre-restore backup a staged restore takes can never prune (trash) the backup that restore is about to apply.
 - **Staged restore** (`http::backups::restore_from_backup` -> `backup::apply_pending_restore`):
   the route writes a `BackupKind` pre-restore backup of the current state, then
   `restore-pending.json` (`catalog::RestorePending`) beside the database, then
@@ -29,7 +31,11 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   a half-built entry. `TrashRetention` is `Days`, `Never` or `Disabled` (`Disabled` removes at
   once and creates no directory); `Config::trash_path` and `Trash::from_config` resolve it;
   `spawn_retention_sweep` runs hourly. An id from a path is parsed by `EntryId`, a positive
-  allowlist regex. Routes: `GET /api/admin/trash`, `POST .../empty`, `DELETE .../{entry_id}`.
+  allowlist regex. A cross-device discard (`move_item`) copies, then removes the source; a
+  `MoveFailure` with `copy_complete` set (the removal failed part way) promotes the staging copy to a
+  listed entry instead of deleting the only complete copy. `Trash::empty_at` also sweeps `.staging-`
+  directories older than `STAGING_GRACE_MS` (by modification time) through `remove_stale_staging`; an item whose
+  size cannot be read counts as 0. Routes: `GET /api/admin/trash`, `POST .../empty`, `DELETE .../{entry_id}`.
   `AppState.trash` is `Arc<Trash>`; every function that discards takes `&Trash`, so a new
   deleting call site needs the state threaded to it. Recovery is manual (move the item back to the manifest's original path).
 - **Router port forwarding** (`portmap`, route `http::port_forward`, `GET`/`PUT
@@ -43,9 +49,10 @@ Continues "Key files & seams" from key-files-and-seams-02-audio-db-backup-bundle
   on a LAN address (`soap::is_lan_address`). A permanent lease (`lease_secs` 0) is still deleted at
   shutdown. The module denies `unwrap`, `expect`, `panic!`, slice indexing and unchecked
   arithmetic outside tests because it parses unauthenticated LAN bytes; adding one is a defect.
-  `main` installs `PortMapRuntime::public_address` into `TlsRuntime::set_external_source` (the
-  portmap task has no address when TLS starts, so the TLS maintenance tick polls it), and
-  `run_tls_regenerate` replaces both the LAN and the public-peer self-signed certificates.
+  `main` installs `PortMapRuntime::external_source` (a reader of `public_address`) into
+  `TlsRuntime::set_external_source` (the portmap task has no address when TLS starts, so the TLS
+  maintenance tick polls it), and `run_tls_regenerate` replaces the LAN, public-peer and host
+  self-signed certificates.
 - **Peer addresses stay server-side.** `ConnMeta.peer`, `http::throttle::ClientIp`
   (`resolve_client_ip`, which honours `X-Forwarded-For` only from `trusted_proxies`), `PeerSlots`
   and the login throttle keys are used for admission and rate limiting; none is written to a

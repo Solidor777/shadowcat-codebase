@@ -84,6 +84,7 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
   filled page with nothing after it has no cursor, and a filled page followed only by a
   non-matching row gets a cursor whose next page is empty with none. `AssetSort::Name`'s key is the
   ASCII-lowercased name (`sort_key_of`), the same fold as SQLite's lower function that orders the SQL.
+  `ids` (`AssetFilter.ids`) restricts the query to at most `MAX_IDS` asset ids, ANDed with the world scope and every other filter; present-but-empty matches nothing. Client: `AssetQuery.ids` with `MAX_QUERY_IDS`; the asset browser's favorites mode chunks its favorites through `queryFavoriteAssets`.
 - **Chunk protocol:** fixed `CHUNK_SIZE`; `PUT …/{offset}` accepts exactly `received` (409
   otherwise — a retry of a LOST chunk carries that offset, a duplicate does not), a concurrent
   PUT on the same session is 409 (busy), overflow aborts the session (413), `complete_session`
@@ -112,7 +113,7 @@ Covers every file and seam of the asset pipeline: data::asset and its process, a
   favicons, the stably-named `runtime/*.js` import-map chunks) stays `no-cache` because its URL
   never changes when its content does.
 - **Every handler that opens an asset file to stream it to a client takes a
-  `StreamedFilePermits` permit (`acquire`) BEFORE the open and before any response header; an
+  `StreamedFilePermits` permit (`acquire(user)`; `serve_file` takes the requesting user's id, and one user holds at most a quarter of the pool, `USER_SHARE_DIVISOR`) BEFORE the open and before any response header; an
   exhausted pool is a 503 with `Retry-After` (`AppError::Unavailable`).** The two streaming paths
   are `file_response::serve_file`'s GET arms (reached by `serve` and `mutate::original`, both
   passing `AppState.file_permits`) and the `http::world_bundle::export_world` handler, which holds

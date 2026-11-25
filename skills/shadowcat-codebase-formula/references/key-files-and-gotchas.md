@@ -34,7 +34,7 @@ Part of the shadowcat-codebase-formula skill; read it when changing or consuming
   the `template` module's identifier resolver) validates a consumer callback's return through
   these before trusting it as a `FormulaValue`.
 - The `coerce` module — `coerceFormula(text)`, the ONE decision every formula text input makes
-  about what to store: a finite numeric literal becomes a `number`, any other text that PARSES is
+  about what to store: a finite numeric literal becomes a `number` (read from the parsed `num` node, or a negated one, never from `Number()`, so `0x1F` and `1e3` fail the parse), any other text that PARSES is
   kept as its trimmed source `string`, and everything else (an empty input included) is the
   `FormulaError` `parseFormula` returned. Only the parse is checked; what a reference means stays
   the evaluator's call. The combat settings editors (`BarsEditor`, `ResourceRegistryEditor`,

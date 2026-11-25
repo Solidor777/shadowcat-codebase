@@ -101,7 +101,10 @@ Part of the shadowcat-codebase-tables-notes skill. Read it before changing or re
     the same request that happens to reuse the same table id; any refactor of this function must
     preserve the push→map→pop→`?` ordering exactly.
   - `MAX_DRAW_DEPTH=8` bounds `TableEntry::Draw` recursion; exceeding it is `TooDeep`, checked
-    BEFORE the cycle check on every call.
+    BEFORE the cycle check on every call. A stored draw nests 3 JSON levels per draw level, so a
+    row-selecting roll's serialized depth must stay under serde_json's 128-level read limit; that is
+    what `dice::notation::MAX_EXPR_JSON_DEPTH` guarantees (`tables::nested_depth_tests` pins it with a roll at the
+    cap in the deepest draw), so raising `MAX_DRAW_DEPTH` needs that cap re-checked.
   - `weighted_row(rows, total) -> Option<usize>` — first row whose cumulative weight (in row
     order) is `>= total`; always `Some` for a well-formed table (every weight `>= 1`,
     `validate`d at ingest) and any `total` in `1..=sum`.

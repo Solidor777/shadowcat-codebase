@@ -75,7 +75,8 @@ Covers the key files and seams of notes: the note engine doc type, the server-de
   emits explicit `Move` ops (logged, broadcast, invertible, never a silent column update) lifting
   every table in the folder's subtree to the nearest ancestor the same command does not also
   delete (`deleted_ids`), so deleting an outer and a nested folder in one command lifts to the
-  same surviving ancestor in either order.
+  same surviving ancestor in either order. The lift is part of the authorized delete: its `Move` ops
+  are consequences of it and run no separate Move capability check.
 - **`DrawRule::Weighted`'s row-weight sum is bounded by `chat::rolls::MAX_DIE_SIDES`, because the
   draw literally rolls `1d<sum>`.** Any future change to `MAX_DIE_SIDES` or to how a `Weighted`
   draw derives its notation must keep this bound aligned — the positive+negative control at the

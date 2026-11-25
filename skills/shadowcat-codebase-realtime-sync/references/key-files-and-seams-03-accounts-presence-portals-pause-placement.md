@@ -55,7 +55,7 @@ Continues "Key files & seams" from key-files-and-seams-02-protocol-http-auth-cli
 - **Session pause** (`ws::session_pause`): one rule for every refusal path. The `ClientMsg::Intent`
   arm of `ws::conn` asks `intent_refusal`; typed requests (`MoveRequest`, a `ChoosePortal` that
   picks a destination, the eight combat intents) ask `msg_refusal`, classified by `blocks_msg`.
-  A refusal is a `MoveError`, `PortalChoiceError` or `CombatError` carrying `RejectReason::Paused`,
+  `ClientMsg::combat_request_id` is the one list of the combat intents `blocks_msg` reads. A refusal is a `MoveError`, `PortalChoiceError` or `CombatError` carrying `RejectReason::Paused`,
   which `WsClient` maps to `SessionPausedError`; an intent refusal is a `Reject`. A GM is never
   refused, and server-authored writes (`WriteOrigin::CombatTransition`, region triggers) never
   route through it. A new typed request that moves a token or runs combat must be added to
@@ -67,11 +67,12 @@ Continues "Key files & seams" from key-files-and-seams-02-protocol-http-auth-cli
   visible to all, the token's effective owner. `handle_choose_portal` validates the answer and
   applies it through the same funnel a fixed `Teleport` uses (`apply_teleport_to`). Every
   `PortalChoiceError` shares one wording for a non-GM caller (`portal_choice_wire_message`), so a
-  player cannot learn whether an offer, token or portal exists. The client waits for the reply with
+  player cannot learn whether an offer, token or portal exists, a rate-limited one (`PortalChoiceError::RateLimited`) included: opening and answering a portal spend the shared `WsState::message_rate` bucket, like `PlaceEffect`. The client waits for the reply with
   `WsClient`'s `portalPending` silence-window map, because success sends no frame.
 - **Module placements** (`ClientMsg::PlaceEffect`, `ws::conn`'s `handle_place_effect` ->
   `Room::place_effect`): the effect set comes from a module manifest declaration, never from the
-  client; success sends NOTHING (the broadcast `Event` of the placed region's Create confirms it)
+  client, and `Room::place_declared` asks a non-GM for READ on the target scene through
+  `ws::scene_broadcast_permitted` (a refusal reads as `PlaceEffectError::UnknownScene`), so a manifest's `who: player` placement still cannot target a scene the player cannot read; success sends NOTHING (the broadcast `Event` of the placed region's Create confirms it)
   and a rejection is a `PlaceEffectError` to the requesting connection only, worded by
   `place_effect_wire_message` per world role. The write runs under `WriteOrigin::ModulePlacement`.
   A server-wide task started in `http::serve_with` (`spawn_placement_expiry_sweep`, period

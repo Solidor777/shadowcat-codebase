@@ -82,7 +82,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sr
   dispatching `/engine/scene/fogPooling`, and a per-scene override select dispatching
   `/engine/vision/fogPooling` whose blank "inherit" option writes `null`; both follow the
   raw-stored-value `old` rule in references/grid-pathfinding.md. The same panel's `data-testid="reset-explored-fog"` button
-  calls `AppContext.resetExploredFog(scene.id)` with NO scope, so it only ever sends the
+  calls `AppContext.resetExploredFog(scene.id)` only after `confirmDialog` is answered yes (the wipe cannot be undone, so a stray click must not trigger it) and with NO scope, so it only ever sends the
   scene-wide reset (the `user`/`level` narrowing in `ResetExploredFogOptions` has no panel
   surface, and a `user`-scoped request on a `Shared` scene is refused server-side — see the
   `scene::explored` bullet). `AppContext.resetExploredFog` is a fire-and-forget GM-only intent:
@@ -166,4 +166,6 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sr
     it is a property of the payload, not of the channel.
   - Cost of the seam, by design: a freshly placed actor-backed token draws at the scene's unit
     footprint for one round trip, until its own resolved extent arrives.
-
+- **Compact `ToolRail` strip:** below the compact breakpoint the rail is a single horizontal row with `overflow-x: auto`. Its direct `.tool` buttons keep their natural width and a one-line label (`flex: 0 0 auto`, no wrapping), so the strip scrolls instead of cutting a label or dropping below the touch size; the active-tool `.controls` are unaffected. The paused note (`moves-paused-note`, class `hint`) is a direct child of the rail and does not take the shared `.hint` full-width basis, which would shrink every tool button: it sizes to its content up to a readable cap and wraps there.
+- **`ToolController.release` ends tool state on rail unmount.** `ToolRail` calls it from `onDestroy`; it deactivates the active tool (a no-op when none is active), so a tool's live state, the shared ruler's keepalive timer included, ends with the rail rather than outliving the world session.
+- **`facingWedgeVisibleTo` (the `stage` module's `facing-wedge`) decides whether a viewer sees a token's facing wedge:** the GM, or the token's effective owner through `ownerFloorApplies` (the direct owner, or the owner floor reached through the linked actor). `Stage` passes it to the render engine as `facingWedgeVisible`. Rotation permission is not the test: a world whose capability defaults let every player turn any token would otherwise show every creature's facing to every player.

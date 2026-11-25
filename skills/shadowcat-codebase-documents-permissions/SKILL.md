@@ -91,7 +91,13 @@ Covers every file and seam of the document model and redaction layer: the `Docum
   `OwnerOrGm` tier through `identity_hidden_pointers`; every egress and merge path reaches the
   set through `hidden_own_pointers`, so a new conditional hidden pointer is added there and
   nowhere else. A token has no `faction` of its own: withholding `actor_id` is what closes the
-  faction-border signal.
+  faction-border signal. `is_identity_hidden_token` is the one test of the flag, and `identity_pointers`
+  is every pointer it governs whatever its value. `permission::retracts_hidden` (a write into
+  `permissions`, or a token write overlapping `/engine/identity_hidden` directly or through an
+  ancestor such as `/engine`) is the one trigger for capturing the commit-time hidden set
+  (`OpSnapshot::retraction_hidden_at_commit`): `filter_command`'s Update arm nulls the pointers a
+  recipient holds and may no longer see, and on a flag flip to off re-sends the identity pointers
+  it may now see.
 - **A `Visibility::Recipients` list is never shown to a viewer it does not name.**
   `filter_properties` takes no GM shortcut for a document that holds a recipients tier
   (`holds_recipients_tier`), and an `Update` delta's permission-writing `FieldChange` has its

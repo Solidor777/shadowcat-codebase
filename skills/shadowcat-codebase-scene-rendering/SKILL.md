@@ -96,7 +96,7 @@ Gotchas are in reference files. Read the matching one before editing the code it
 - Docs ratchet, `footprint_cells` tie-break, scene auto-create, tool-swap cleanup, measure-tool route commit, move-failure notices, the shared live ruler: references/gotchas-tools-and-rulers.md.
 - `resolved_diagonal_rule`, arrest/impassable footprint gating, arrest truncation cost, GmOnly band override, hex lerp, supercover corner crossing, cross-scene stream leak class: references/gotchas-routing-and-geometry.md.
 
-- The file that declares the `scene` module is within 25 lines of the 5,000-line limit: new `SceneEcs` code goes in a sibling submodule (`anchored_regions`, `placed_regions`, `bars` and `elevation` are the pattern), never back into it.
+- The file that declares the `scene` module sits just under the 5,000-line limit (`pnpm lint:file-size` fails past it): new `SceneEcs` code goes in a sibling submodule (`anchored_regions`, `placed_regions`, `bars` and `elevation` are the pattern), never back into it.
 
 ## Reference files
 

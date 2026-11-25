@@ -92,7 +92,7 @@ Part of the shadowcat-codebase-realtime-sync skill; read it when changing egress
   sees at all. See `shadowcat-codebase-combat`.
 - **Correlated-request rejections are TYPED; a caller chooses by the error's class, never by message
   text.** `WsClient` rejects with `NotConnectedError` (no open socket when the request was issued,
-  or the socket closed while it was pending — every reject-all path), `RequestTimeoutError` (the
+  or the socket closed while it was pending — every reject-all path; the door, portal-choice, portal-open and place-effect requests, which otherwise resolve by silence, reject it at once offline through `trackSilenceSettled`, while chat ops still resolve by silence), `RequestTimeoutError` (the
   reply never arrived; says nothing about whether the request would have succeeded — search,
   subscribe, scene subscribe, pathfind, move, combat and merge all use it), and `PathfindError`
   (the server answered `PathError`; carries the typed `PathfindError.reason`). All three are

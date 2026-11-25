@@ -25,7 +25,11 @@ Continues "Key files & seams" from key-files-and-seams-01-scene-docs-and-actor.m
   mount (fail-closed on a shape the editor can't represent, e.g. a nested-`generated` `art`),
   which backs post-create editing: an actor row's edit-visual button mounts the same editor with
   `initial` set to that actor's current visual, and apply dispatches a `/engine/visual` Update
-  whose OCC `old` reads the RAW stored visual (the raw-`old` convention below).
+  whose OCC `old` reads the RAW stored visual (the raw-`old` convention below). The editor's
+  folder list is store-subscribed (`createSubscriber` over `ctx.documents.subscribe`), so a folder
+  created elsewhere appears without a remount; `ActorsPanel`'s `locatedTokenIds` resolves located
+  tokens with one token query per recompute; `BarsEditor` re-keys its inline errors when a bar is
+  removed so each stays on its own row.
   Every asset pick goes through `AppContext.pickAsset` (the asset-browser pick modal): the
   editor's shared asset-pick snippet renders a pick BUTTON (face / sheet / top-level image,
   single pick) and the

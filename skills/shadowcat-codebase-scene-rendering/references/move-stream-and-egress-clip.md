@@ -19,7 +19,7 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing sc
   composes an in-flight light into the illumination field from the frame alone via
   `RecipientSight::sample_light`, with `emitters::field_falloff`/`wire_falloff` the one
   wire↔field curve mapping, round-trip pinned; internal `LightSamplePt`) via
-  `SceneEcs::mover_light_inputs(scene, token, cell)` — `None`, and
+  `SceneEcs::mover_light_inputs(scene, token, cell, committed_rotation)` (`Room::execute_move` derives the committed bearing ONCE with `move_exec::bearing_degrees` and feeds it both to `SightSources::turn_source` for the streamed facing vision and to this call for the carried cone, the same value its `/engine/rotation` commit writes, so the stream never looks along a different heading than the commit) — `None`, and
   therefore zero light raycasts, when the scene is all-bright (`ResolvedScene::all_bright`, THE
   one lighting-off/`GlobalIllumination` predicate `lighting_inputs`, the visibility-cache
   snapshot and this seam all read) or the token's `token_light_emission` is absent/disabled;

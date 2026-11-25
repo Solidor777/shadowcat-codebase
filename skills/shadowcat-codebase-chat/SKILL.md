@@ -66,7 +66,10 @@ These hold on every change to chat; the full text of each, with its rationale, i
 - **`permissions_for_audience` is the ONE decider of a message's readership**: `build_message_doc`
   (create) and `handle_revise_audience` (revise) both call it. `Audience::Blind` holds the message
   for the roller and GM always; everyone else only per `BlindReaders`
-  (`resolve_blind_readers` from the world's blind-roll settings, via `readers_for_audience`,
+  (`resolve_blind_readers` from the world's blind-roll settings. The two settings never overlap:
+  `blind_visible_to_players` covers only a blind roll a PLAYER made (`everyone` is false whenever the
+  roller is a GM), and a GM's blind roll reaches only the owner of its attributed actor, under
+  `blind_visible_to_actor_owner`; both default off, via `readers_for_audience`,
   stored in the `PermissionSet` so resync, list and search agree). A blind message must hold a roll
   (`validate_blind_content`, shared by send and revise; else `SendMessageError::BlindNeedsRoll`),
   and its rolls' spec and result are GM-only through `roll_property_overrides`.

@@ -24,7 +24,13 @@ terms/`*` chains are otherwise deterministically overflowable with zero dice),
 and player-presentable `Display` for `ParseError`/`Token` (surfaced via chat System notices).
 The recursive-descent parser counts `factor` recursion and refuses nesting past
 `MAX_NESTING_DEPTH` (parentheses, unary `-`, function-call arguments) with
-`ParseError::TooDeeplyNested`, so its stack use is bounded independently of the input length.
+`ParseError::TooDeeplyNested` (32 levels), so its stack use is bounded independently of the input length.
+`MAX_EXPR_JSON_DEPTH` is a second, separate bound: `parse` ends with `fits_json_depth`, refusing an
+`Expr` that serializes deeper than that many JSON levels (a flat chain of terms deepens it with no
+nesting). It exists because every read of a stored roll parses with `serde_json`, which refuses past
+128 levels, and a roll sits under wrappers (the secret depth, a table draw's `MAX_DRAW_DEPTH`, the
+update event); a change that adds a wrapper level or deepens a secret or draw budget needs the cap
+re-checked by `chat::nested_roll_tests` and `tables::nested_depth_tests`.
 Ambient `ParseContext` for chat rolls comes from the
 world's `dice-settings` config doc (`chat::settings::resolve_dice_context`, channel-scoped: a
 `DiceSettingsEngine.channel_overrides` entry for the sending channel wins over the doc's own

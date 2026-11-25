@@ -34,7 +34,11 @@ Part of the shadowcat-codebase-combat skill; read it when editing or locating th
   combatant runs its `turn_start` boundary, and an `Event` combatant (removed when exhausted,
   granting one extra budget unit) or a hidden combatant under `TurnControl::OwnerMayEnd`
   auto-resolves and the walk continues — nothing this does for a
-  hidden combatant is observable from outside its own (permission-gated) document. An `Event` that
+  hidden combatant is observable from outside its own (permission-gated) document, with ONE accepted
+  exception: `record_turn_boundary` and `record_round_boundary` record every combatant's boundary,
+  hidden or not, and those drive `Room::fire_turn_round_triggers`, so a region `TurnStart`/`TurnEnd`
+  trigger a hidden combatant's token stands in fires when that turn begins or ends and players
+  can see it (game state yields to play experience; nothing else is disclosed). An `Event` that
   its `resolve_event` does NOT remove runs `run_turn_end` too, the same compressed
   `turn_start`+`turn_end` pair a hidden actor's auto-resolve runs; only a removed `Event` skips it,
   having no document left to write a boundary against. Entering a turn goes through

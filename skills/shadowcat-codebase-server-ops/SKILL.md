@@ -55,6 +55,9 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
 - **Recoverable deletion**: server production code removes files through `trash::Trash::discard`
   (or `discard_sync`), never a raw remove; `AppState.trash` carries the one `Trash`. Backups, the
   restore staging leftovers and deleted assets all move into it.
+- **`Config::paths_nest` compares `Config::nesting_form`s**: dot-dot segments are folded and
+  case is folded only on Windows and macOS (default case-insensitive filesystems), so a trash path
+  cannot hide inside the assets tree by spelling.
 - **Fail-closed restore**: `restore_backup` validates `manifest.json` + `world.db` presence
   BEFORE touching any destination file — a missing/malformed/foreign backup directory returns
   `BackupError::InvalidBackupDir` with zero destination writes.
@@ -78,7 +81,7 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
 ## Gotchas
 
 - **Docs-ratchet is live in this subsystem:** the `config`, `db`, `backup`,
-  `modules`, `main`, and `bin::test_server` modules all carry `#![deny(missing_docs)]` +
+  `modules`, `main`, and `bin::test_server` modules (which runs with trash retention `Disabled`, so it leaves no `trash` directory behind) all carry `#![deny(missing_docs)]` +
   `#![deny(clippy::missing_docs_in_private_items)]` — a new item without a doc comment fails the
   3-OS CI clippy step. Every lib function also carries a `# Examples` doctest (`no_run` for
   infra-bound; bins use ` ```text ` — rustdoc runs no doctests for bin targets). The crate root has
@@ -103,7 +106,8 @@ Per-module entries for config and Cli, the http router and serve, main, the db h
   `<assets_dir>.restore-tmp`, the live `assets_dir` renames out to `<assets_dir>.restore-old`
   (directory rename does NOT replace a non-empty destination on any target OS, hence the two-step
   swap), the staged tree renames into `assets_dir`, then the db rename is the LAST, single step.
-  If the db rename fails the assets swap is undone by two renames, so on an error return the live
+  If the db rename fails the assets swap is undone by two renames (`backup::undo_rename` logs an
+  undo rename that itself fails instead of ignoring it), so on an error return the live
   db and assets are both the backup's or both what they were. The `.restore-old` tree that holds the prior data
   moves into the trash only after the db rename succeeded (a failure to trash it is a warning,
   not a failed restore), and every staging leftover moves into the trash too. Only a crash

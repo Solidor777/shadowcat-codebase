@@ -17,7 +17,7 @@ and "Contributing a guided tour" in `docs/site/guides/creating-a-module.md`.
   (`ModuleLoadResult.failed`) has no activation outcome, so its entry is keyed on the install
   FOLDER id with status `"load-failed"`; an activation problem is keyed on the registry id. A later
   clean pass deletes the entry. Each problem is also forwarded to `opts.onModuleStatus`, which the
-  shell turns into a toast through `notifications.push`.
+  shell turns into a toast through `notifications.push`. The callback fires for the GM only, and once per change of a module's problem; a player's session records `moduleStatus` but never calls it.
 - `AppContext.moduleStatus` is the live map, not a copy; `ModuleManager` renders its status lines
   from it and re-renders as passes land.
 

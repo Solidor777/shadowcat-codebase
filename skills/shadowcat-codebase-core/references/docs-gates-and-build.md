@@ -79,5 +79,6 @@ Part of shadowcat-codebase-core: the docs build and gate commands and the docs-l
 - `pnpm lint:file-size` (5,000-line soft / 10,000-line hard limit, owner-approved allowlist only)
   and `pnpm lint:inline-tests` (no inline Rust `#[cfg(test)] mod x { … }` bodies) are CI-blocking,
   same no-ratchet posture as the doc gates above.
+- `pnpm lint:allowances` bans `svelte-ignore` as one never-approvable suppression (not one per warning code); seed a prop-derived initial value with `untrack()` instead.
 - `pnpm lint:secure-context` — no secure-context-only browser API outside its seam (LAN play; see
   the invariant in references/invariants-detail.md).

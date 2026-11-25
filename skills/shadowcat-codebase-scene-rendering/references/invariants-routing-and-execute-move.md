@@ -72,3 +72,4 @@ Part of the shadowcat-codebase-scene-rendering skill; read it before changing pa
   authored jump into dense ≤1-cell samples and gates each one, equivalent to the client having sent
   the explicit intermediate waypoints (no new capability; security lives entirely in the per-cell
   gate, never the shape check).
+  **`DiagonalRule::Orthogonal` is a movement rule, not only a routing preference:** on a square grid, `execute_move` halts a non-GM `GridStepped` walk at any step the shape's `neighbors_with_cost` omits (a forbidden diagonal), like any other gameplay gate; the GM is exempt, and a hex grid ignores the rule.
