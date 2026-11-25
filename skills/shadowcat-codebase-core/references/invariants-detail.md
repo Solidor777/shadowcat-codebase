@@ -161,7 +161,7 @@ Case table for the "NEVER FORK A DECISION ACROSS TWO PATHS" invariant in SKILL.m
   reading "waiting for Username". It ignores net::ERR_ABORTED and any failure outside `/assets/`. The fixture's own comment records net::ERR_NO_BUFFER_SPACE
   as the measured example (an OS socket-buffer error on the Windows loopback); that mechanism
   is the fixture author's measurement, not something this skill verifies.
-- **The `lan-plain-http` Playwright project is the runtime proof of the LAN invariant.** The HTTPS and long-audio test servers bind the resolved LAN address.
+- **The `lan-plain-http` Playwright project is the runtime proof of the LAN invariant.** The lan-plain-http and long-audio test servers bind the resolved LAN address; the HTTPS test server binds every interface, because its specs reach one port on both loopback and the LAN address.
   `playwright.config.ts` runs two projects over two servers: the loopback project (everything
   except `LAN_SPEC`, against the loopback port from `resolveE2ePorts`, 31999 by default) and `lan-plain-http` (only `LAN_SPEC`, against the
   origin built from `LAN_HOST` and `LAN_PORT`). `LAN_HOST` is a non-loopback hostname that
